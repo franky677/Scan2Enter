@@ -14,6 +14,10 @@ import com.scan2enter.R
 import com.scan2enter.overlay.OverlayPosition
 
 class OverlayService : Service() {
+    companion object {
+        const val ACTION_SHOW = "SHOW"
+        const val ACTION_HIDE = "HIDE"
+    }
 
     private lateinit var windowManager: WindowManager
     private var floatingView: android.view.View? = null
@@ -124,7 +128,25 @@ class OverlayService : Service() {
             }
         })
     }
+    override fun onStartCommand(
+        intent: Intent?,
+        flags: Int,
+        startId: Int
+    ): Int {
 
+        when (intent?.action) {
+
+            ACTION_SHOW -> {
+                floatingView?.visibility = android.view.View.VISIBLE
+            }
+
+            ACTION_HIDE -> {
+                floatingView?.visibility = android.view.View.GONE
+            }
+        }
+
+        return START_STICKY
+    }
     override fun onDestroy() {
         super.onDestroy()
 
