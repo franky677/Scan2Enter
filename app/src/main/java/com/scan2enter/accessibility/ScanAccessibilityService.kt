@@ -29,7 +29,9 @@ class ScanAccessibilityService : AccessibilityService() {
 
         val pkg = event.packageName?.toString() ?: return
 
-        // Gestione automatica overlay
+        Log.d(TAG, "PACKAGE = $pkg")
+
+        // Overlay
 
         if (pkg == "it.duebit.due") {
 
@@ -60,10 +62,35 @@ class ScanAccessibilityService : AccessibilityService() {
             return
         }
 
-        val root = rootInActiveWindow ?: return
+        val root = rootInActiveWindow
+
+        if (root == null) {
+
+            Log.d(TAG, "ROOT = NULL")
+            return
+        }
+
+        Log.d(TAG, "Root class = ${root.className}")
 
         val focused =
-            root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT) ?: return
+            root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+
+        if (focused == null) {
+
+            Log.d(TAG, "FOCUS = NULL")
+            return
+        }
+
+        Log.d(TAG, "Focus class = ${focused.className}")
+        Log.d(TAG, "Editable = ${focused.isEditable}")
+        Log.d(TAG, "ViewId = ${focused.viewIdResourceName}")
+        Log.d(TAG, "Text = ${focused.text}")
+        Log.d(TAG, "Actions = ${focused.actionList}")
+        Log.d(TAG, "Action count = ${focused.actionList.size}")
+
+        focused.actionList.forEach {
+            Log.d(TAG, "ACTION -> ${it.id}   ${it.label}")
+        }
 
         if (!focused.isEditable) {
             return
@@ -72,6 +99,8 @@ class ScanAccessibilityService : AccessibilityService() {
         val code = ScanStorage.load(applicationContext) ?: ""
 
         if (code.isBlank()) {
+
+            Log.d(TAG, "CODICE VUOTO")
             return
         }
 
@@ -91,13 +120,17 @@ class ScanAccessibilityService : AccessibilityService() {
 
         if (ok) {
 
-            ScanStorage.save(applicationContext, "")
-
             Log.d(TAG, "CODICE INSERITO")
+
+            // Prova a premere il tasto Invio della tastiera
+            focused.performAction(AccessibilityNodeInfo.ACTION_IME_ENTER)
+
+            ScanStorage.save(applicationContext, "")
         }
     }
 
     override fun onInterrupt() {
+
         Log.d(TAG, "Accessibility interrotto")
     }
 }
