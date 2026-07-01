@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="64dp"
+    android:layout_height="64dp"
+    android:padding="4dp">
+
+    <ImageButton
+        android:id="@+id/btnOverlay"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@drawable/overlay_button_selector"
+        android:src="@null"
+        android:scaleType="centerInside"
+        android:contentDescription="Scan2Enter" />
+
+</FrameLayout>

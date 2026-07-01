@@ -1,0 +1,26 @@
+
+manager.createNotificationChannel(channel)
+
+val notification = Notification.Builder(this, CHANNEL_ID)
+    .setContentTitle("Scan2Enter")
+    .setContentText("Scanner pronto")
+    .setSmallIcon(android.R.drawable.ic_menu_camera)
+    .build()
+
+startForeground(1, notification)
+}
+}
+
+override fun onStartCommand(
+    intent: Intent?,
+    flags: Int,
+    startId: Int
+): Int {
+
+    return START_STICKY
+}
+
+override fun onBind(intent: Intent?): IBinder? {
+    return null
+}
+}
