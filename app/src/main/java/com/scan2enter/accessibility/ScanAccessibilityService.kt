@@ -29,9 +29,7 @@ class ScanAccessibilityService : AccessibilityService() {
 
         val pkg = event.packageName?.toString() ?: return
 
-        // ==========================
         // Gestione automatica overlay
-        // ==========================
 
         if (pkg == "it.duebit.due") {
 
