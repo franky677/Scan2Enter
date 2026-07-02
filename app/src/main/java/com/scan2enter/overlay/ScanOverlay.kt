@@ -3,10 +3,14 @@ package com.scan2enter.overlay
 import android.content.Context
 import android.graphics.Color
 import android.graphics.PixelFormat
+import android.os.Handler
+import android.os.Looper
+import android.util.Log
 import android.view.Gravity
 import android.view.WindowManager
 import androidx.camera.view.PreviewView
 import com.scan2enter.data.ScanStorage
+import com.scan2enter.feedback.ScanFeedbackManager
 import com.scan2enter.overlay.camera.OverlayCameraManager
 import com.scan2enter.overlay.camera.OverlayLifecycleOwner
 
@@ -24,6 +28,15 @@ class ScanOverlay(
 
     private var previewView: PreviewView? = null
 
+    private val handler = Handler(Looper.getMainLooper())
+
+    private val timeoutRunnable = Runnable {
+        if (!closing) {
+            Log.d("Scan2Enter", "Scanner timeout")
+            hide()
+        }
+    }
+
     @Volatile
     private var closing = false
 
@@ -31,7 +44,14 @@ class ScanOverlay(
 
         if (previewView != null) return
 
+        val startTime = System.currentTimeMillis()
+
         closing = false
+
+        handler.postDelayed(
+            timeoutRunnable,
+            10_000L
+        )
 
         val preview = PreviewView(context)
 
@@ -71,18 +91,25 @@ class ScanOverlay(
 
             closing = true
 
-            // Salva il barcode dove l'AccessibilityService lo cerca
+            Log.d(
+                "Scan2Enter",
+                "Barcode letto dopo ${System.currentTimeMillis() - startTime} ms"
+            )
+
+            ScanFeedbackManager.beep()
+
             ScanStorage.save(
                 context,
                 barcode
             )
 
-            // Chiude lo scanner
             hide()
         }
     }
 
     fun hide() {
+
+        handler.removeCallbacks(timeoutRunnable)
 
         if (previewView == null) return
 
@@ -96,6 +123,8 @@ class ScanOverlay(
         }
 
         previewView = null
+
+        Log.d("Scan2Enter", "Scanner chiuso")
     }
 
     private fun dp(value: Int): Int {
