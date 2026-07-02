@@ -6,6 +6,7 @@ import android.graphics.PixelFormat
 import android.view.Gravity
 import android.view.WindowManager
 import androidx.camera.view.PreviewView
+import com.scan2enter.data.ScanStorage
 import com.scan2enter.overlay.camera.OverlayCameraManager
 import com.scan2enter.overlay.camera.OverlayLifecycleOwner
 
@@ -16,17 +17,21 @@ class ScanOverlay(
     private val windowManager =
         context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
 
-    private val lifecycleOwner =
-        OverlayLifecycleOwner()
-
     private val cameraManager =
         OverlayCameraManager(context)
 
+    private var lifecycleOwner: OverlayLifecycleOwner? = null
+
     private var previewView: PreviewView? = null
+
+    @Volatile
+    private var closing = false
 
     fun show() {
 
         if (previewView != null) return
+
+        closing = false
 
         val preview = PreviewView(context)
 
@@ -54,40 +59,43 @@ class ScanOverlay(
 
         previewView = preview
 
-        lifecycleOwner.start()
+        lifecycleOwner = OverlayLifecycleOwner()
+        lifecycleOwner!!.start()
 
         cameraManager.start(
             preview,
-            lifecycleOwner
+            lifecycleOwner!!
         ) { barcode ->
 
-            android.util.Log.d(
-                "Scan2Enter",
-                "Barcode letto: $barcode"
+            if (closing) return@start
+
+            closing = true
+
+            // Salva il barcode dove l'AccessibilityService lo cerca
+            ScanStorage.save(
+                context,
+                barcode
             )
 
+            // Chiude lo scanner
+            hide()
         }
     }
 
     fun hide() {
 
+        if (previewView == null) return
+
         cameraManager.stop()
 
-        lifecycleOwner.stop()
+        lifecycleOwner?.stop()
+        lifecycleOwner = null
 
         previewView?.let {
-
             windowManager.removeView(it)
-
         }
 
         previewView = null
-    }
-
-    fun previewView(): PreviewView? {
-
-        return previewView
-
     }
 
     private fun dp(value: Int): Int {
