@@ -59,7 +59,14 @@ class ScanOverlay(
         cameraManager.start(
             preview,
             lifecycleOwner
-        )
+        ) { barcode ->
+
+            android.util.Log.d(
+                "Scan2Enter",
+                "Barcode letto: $barcode"
+            )
+
+        }
     }
 
     fun hide() {
