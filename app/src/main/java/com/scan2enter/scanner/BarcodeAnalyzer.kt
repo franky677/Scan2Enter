@@ -42,30 +42,29 @@ class BarcodeAnalyzer(
         )
 
         scanner.process(image)
-
             .addOnSuccessListener { barcodes ->
 
                 val code = barcodes.firstOrNull()?.rawValue
 
-                if (!code.isNullOrBlank()) {
+                if (!code.isNullOrBlank() && code != lastCode) {
 
-                    if (code != lastCode) {
+                    lastCode = code
 
-                        lastCode = code
-
-                        onBarcodeRead(code)
-                    }
+                    onBarcodeRead(code)
                 }
-            }
-
-            .addCompleteListener {
 
                 imageProxy.close()
+            }
+            .addOnFailureListener {
+
+                imageProxy.close()
+
             }
     }
 
     fun reset() {
 
         lastCode = ""
+
     }
 }

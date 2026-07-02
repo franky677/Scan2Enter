@@ -9,13 +9,17 @@ import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.WindowManager
 import android.widget.ImageButton
+import com.scan2enter.BuildFlags
 import com.scan2enter.MainActivity
 import com.scan2enter.R
 
 class OverlayService : Service() {
 
     private lateinit var windowManager: WindowManager
+
     private var floatingView: android.view.View? = null
+
+    private lateinit var scanOverlay: ScanOverlay
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -23,6 +27,8 @@ class OverlayService : Service() {
         super.onCreate()
 
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
+
+        scanOverlay = ScanOverlay(this)
 
         floatingView = LayoutInflater.from(this)
             .inflate(R.layout.overlay_button, null)
@@ -45,9 +51,17 @@ class OverlayService : Service() {
 
         button.setOnClickListener {
 
-            val intent = Intent(this, MainActivity::class.java)
-            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            startActivity(intent)
+            if (BuildFlags.USE_NEW_SCANNER) {
+
+                scanOverlay.show()
+
+            } else {
+
+                val intent = Intent(this, MainActivity::class.java)
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                startActivity(intent)
+
+            }
         }
 
         button.setOnTouchListener(object : android.view.View.OnTouchListener {
@@ -129,10 +143,13 @@ class OverlayService : Service() {
     }
 
     override fun onDestroy() {
-        super.onDestroy()
+
+        scanOverlay.hide()
 
         floatingView?.let {
             windowManager.removeView(it)
         }
+
+        super.onDestroy()
     }
 }
