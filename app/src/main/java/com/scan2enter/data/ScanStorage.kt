@@ -19,6 +19,13 @@ object ScanStorage {
             .getString(KEY, null)
     }
 
+    fun hasPendingCode(context: Context): Boolean {
+
+        val code = load(context)
+
+        return !code.isNullOrBlank()
+    }
+
     fun clear(context: Context) {
         context.getSharedPreferences(PREF, Context.MODE_PRIVATE)
             .edit()

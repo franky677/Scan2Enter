@@ -4,6 +4,7 @@ import android.accessibilityservice.AccessibilityService
 import android.content.Intent
 import android.os.Bundle
 import android.util.Log
+import android.view.KeyEvent
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import com.scan2enter.data.ScanStorage
@@ -12,97 +13,134 @@ import com.scan2enter.overlay.OverlayService
 class ScanAccessibilityService : AccessibilityService() {
 
     companion object {
+
         private const val TAG = "Scan2Enter"
 
+        private const val DUE_PACKAGE = "it.duebit.due"
+
         private var overlayVisible = false
+
+        private var lastInjected = ""
+
+        private var lastWindowId = -1
     }
 
     override fun onServiceConnected() {
-        super.onServiceConnected()
 
-        Log.e(TAG, "******** SERVICE CONNESSO ********")
+        Log.d(TAG, "Accessibility connessa")
+    }
+
+    override fun onInterrupt() {
+    }
+
+    // ============================
+    // TEST TASTI HARDWARE
+    // ============================
+
+    override fun onKeyEvent(event: KeyEvent): Boolean {
+
+        Log.d(
+            TAG,
+            "KEY = ${event.keyCode} ACTION = ${event.action}"
+        )
+
+        return super.onKeyEvent(event)
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
 
         if (event == null) return
 
-        val pkg = event.packageName?.toString() ?: return
+        val root = rootInActiveWindow ?: return
 
-        Log.d(TAG, "PACKAGE = $pkg")
+        val pkg = root.packageName?.toString() ?: return
 
-        // Overlay
+        //-----------------------------------------
+        // OVERLAY
+        //-----------------------------------------
 
-        if (pkg == "it.duebit.due") {
+        if (pkg == DUE_PACKAGE) {
 
             if (!overlayVisible) {
 
-                Log.d(TAG, "AVVIO OVERLAY")
+                overlayVisible = true
 
                 startService(
                     Intent(this, OverlayService::class.java)
                 )
 
-                overlayVisible = true
+                Log.d(TAG, "Overlay ON")
             }
 
         } else {
 
             if (overlayVisible) {
 
-                Log.d(TAG, "CHIUDO OVERLAY")
+                overlayVisible = false
 
                 stopService(
                     Intent(this, OverlayService::class.java)
                 )
 
-                overlayVisible = false
+                Log.d(TAG, "Overlay OFF")
             }
 
             return
         }
 
-        val root = rootInActiveWindow
+        //-----------------------------------------
+        // BARCODE
+        //-----------------------------------------
 
-        if (root == null) {
+        val code = ScanStorage.load(applicationContext)
 
-            Log.d(TAG, "ROOT = NULL")
+        if (code.isNullOrBlank())
+            return
+
+        //-----------------------------------------
+        // EVITA DI RIPETERE
+        //-----------------------------------------
+
+        if (lastInjected == code &&
+            lastWindowId == event.windowId) {
             return
         }
 
-        Log.d(TAG, "Root class = ${root.className}")
+        //-----------------------------------------
+        // CERCA CAMPO
+        //-----------------------------------------
 
-        val focused =
-            root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+        val field = findEditable(root)
 
-        if (focused == null) {
+        if (field == null) {
 
-            Log.d(TAG, "FOCUS = NULL")
+            Log.d(TAG, "Campo editabile NON trovato")
+
             return
         }
 
-        Log.d(TAG, "Focus class = ${focused.className}")
-        Log.d(TAG, "Editable = ${focused.isEditable}")
-        Log.d(TAG, "ViewId = ${focused.viewIdResourceName}")
-        Log.d(TAG, "Text = ${focused.text}")
-        Log.d(TAG, "Actions = ${focused.actionList}")
-        Log.d(TAG, "Action count = ${focused.actionList.size}")
+        //-----------------------------------------
+        // CAMPO VISIBILE
+        //-----------------------------------------
 
-        focused.actionList.forEach {
-            Log.d(TAG, "ACTION -> ${it.id}   ${it.label}")
-        }
+        if (!field.isVisibleToUser) {
 
-        if (!focused.isEditable) {
+            Log.d(TAG, "Campo non visibile")
+
             return
         }
 
-        val code = ScanStorage.load(applicationContext) ?: ""
+        //-----------------------------------------
+        // FOCUS
+        //-----------------------------------------
 
-        if (code.isBlank()) {
+        field.performAction(
+            AccessibilityNodeInfo.ACTION_FOCUS
+        )
 
-            Log.d(TAG, "CODICE VUOTO")
-            return
-        }
+        //-----------------------------------------
+        // INCOLLA TESTO
+        //-----------------------------------------
 
         val args = Bundle()
 
@@ -111,26 +149,46 @@ class ScanAccessibilityService : AccessibilityService() {
             code
         )
 
-        val ok = focused.performAction(
+        val ok = field.performAction(
             AccessibilityNodeInfo.ACTION_SET_TEXT,
             args
         )
 
         Log.d(TAG, "SET_TEXT = $ok")
 
-        if (ok) {
+        if (!ok)
+            return
 
-            Log.d(TAG, "CODICE INSERITO")
+        //-----------------------------------------
+        // MEMORIZZA
+        //-----------------------------------------
 
-            // Prova a premere il tasto Invio della tastiera
-            focused.performAction(AccessibilityNodeInfo.ACTION_IME_ENTER)
+        lastInjected = code
+        lastWindowId = event.windowId
 
-            ScanStorage.save(applicationContext, "")
-        }
+        ScanStorage.clear(applicationContext)
+
+        Log.d(TAG, "BARCODE INCOLLATO = $code")
     }
 
-    override fun onInterrupt() {
+    private fun findEditable(node: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
 
-        Log.d(TAG, "Accessibility interrotto")
+        if (node == null)
+            return null
+
+        if (node.isEditable)
+            return node
+
+        for (i in 0 until node.childCount) {
+
+            val child = node.getChild(i)
+
+            val result = findEditable(child)
+
+            if (result != null)
+                return result
+        }
+
+        return null
     }
 }

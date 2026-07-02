@@ -27,6 +27,8 @@ import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.common.InputImage
 import com.scan2enter.data.ScanStorage
 import com.scan2enter.viewmodel.MainViewModel
+import android.content.Intent
+import com.scan2enter.accessibility.BarcodeReceiver
 
 @Composable
 fun CameraScreen(
@@ -153,11 +155,18 @@ fun CameraScreen(
                                         "EAN LETTO: $code"
                                     )
 
-                                    ScanStorage.save(ctx, code)
+                                    val intent = Intent(BarcodeReceiver.ACTION_BARCODE)
+
+                                    intent.putExtra(
+                                        BarcodeReceiver.EXTRA_BARCODE,
+                                        code
+                                    )
+
+                                    ctx.sendBroadcast(intent)
 
                                     Log.d(
                                         "Scan2Enter",
-                                        "SALVATO = ${ScanStorage.load(ctx)}"
+                                        "Broadcast inviato: $code"
                                     )
 
                                     viewModel.onQrScanned(code)
