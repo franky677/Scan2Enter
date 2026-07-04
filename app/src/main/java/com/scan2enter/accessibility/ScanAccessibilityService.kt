@@ -181,9 +181,25 @@ class ScanAccessibilityService : AccessibilityService() {
 
         handler.postDelayed({
 
-            clickBarcodeButton(root)
+            if (clickBarcodeButton(root)) {
 
-        }, 500)
+                Log.d(TAG, "Barcode click OK, provo click risultato tra 200ms")
+
+                handler.postDelayed({
+
+                    Log.d(TAG, "Eseguo clickFirstResult()")
+
+                    clickFirstResult()
+
+                }, 200)
+
+            } else {
+
+                Log.d(TAG, "Barcode click FALLITO")
+
+            }
+
+        }, 400)
 
     }
 
@@ -256,7 +272,31 @@ class ScanAccessibilityService : AccessibilityService() {
 
             return result
         }
+    private fun clickFirstResult() {
 
+        val root = rootInActiveWindow ?: return
+
+        val nodes = root.findAccessibilityNodeInfosByViewId(
+            "it.duebit.due:id/main_layout"
+        )
+
+        if (nodes.isEmpty()) {
+
+            Log.d(TAG, "main_layout NON trovato")
+
+            return
+        }
+
+        val node = nodes.first()
+
+        Log.d(TAG, "Click primo risultato")
+
+        val ok = node.performAction(
+            AccessibilityNodeInfo.ACTION_CLICK
+        )
+
+        Log.d(TAG, "CLICK main_layout = $ok")
+    }
         private fun findEditable(
             node: AccessibilityNodeInfo?
         ): AccessibilityNodeInfo? {
