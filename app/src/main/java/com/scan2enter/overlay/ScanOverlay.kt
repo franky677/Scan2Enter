@@ -1,18 +1,18 @@
 package com.scan2enter.overlay
 
 import android.content.Context
-import android.graphics.Color
 import android.graphics.PixelFormat
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import android.view.Gravity
 import android.view.WindowManager
+import android.widget.FrameLayout
 import androidx.camera.view.PreviewView
-import com.scan2enter.data.ScanStorage
-import com.scan2enter.feedback.ScanFeedbackManager
 import com.scan2enter.overlay.camera.OverlayCameraManager
 import com.scan2enter.overlay.camera.OverlayLifecycleOwner
+import com.scan2enter.scanner.ScanConfig
+import com.scan2enter.scanner.ScanSession
 
 class ScanOverlay(
     private val context: Context
@@ -24,62 +24,84 @@ class ScanOverlay(
     private val cameraManager =
         OverlayCameraManager(context)
 
+    private val scanSession =
+        ScanSession(context)
+
     private var lifecycleOwner: OverlayLifecycleOwner? = null
+
+    private var container: FrameLayout? = null
 
     private var previewView: PreviewView? = null
 
     private val handler = Handler(Looper.getMainLooper())
 
-    private val timeoutRunnable = Runnable {
-        if (!closing) {
-            Log.d("Scan2Enter", "Scanner timeout")
-            hide()
-        }
-    }
-
     @Volatile
     private var closing = false
 
+    private val timeoutRunnable = Runnable {
+
+        Log.d("Scan2Enter", "Scanner timeout")
+
+        hide()
+    }
+
     fun show() {
 
-        if (previewView != null) return
-
-        val startTime = System.currentTimeMillis()
+        if (container != null) return
 
         closing = false
 
+        scanSession.start()
+
         handler.postDelayed(
             timeoutRunnable,
-            10_000L
+            ScanConfig.SCAN_TIMEOUT
         )
 
-        val preview = PreviewView(context)
+        val frame = FrameLayout(context)
 
-        preview.setBackgroundColor(Color.BLACK)
+        val preview = PreviewView(context)
 
         preview.scaleType =
             PreviewView.ScaleType.FILL_CENTER
 
+        frame.addView(
+            preview,
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+            )
+        )
+
+        frame.addView(
+            ScanOverlayView(context),
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+            )
+        )
+
         val params = WindowManager.LayoutParams(
 
-            dp(340),
-            dp(240),
+            dp(ScanConfig.OVERLAY_WIDTH_DP),
+            dp(ScanConfig.OVERLAY_HEIGHT_DP),
 
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
 
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
 
             PixelFormat.TRANSLUCENT
-
         )
 
         params.gravity = Gravity.CENTER
 
-        windowManager.addView(preview, params)
+        windowManager.addView(frame, params)
 
+        container = frame
         previewView = preview
 
         lifecycleOwner = OverlayLifecycleOwner()
+
         lifecycleOwner!!.start()
 
         cameraManager.start(
@@ -91,19 +113,12 @@ class ScanOverlay(
 
             closing = true
 
-            Log.d(
-                "Scan2Enter",
-                "Barcode letto dopo ${System.currentTimeMillis() - startTime} ms"
-            )
+            scanSession.onBarcodeRead(barcode) {
 
-            ScanFeedbackManager.beep()
+                hide()
 
-            ScanStorage.save(
-                context,
-                barcode
-            )
+            }
 
-            hide()
         }
     }
 
@@ -111,20 +126,21 @@ class ScanOverlay(
 
         handler.removeCallbacks(timeoutRunnable)
 
-        if (previewView == null) return
+        scanSession.stop()
 
         cameraManager.stop()
 
         lifecycleOwner?.stop()
         lifecycleOwner = null
 
-        previewView?.let {
+        container?.let {
+
             windowManager.removeView(it)
+
         }
 
+        container = null
         previewView = null
-
-        Log.d("Scan2Enter", "Scanner chiuso")
     }
 
     private fun dp(value: Int): Int {
@@ -133,7 +149,6 @@ class ScanOverlay(
                 value *
                         context.resources.displayMetrics.density
                 ).toInt()
-
     }
 
 }
