@@ -7,19 +7,38 @@ import android.os.IBinder
 import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.MotionEvent
+import android.view.View
 import android.view.WindowManager
 import android.widget.ImageButton
 import com.scan2enter.BuildFlags
 import com.scan2enter.MainActivity
 import com.scan2enter.R
+import kotlin.math.abs
+import kotlin.math.max
+import kotlin.math.min
 
 class OverlayService : Service() {
 
+    companion object {
+        private const val CLICK_THRESHOLD = 12f
+    }
+
     private lateinit var windowManager: WindowManager
+    private lateinit var dockView: View
 
-    private var floatingView: android.view.View? = null
+    private lateinit var infoArea: ImageButton
+    private lateinit var scannerArea: ImageButton
 
+    private lateinit var layoutParams: WindowManager.LayoutParams
     private lateinit var scanOverlay: ScanOverlay
+
+    private var startX = 0
+    private var startY = 0
+
+    private var touchStartX = 0f
+    private var touchStartY = 0f
+
+    private var isDragging = false
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -30,26 +49,58 @@ class OverlayService : Service() {
 
         scanOverlay = ScanOverlay(this)
 
-        floatingView = LayoutInflater.from(this)
+        dockView = LayoutInflater.from(this)
             .inflate(R.layout.overlay_button, null)
 
-        val params = WindowManager.LayoutParams(
-            WindowManager.LayoutParams.WRAP_CONTENT,
-            WindowManager.LayoutParams.WRAP_CONTENT,
+        infoArea = dockView.findViewById(R.id.infoArea)
+        scannerArea = dockView.findViewById(R.id.scannerArea)
+
+        val density = resources.displayMetrics.density
+
+        val dockWidth = (80 * density).toInt()
+        val dockHeight = (200 * density).toInt()
+
+        layoutParams = WindowManager.LayoutParams(
+            dockWidth,
+            dockHeight,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
             PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+            x = OverlayPosition.getX(this@OverlayService)
+            y = OverlayPosition.getY(this@OverlayService)
+        }
+        dockView.measure(
+            View.MeasureSpec.UNSPECIFIED,
+            View.MeasureSpec.UNSPECIFIED
         )
 
-        params.gravity = Gravity.TOP or Gravity.START
-        params.x = OverlayPosition.getX(this)
-        params.y = OverlayPosition.getY(this)
+        android.util.Log.d(
+            "OverlayService",
+            "Dock size = ${dockView.measuredWidth} x ${dockView.measuredHeight}"
+        )
+        windowManager.addView(dockView, layoutParams)
 
-        windowManager.addView(floatingView, params)
 
-        val button = floatingView!!.findViewById<ImageButton>(R.id.btnOverlay)
+        infoArea.setOnClickListener {
 
-        button.setOnClickListener {
+            if (isDragging) return@setOnClickListener
+
+            val intent = Intent(
+                this,
+                MainActivity::class.java
+            ).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+
+            startActivity(intent)
+        }
+
+
+        scannerArea.setOnClickListener {
+
+            if (isDragging) return@setOnClickListener
 
             if (BuildFlags.USE_NEW_SCANNER) {
 
@@ -57,97 +108,165 @@ class OverlayService : Service() {
 
             } else {
 
-                val intent = Intent(this, MainActivity::class.java)
-                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                startActivity(intent)
+                val intent = Intent(
+                    this,
+                    MainActivity::class.java
+                ).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
 
+                startActivity(intent)
             }
         }
 
-        button.setOnTouchListener(object : android.view.View.OnTouchListener {
+        dockView.setOnTouchListener { _, event ->
 
-            private var initialX = 0
-            private var initialY = 0
+            when (event.actionMasked) {
 
-            private var initialTouchX = 0f
-            private var initialTouchY = 0f
+                MotionEvent.ACTION_DOWN -> {
 
-            override fun onTouch(
-                v: android.view.View,
-                event: MotionEvent
-            ): Boolean {
+                    startX = layoutParams.x
+                    startY = layoutParams.y
 
-                when (event.action) {
+                    touchStartX = event.rawX
+                    touchStartY = event.rawY
 
-                    MotionEvent.ACTION_DOWN -> {
+                    isDragging = false
 
-                        initialX = params.x
-                        initialY = params.y
-
-                        initialTouchX = event.rawX
-                        initialTouchY = event.rawY
-
-                        return false
-                    }
-
-                    MotionEvent.ACTION_MOVE -> {
-
-                        params.x =
-                            initialX + (event.rawX - initialTouchX).toInt()
-
-                        params.y =
-                            initialY + (event.rawY - initialTouchY).toInt()
-
-                        windowManager.updateViewLayout(
-                            floatingView,
-                            params
-                        )
-
-                        OverlayPosition.save(
-                            this@OverlayService,
-                            params.x,
-                            params.y
-                        )
-
-                        return true
-                    }
-
-                    MotionEvent.ACTION_UP -> {
-
-                        val screenWidth = resources.displayMetrics.widthPixels
-
-                        if (params.x < screenWidth / 2) {
-                            params.x = 0
-                        } else {
-                            params.x = screenWidth - (floatingView?.width ?: 64)
-                        }
-
-                        OverlayPosition.save(
-                            this@OverlayService,
-                            params.x,
-                            params.y
-                        )
-
-                        windowManager.updateViewLayout(
-                            floatingView,
-                            params
-                        )
-
-                        return false
-                    }
+                    true
                 }
 
-                return false
+                MotionEvent.ACTION_MOVE -> {
+
+                    val dx = (event.rawX - touchStartX).toInt()
+                    val dy = (event.rawY - touchStartY).toInt()
+
+                    if (!isDragging &&
+                        (abs(dx.toFloat()) > CLICK_THRESHOLD ||
+                                abs(dy.toFloat()) > CLICK_THRESHOLD)
+                    ) {
+                        isDragging = true
+                    }
+
+                    if (isDragging) {
+
+                        layoutParams.x = startX + dx
+                        layoutParams.y = startY + dy
+
+                        clampVertical()
+
+                        windowManager.updateViewLayout(
+                            dockView,
+                            layoutParams
+                        )
+                    }
+
+                    true
+                }
+
+                MotionEvent.ACTION_UP -> {
+
+                    if (isDragging) {
+
+                        snapToEdge()
+                    }
+
+                    isDragging = false
+
+                    true
+                }
+
+                MotionEvent.ACTION_CANCEL -> {
+
+                    isDragging = false
+
+                    saveCurrentPosition()
+
+                    false
+                }
+
+                else -> false
             }
-        })
+        }
+    }
+    /**
+     * Impedisce alla Dock di uscire verticalmente dallo schermo.
+     */
+    private fun clampVertical() {
+
+        val displayHeight = resources.displayMetrics.heightPixels
+
+        val dockHeight =
+
+            dockView.height.takeIf { it > 0 } ?: layoutParams.height
+
+        layoutParams.y = max(
+            0,
+            min(
+                layoutParams.y,
+                displayHeight - dockHeight
+            )
+        )
     }
 
+    /**
+     * Aggiorna la posizione della Dock.
+     */
+    private fun updateDockPosition() {
+
+        windowManager.updateViewLayout(
+            dockView,
+            layoutParams
+        )
+    }
+
+    /**
+     * Salva la posizione corrente.
+     */
+    private fun saveCurrentPosition() {
+
+        OverlayPosition.save(
+            this,
+            layoutParams.x,
+            layoutParams.y
+        )
+    }
+
+    /**
+     * Effettua lo snap automatico al bordo sinistro o destro.
+     */
+    private fun snapToEdge() {
+
+        val screenWidth =
+            resources.displayMetrics.widthPixels
+
+        val dockWidth =
+            dockView.width.takeIf { it > 0 } ?: layoutParams.width
+        layoutParams.x =
+            if (layoutParams.x + dockWidth / 2 < screenWidth / 2) {
+                0
+            } else {
+                screenWidth - dockWidth
+            }
+
+        clampVertical()
+
+        updateDockPosition()
+
+        saveCurrentPosition()
+    }
     override fun onDestroy() {
 
-        scanOverlay.hide()
+        try {
+            scanOverlay.hide()
+        } catch (_: Exception) {
+        }
 
-        floatingView?.let {
-            windowManager.removeView(it)
+        if (::windowManager.isInitialized && ::dockView.isInitialized) {
+            try {
+                windowManager.removeView(dockView)
+            } catch (_: Exception) {
+            }
         }
 
         super.onDestroy()

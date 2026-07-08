@@ -1,17 +1,40 @@
 <?xml version="1.0" encoding="utf-8"?>
 
-<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:layout_width="64dp"
-    android:layout_height="64dp"
-    android:padding="4dp">
+<LinearLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/dockRoot"
+    android:layout_width="80dp"
+    android:layout_height="200dp"
+    android:orientation="vertical"
+    android:background="@drawable/bg_overlay_dock"
+    android:padding="4dp"
+    android:gravity="center">
+
+    <!-- Area INFO -->
 
     <ImageButton
-        android:id="@+id/btnOverlay"
+        android:id="@+id/infoArea"
         android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:background="@drawable/overlay_button_selector"
-        android:src="@null"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:layout_marginBottom="4dp"
+        android:background="?android:attr/selectableItemBackgroundBorderless"
+        android:contentDescription="Info Assistant"
+        android:padding="10dp"
         android:scaleType="centerInside"
-        android:contentDescription="Scan2Enter" />
+        android:src="@drawable/ic_box"/>
 
-</FrameLayout>
+    <!-- Area SCANNER -->
+
+    <ImageButton
+        android:id="@+id/scannerArea"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:background="?android:attr/selectableItemBackgroundBorderless"
+        android:contentDescription="Scanner"
+        android:padding="10dp"
+        android:scaleType="centerInside"
+        android:src="@drawable/ic_barcode"/>
+
+</LinearLayout>
