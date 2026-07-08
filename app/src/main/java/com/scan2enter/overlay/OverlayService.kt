@@ -166,8 +166,9 @@ class OverlayService : Service() {
 
                 MotionEvent.ACTION_UP -> {
 
-                    if (isDragging) {
-
+                    if (!isDragging) {
+                        dockView.performClick()
+                    } else {
                         snapToEdge()
                     }
 
