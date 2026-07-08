@@ -120,8 +120,9 @@ class OverlayService : Service() {
         }
 
         dockView.setOnTouchListener { _, event ->
-
+            android.util.Log.d("OverlayDrag", "ACTION = ${event.actionMasked}")
             when (event.actionMasked) {
+
 
                 MotionEvent.ACTION_DOWN -> {
 

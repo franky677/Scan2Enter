@@ -11,6 +11,7 @@ import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import com.scan2enter.data.ScanStorage
 import com.scan2enter.overlay.OverlayService
+import com.scan2enter.accessibility.UiDumpExporter
 
 class ScanAccessibilityService : AccessibilityService() {
 
@@ -62,9 +63,9 @@ class ScanAccessibilityService : AccessibilityService() {
         // DUMP COMPLETO UI
         //-----------------------------------------
 
-        Log.d(TAG, "============== UI DUMP ==============")
-        dumpNode(root)
-        Log.d(TAG, "=====================================")
+       // Log.d(TAG, "============== UI DUMP ==============")
+        // dumpNode(root)
+        // Log.d(TAG, "=====================================")
 
         //-----------------------------------------
         // Overlay
@@ -82,7 +83,14 @@ class ScanAccessibilityService : AccessibilityService() {
 
                 Log.d(TAG, "Overlay ON")
             }
+            if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED ||
+                event.eventType == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) {
 
+                UiDumpExporter.export(
+                this,
+                root
+            )
+            }
         } else {
 
             if (overlayVisible) {

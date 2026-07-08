@@ -14,6 +14,7 @@
 
     <ImageButton
         android:id="@+id/infoArea"
+
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
@@ -28,6 +29,7 @@
 
     <ImageButton
         android:id="@+id/scannerArea"
+
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
