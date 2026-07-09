@@ -1,0 +1,35 @@
+CLASS=android.widget.FrameLayout
+ID=com.android.systemui:id/legacy_window_root
+TEXT=null
+DESC=null
+
+  CLASS=android.widget.LinearLayout
+  ID=com.samsung.android.app.aodservice:id/keyguard_icononly_container_view
+  TEXT=null
+  DESC=3 notifiche
+
+  CLASS=android.widget.LinearLayout
+  ID=null
+  TEXT=null
+  DESC=Batteria in carica, 80%.
+
+  CLASS=android.widget.TextView
+  ID=com.android.systemui:id/keyguard_upper_fingerprint_indication
+  TEXT=null
+  DESC=null
+
+  CLASS=android.view.ViewGroup
+  ID=com.android.systemui:id/keyguard_root_view
+  TEXT=null
+  DESC=null
+
+    CLASS=android.widget.TextView
+    ID=com.android.systemui:id/keyguard_indication_text
+    TEXT=null
+    DESC=null
+
+  CLASS=android.widget.FrameLayout
+  ID=com.samsung.android.app.aodservice:id/card_stack_container
+  TEXT=null
+  DESC=null
+

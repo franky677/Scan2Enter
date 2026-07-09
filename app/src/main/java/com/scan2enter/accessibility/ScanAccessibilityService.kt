@@ -199,7 +199,14 @@ class ScanAccessibilityService : AccessibilityService() {
 
                     clickFirstResult()
 
+                    handler.postDelayed({
+
+                        readProductDescription()
+
+                    }, 300)
+
                 }, 200)
+
 
             } else {
 
@@ -284,26 +291,111 @@ class ScanAccessibilityService : AccessibilityService() {
 
         val root = rootInActiveWindow ?: return
 
-        val nodes = root.findAccessibilityNodeInfosByViewId(
-            "it.duebit.due:id/main_layout"
+        val recycler = root.findAccessibilityNodeInfosByViewId(
+            "it.duebit.due:id/recycler_view"
         )
 
-        if (nodes.isEmpty()) {
+        if (recycler.isEmpty()) {
 
-            Log.d(TAG, "main_layout NON trovato")
+            Log.d(TAG, "RecyclerView NON trovata")
 
             return
         }
 
-        val node = nodes.first()
+        val list = recycler.first()
 
-        Log.d(TAG, "Click primo risultato")
+        if (list.childCount == 0) {
 
-        val ok = node.performAction(
+            Log.d(TAG, "RecyclerView vuota")
+
+            return
+        }
+
+        val firstItem = list.getChild(0)
+
+        if (firstItem == null) {
+
+            Log.d(TAG, "Primo elemento nullo")
+
+            return
+        }
+
+        Log.d(TAG, "Click primo elemento RecyclerView")
+
+        var ok = firstItem.performAction(
             AccessibilityNodeInfo.ACTION_CLICK
         )
 
-        Log.d(TAG, "CLICK main_layout = $ok")
+        if (!ok && firstItem.isClickable) {
+            ok = firstItem.performAction(
+                AccessibilityNodeInfo.ACTION_CLICK
+            )
+        }
+
+        if (!ok) {
+
+            var parent = firstItem.parent
+
+            while (parent is AccessibilityNodeInfo) {
+
+                if (parent.isClickable) {
+
+                    ok = parent.performAction(
+                        AccessibilityNodeInfo.ACTION_CLICK
+                    )
+
+                    if (ok) break
+                }
+
+                parent = parent.parent
+            }
+        }
+
+        Log.d(TAG, "CLICK primo elemento = $ok")
+    }
+    private fun readProductDescription(
+        attempt: Int = 0
+    ) {
+
+        val root = rootInActiveWindow
+
+        if (root == null) {
+            retryReadDescription(attempt)
+            return
+        }
+
+        val nodes = root.findAccessibilityNodeInfosByViewId(
+            "it.duebit.due:id/descr_textview"
+        )
+
+        if (nodes.isNotEmpty()) {
+
+            val text = nodes.first().text?.toString().orEmpty()
+
+            Log.d(TAG, "DESCRIZIONE = $text")
+
+            return
+        }
+
+        retryReadDescription(attempt)
+    }
+
+    private fun retryReadDescription(
+        attempt: Int
+    ) {
+
+        if (attempt >= 10) {
+
+            Log.d(TAG, "descr_textview non trovato")
+
+            return
+        }
+
+        handler.postDelayed({
+
+            readProductDescription(attempt + 1)
+
+        }, 200)
     }
         private fun findEditable(
             node: AccessibilityNodeInfo?
