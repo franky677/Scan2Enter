@@ -12,7 +12,7 @@ import android.view.accessibility.AccessibilityNodeInfo
 import com.scan2enter.data.ScanStorage
 import com.scan2enter.overlay.OverlayService
 import com.scan2enter.accessibility.UiDumpExporter
-
+import com.scan2enter.model.ProductInfoReader
 class ScanAccessibilityService : AccessibilityService() {
 
     companion object {
@@ -31,6 +31,7 @@ class ScanAccessibilityService : AccessibilityService() {
     }
 
     private val handler = Handler(Looper.getMainLooper())
+    private val productInfoReader = ProductInfoReader()
 
     override fun onServiceConnected() {
 
@@ -201,7 +202,7 @@ class ScanAccessibilityService : AccessibilityService() {
 
                     handler.postDelayed({
 
-                        readProductDescription()
+                        readProductData()
 
                     }, 300)
 
@@ -353,34 +354,36 @@ class ScanAccessibilityService : AccessibilityService() {
 
         Log.d(TAG, "CLICK primo elemento = $ok")
     }
-    private fun readProductDescription(
+    private fun readProductData(
         attempt: Int = 0
     ) {
 
         val root = rootInActiveWindow
 
         if (root == null) {
-            retryReadDescription(attempt)
+            retryReadProductData(attempt)
             return
         }
 
-        val nodes = root.findAccessibilityNodeInfosByViewId(
-            "it.duebit.due:id/descr_textview"
-        )
+        val description =
+            productInfoReader.readDescription(root)
 
-        if (nodes.isNotEmpty()) {
+        if (description != null) {
 
-            val text = nodes.first().text?.toString().orEmpty()
+            Log.d(TAG, "DESCRIZIONE = $description")
 
-            Log.d(TAG, "DESCRIZIONE = $text")
+            UiDumpExporter.export(
+                this,
+                rootInActiveWindow
+            )
 
             return
         }
 
-        retryReadDescription(attempt)
+        retryReadProductData(attempt)
     }
 
-    private fun retryReadDescription(
+    private fun retryReadProductData(
         attempt: Int
     ) {
 
@@ -393,9 +396,9 @@ class ScanAccessibilityService : AccessibilityService() {
 
         handler.postDelayed({
 
-            readProductDescription(attempt + 1)
+            readProductData()
 
-        }, 200)
+        }, 300)
     }
         private fun findEditable(
             node: AccessibilityNodeInfo?
