@@ -22,6 +22,21 @@ data class ProductInfo(
     val barcode: String = "",
 
     /**
+     * Prezzo imponibile.
+     */
+    val taxablePrice: String = "",
+
+    /**
+     * Aliquota IVA.
+     */
+    val vatRate: String = "",
+
+    /**
+     * Prezzo al pubblico ivato.
+     */
+    val publicPrice: String = "",
+
+    /**
      * Stagione.
      */
     val season: String = "",
@@ -30,11 +45,6 @@ data class ProductInfo(
      * Anno.
      */
     val year: String = "",
-
-    /**
-     * Prezzo al pubblico.
-     */
-    val publicPrice: String = "",
 
     /**
      * Giacenza.

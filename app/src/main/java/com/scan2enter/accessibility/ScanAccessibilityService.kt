@@ -436,36 +436,26 @@ class ScanAccessibilityService : AccessibilityService() {
         val root = rootInActiveWindow
 
         if (root == null) {
-
             retryReadProductData(attempt)
-
             return
         }
-
 
         currentProductInfo =
             productInfoReader.buildProductInfo(root)
 
-
         val productInfo = currentProductInfo
 
-
         if (productInfo == null) {
-
             retryReadProductData(attempt)
-
             return
         }
 
-
         if (productInfo.description.isNotEmpty()) {
-
 
             Log.d(
                 TAG,
                 "DESCRIZIONE = ${productInfo.description}"
             )
-
 
             Log.d(
                 TAG,
@@ -474,19 +464,17 @@ class ScanAccessibilityService : AccessibilityService() {
 
 
             /*
-             * Apertura scheda prezzo vendita
+             * Apro PRZ VEND
              */
             handler.postDelayed({
 
                 val opened =
                     clickPriceTab()
 
-
                 Log.d(
                     TAG,
                     "CLICK TAB PRZ VEND = $opened"
                 )
-
 
                 if (!opened) {
                     return@postDelayed
@@ -494,100 +482,138 @@ class ScanAccessibilityService : AccessibilityService() {
 
 
                 /*
-                 * Attendo caricamento pagina prezzi
+                 * Lascio la modalità prezzo corrente.
+                 * Due Retail normalmente apre già in IVATO.
                  */
                 handler.postDelayed({
 
                     Log.d(
                         TAG,
-                        "TENTO SWITCH PREZZO"
+                        "LEGGO PREZZO MODALITA CORRENTE"
                     )
 
 
-                    val currentMode =
-                        readPriceMode()
+                    val priceRoot =
+                        rootInActiveWindow
 
 
-                    Log.d(
-                        TAG,
-                        "MODE PRIMA SWITCH = $currentMode"
-                    )
+                    if (priceRoot != null) {
 
+                        val info =
+                            productInfoReader.buildProductInfo(priceRoot)
 
-                    if (currentMode == "Ivato") {
-
-
-                        val switched =
-                            clickPriceModeSwitch()
+                        currentProductInfo = info
 
 
                         Log.d(
                             TAG,
-                            "CLICK CAMBIO MODO = $switched"
-                        )
-
-
-                        handler.postDelayed({
-
-
-                            val afterMode =
-                                readPriceMode()
-
-
-                            Log.d(
-                                TAG,
-                                "MODE DOPO SWITCH = $afterMode"
-                            )
-                            handler.postDelayed({
-
-                                val root = rootInActiveWindow
-
-                                val info =
-                                    productInfoReader.buildProductInfo(root)
-
-                                Log.d(
-                                    TAG,
-                                    "PREZZO DOPO SWITCH = ${info.publicPrice}"
-                                )
-
-                            }, 1000)
-
-                            if (afterMode == "Ivato") {
-
-
-                                Log.d(
-                                    TAG,
-                                    "SECONDO TENTATIVO SWITCH"
-                                )
-
-
-                                clickPriceModeSwitch()
-
-                            }
-
-
-                        }, 700)
-
-
-                    } else {
-
-
-                        Log.d(
-                            TAG,
-                            "GIA IMPONIBILE - NESSUNO SWITCH"
+                            "PREZZO LETTO = ${info.publicPrice}"
                         )
 
                     }
 
 
+                    // ==========================
+                    // APERTURA GIACENZA
+                    // ==========================
+
                     handler.postDelayed({
 
-                        UiDumpExporter.export(
-                            this,
-                            rootInActiveWindow
+                        val openedStock =
+                            clickStockTab()
+
+                        Log.d(
+                            TAG,
+                            "APRO GIACENZA = $openedStock"
                         )
 
-                    }, 1200)
+
+                        if (openedStock) {
+
+                            handler.postDelayed({
+
+                                val rootStock =
+                                    rootInActiveWindow
+
+
+                                val stock =
+                                    productInfoReader.readStock(rootStock)
+
+
+                                Log.d(
+                                    TAG,
+                                    "GIACENZA LETTA = $stock"
+                                )
+
+
+                                currentProductInfo =
+                                    currentProductInfo?.copy(
+                                        stock = stock ?: ""
+                                    )
+
+
+                                Log.d(
+                                    TAG,
+                                    "========== PRODUCT INFO COMPLETO =========="
+                                )
+
+                                Log.d(
+                                    TAG,
+                                    "CODICE = ${currentProductInfo?.articleCode}"
+                                )
+
+                                Log.d(
+                                    TAG,
+                                    "EAN = ${currentProductInfo?.barcode}"
+                                )
+
+                                Log.d(
+                                    TAG,
+                                    "DESCRIZIONE = ${currentProductInfo?.description}"
+                                )
+
+                                Log.d(
+                                    TAG,
+                                    "IMPONIBILE = ${currentProductInfo?.taxablePrice}"
+                                )
+
+                                Log.d(
+                                    TAG,
+                                    "IVA = ${currentProductInfo?.vatRate}"
+                                )
+
+                                Log.d(
+                                    TAG,
+                                    "PREZZO PUBBLICO = ${currentProductInfo?.publicPrice}"
+                                )
+
+                                Log.d(
+                                    TAG,
+                                    "ANNO = ${currentProductInfo?.year}"
+                                )
+
+                                Log.d(
+                                    TAG,
+                                    "STAGIONE = ${currentProductInfo?.season}"
+                                )
+
+                                Log.d(
+                                    TAG,
+                                    "GIACENZA = ${currentProductInfo?.stock}"
+                                )
+
+                                Log.d(
+                                    TAG,
+                                    "=========================================="
+                                )
+
+
+                            }, 1500)
+
+                        }
+
+
+                    }, 1000)
 
 
                 }, 1500)
@@ -597,12 +623,14 @@ class ScanAccessibilityService : AccessibilityService() {
 
 
             return
-
         }
 
 
         retryReadProductData(attempt)
     }
+
+
+
     private fun readStockPage() {
 
         val root = rootInActiveWindow ?: return
