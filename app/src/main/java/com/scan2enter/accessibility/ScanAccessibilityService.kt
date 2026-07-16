@@ -736,9 +736,63 @@ class ScanAccessibilityService : AccessibilityService() {
                         Log.d(TAG, "TAP x=$x y=$y")
 
                         tap(x, y) {
-                            Log.d(TAG, "GESTURE COMPLETATA")
-                        }
 
+                            Log.d(TAG, "GESTURE COMPLETATA")
+
+                            handler.postDelayed({
+
+                                val popupRoot = rootInActiveWindow
+
+                                if (popupRoot == null) {
+
+                                    Log.d(
+                                        TAG,
+                                        "ROOT POPUP NON DISPONIBILE"
+                                    )
+
+                                    return@postDelayed
+                                }
+
+                                val taxablePrice =
+                                    readTextById(
+                                        popupRoot,
+                                        "it.duebit.due:id/imponibile"
+                                    )
+
+                                val vatRate =
+                                    readTextById(
+                                        popupRoot,
+                                        "it.duebit.due:id/aliquota_iva"
+                                    )
+
+                                Log.d(
+                                    TAG,
+                                    "IMPONIBILE POPUP = $taxablePrice"
+                                )
+
+                                Log.d(
+                                    TAG,
+                                    "IVA POPUP = $vatRate"
+                                )
+
+                                currentProductInfo =
+                                    currentProductInfo?.copy(
+                                        taxablePrice = taxablePrice ?: "",
+                                        vatRate = vatRate ?: ""
+                                    )
+
+                                Log.d(
+                                    TAG,
+                                    "IMPONIBILE SALVATO = ${currentProductInfo?.taxablePrice}"
+                                )
+
+                                Log.d(
+                                    TAG,
+                                    "IVA SALVATA = ${currentProductInfo?.vatRate}"
+                                )
+
+                            }, 500)
+                        }
                     }, 500)
 
 
@@ -865,6 +919,32 @@ return
 retryReadProductData(attempt)
 }
 
+
+    private fun readTextById(
+        root: AccessibilityNodeInfo?,
+        viewId: String
+    ): String? {
+
+        if (root == null) {
+            return null
+        }
+
+        val nodes =
+            root.findAccessibilityNodeInfosByViewId(viewId)
+
+        val value =
+            nodes.firstOrNull()
+                ?.text
+                ?.toString()
+                ?.trim()
+
+        Log.d(
+            TAG,
+            "READ ID=$viewId VALUE=$value"
+        )
+
+        return value
+    }
 
 
 
