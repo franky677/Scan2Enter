@@ -790,7 +790,17 @@ class ScanAccessibilityService : AccessibilityService() {
                                     TAG,
                                     "IVA SALVATA = ${currentProductInfo?.vatRate}"
                                 )
+                                handler.postDelayed({
 
+                                    val popupClosed =
+                                        closePublicPricePopup()
+
+                                    Log.d(
+                                        TAG,
+                                        "POPUP LISTINO CHIUSO = $popupClosed"
+                                    )
+
+                                }, 300)
                             }, 500)
                         }
                     }, 500)
@@ -918,6 +928,56 @@ return
 
 retryReadProductData(attempt)
 }
+
+
+    private fun closePublicPricePopup(): Boolean {
+
+        val root = rootInActiveWindow
+
+        if (root == null) {
+            Log.d(TAG, "ROOT POPUP NON DISPONIBILE PER CHIUSURA")
+            return false
+        }
+
+        val cancelNodes =
+            root.findAccessibilityNodeInfosByViewId(
+                "it.duebit.due:id/cancel_action"
+            )
+
+        val cancelButton = cancelNodes.firstOrNull()
+
+        if (cancelButton == null) {
+            Log.d(TAG, "PULSANTE ANNULLA NON TROVATO")
+            return false
+        }
+
+        var node: AccessibilityNodeInfo? = cancelButton
+
+        while (node != null) {
+
+            if (node.isClickable) {
+
+                val result =
+                    node.performAction(
+                        AccessibilityNodeInfo.ACTION_CLICK
+                    )
+
+                Log.d(
+                    TAG,
+                    "CHIUSURA POPUP CON ANNULLA = $result"
+                )
+
+                return result
+            }
+
+            node = node.parent
+        }
+
+        Log.d(TAG, "NESSUN NODO CLICCABILE PER ANNULLA")
+
+        return false
+    }
+
 
 
     private fun readTextById(
