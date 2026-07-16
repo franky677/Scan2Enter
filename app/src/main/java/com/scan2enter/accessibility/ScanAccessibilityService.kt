@@ -16,6 +16,8 @@ import com.scan2enter.model.ProductInfoReader
 import com.scan2enter.model.ProductInfo
 import android.graphics.Path
 import android.accessibilityservice.GestureDescription
+
+
 import android.graphics.Rect
 class ScanAccessibilityService : AccessibilityService() {
 
@@ -429,6 +431,110 @@ class ScanAccessibilityService : AccessibilityService() {
         Log.d(TAG, "CLICK primo elemento = $ok")
     }
 
+
+
+    private fun tap(x: Float, y: Float, onComplete: (() -> Unit)? = null) {
+
+        val path = Path().apply {
+            moveTo(x, y)
+        }
+
+        val gesture = GestureDescription.Builder()
+            .addStroke(
+                GestureDescription.StrokeDescription(
+                    path,
+                    0,
+                    80
+                )
+            )
+            .build()
+
+        dispatchGesture(
+            gesture,
+            object : AccessibilityService.GestureResultCallback() {
+
+                override fun onCompleted(gestureDescription: GestureDescription?) {
+                    super.onCompleted(gestureDescription)
+                    Log.d(TAG, "GESTURE COMPLETED")
+                    onComplete?.invoke()
+                }
+
+                override fun onCancelled(gestureDescription: GestureDescription?) {
+                    super.onCancelled(gestureDescription)
+                    Log.d(TAG, "GESTURE CANCELLED")
+                }
+            },
+            null
+        )
+    }
+
+
+    private fun waitInfoComplete(
+        attempt: Int = 0
+    ) {
+
+        val root = rootInActiveWindow
+
+        if (root == null) {
+
+            if (attempt < 10) {
+                handler.postDelayed({
+                    waitInfoComplete(attempt + 1)
+                }, 300)
+            }
+
+            return
+        }
+
+        val barcode =
+            productInfoReader.readBarcode(root)
+
+        val year =
+            productInfoReader.readYear(root)
+
+        val season =
+            productInfoReader.readSeason(root)
+
+        Log.d(
+            TAG,
+            "WAIT INFO attempt=$attempt  barcode=$barcode  year=$year  season=$season"
+        )
+
+        if (!year.isNullOrBlank() &&
+            !season.isNullOrBlank()) {
+
+            currentProductInfo =
+                productInfoReader.buildProductInfo(root)
+
+            Log.d(
+                TAG,
+                "INFO COMPLETA"
+            )
+
+            return
+        }
+
+        if (attempt < 10) {
+
+            handler.postDelayed({
+
+                waitInfoComplete(attempt + 1)
+
+            }, 300)
+
+        } else {
+
+            Log.d(
+                TAG,
+                "TIMEOUT INFO"
+            )
+
+            currentProductInfo =
+                productInfoReader.buildProductInfo(root)
+        }
+    }
+
+
     private fun readProductData(
         attempt: Int = 0
     ) {
@@ -439,6 +545,12 @@ class ScanAccessibilityService : AccessibilityService() {
             retryReadProductData(attempt)
             return
         }
+
+
+        Log.d(TAG, "===== DUMP SCHERMATA ARTICOLO =====")
+        dumpNode(root)
+        Log.d(TAG, "==================================")
+
 
         currentProductInfo =
             productInfoReader.buildProductInfo(root)
@@ -461,6 +573,24 @@ class ScanAccessibilityService : AccessibilityService() {
                 TAG,
                 "PREZZO INFO = ${productInfo.publicPrice}"
             )
+            val scrolled = scrollInfoDown()
+
+            Log.d(
+                TAG,
+                "SCROLL INFO = $scrolled"
+            )
+
+
+            handler.postDelayed({
+
+                val root2 = rootInActiveWindow
+
+                Log.d(TAG, "READ BARCODE = ${productInfoReader.readBarcode(root2)}")
+                Log.d(TAG, "READ YEAR = ${productInfoReader.readYear(root2)}")
+                Log.d(TAG, "READ SEASON = ${productInfoReader.readSeason(root2)}")
+
+            }, 600)
+
 
 
             /*
@@ -504,6 +634,27 @@ class ScanAccessibilityService : AccessibilityService() {
 
                         currentProductInfo = info
 
+                        val spinnerNodes =
+                            root?.findAccessibilityNodeInfosByViewId(
+                                "it.duebit.due:id/barcode_spinner"
+                            )
+
+                        val spinner = spinnerNodes?.firstOrNull()
+
+                        Log.d(
+                            TAG,
+                            "BARCODE SPINNER TEXT = ${spinner?.text}"
+                        )
+
+                        Log.d(
+                            TAG,
+                            "BARCODE SPINNER DESC = ${spinner?.contentDescription}"
+                        )
+
+                        Log.d(
+                            TAG,
+                            "BARCODE SPINNER CLASS = ${spinner?.className}"
+                        )
 
                         Log.d(
                             TAG,
@@ -514,634 +665,741 @@ class ScanAccessibilityService : AccessibilityService() {
 
 
                     // ==========================
-                    // APERTURA GIACENZA
-                    // ==========================
+// APERTURA POPUP LISTINO
+// ==========================
 
                     handler.postDelayed({
 
-                        val openedStock =
-                            clickStockTab()
+                        val vendorNode = findPublicPriceRow(rootInActiveWindow)
 
-                        Log.d(
-                            TAG,
-                            "APRO GIACENZA = $openedStock"
-                        )
-
-
-                        if (openedStock) {
-
-                            handler.postDelayed({
-
-                                val rootStock =
-                                    rootInActiveWindow
-
-
-                                val stock =
-                                    productInfoReader.readStock(rootStock)
-
-
-                                Log.d(
-                                    TAG,
-                                    "GIACENZA LETTA = $stock"
-                                )
-
-
-                                currentProductInfo =
-                                    currentProductInfo?.copy(
-                                        stock = stock ?: ""
-                                    )
-
-
-                                Log.d(
-                                    TAG,
-                                    "========== PRODUCT INFO COMPLETO =========="
-                                )
-
-                                Log.d(
-                                    TAG,
-                                    "CODICE = ${currentProductInfo?.articleCode}"
-                                )
-
-                                Log.d(
-                                    TAG,
-                                    "EAN = ${currentProductInfo?.barcode}"
-                                )
-
-                                Log.d(
-                                    TAG,
-                                    "DESCRIZIONE = ${currentProductInfo?.description}"
-                                )
-
-                                Log.d(
-                                    TAG,
-                                    "IMPONIBILE = ${currentProductInfo?.taxablePrice}"
-                                )
-
-                                Log.d(
-                                    TAG,
-                                    "IVA = ${currentProductInfo?.vatRate}"
-                                )
-
-                                Log.d(
-                                    TAG,
-                                    "PREZZO PUBBLICO = ${currentProductInfo?.publicPrice}"
-                                )
-
-                                Log.d(
-                                    TAG,
-                                    "ANNO = ${currentProductInfo?.year}"
-                                )
-
-                                Log.d(
-                                    TAG,
-                                    "STAGIONE = ${currentProductInfo?.season}"
-                                )
-
-                                Log.d(
-                                    TAG,
-                                    "GIACENZA = ${currentProductInfo?.stock}"
-                                )
-
-                                Log.d(
-                                    TAG,
-                                    "=========================================="
-                                )
-
-
-                            }, 1500)
-
+                        if (vendorNode == null) {
+                            Log.d(TAG, "RIGA 3-AL PUBBLICO NON TROVATA")
+                            return@postDelayed
                         }
 
+                        val vendorRect = Rect()
+                        vendorNode.getBoundsInScreen(vendorRect)
 
-                    }, 1000)
+                        Log.d(TAG, "VENDOR BOUNDS = $vendorRect")
 
+                        var rowNode: AccessibilityNodeInfo = vendorNode
+                        var parent = vendorNode.parent
 
-                }, 1500)
+                        while (parent != null) {
 
+                            val parentRect = Rect()
+                            parent.getBoundsInScreen(parentRect)
 
-            }, 1500)
+                            Log.d(
+                                TAG,
+                                "PARENT class=${parent.className} " +
+                                        "id=${parent.viewIdResourceName} " +
+                                        "bounds=$parentRect"
+                            )
 
+                            /*
+                             * Cerchiamo il contenitore orizzontale della singola riga.
+                             * Deve essere più largo del vendor_textview, ma non alto
+                             * quanto l'intera schermata o la RecyclerView.
+                             */
+                            if (
+                                parentRect.width() > vendorRect.width() &&
+                                parentRect.height() in 40..250
+                            ) {
+                                rowNode = parent
+                            }
 
-            return
-        }
+                            /*
+                             * Evitiamo di risalire fino al ViewPager o alla Activity.
+                             */
+                            if (parentRect.height() > 250) {
+                                break
+                            }
 
+                            parent = parent.parent
+                        }
 
-        retryReadProductData(attempt)
-    }
+                        val rowRect = Rect()
+                        rowNode.getBoundsInScreen(rowRect)
 
+                        if (rowRect.isEmpty) {
+                            Log.d(TAG, "BOUNDS RIGA NON VALIDI")
+                            return@postDelayed
+                        }
 
+                        val x = rowRect.right - 40f
+                        val y = rowRect.exactCenterY()
 
-    private fun readStockPage() {
+                        Log.d(TAG, "========== GESTURE TEST ==========")
+                        Log.d(TAG, "VENDOR = $vendorRect")
+                        Log.d(TAG, "ROW COMPLETA = $rowRect")
+                        Log.d(TAG, "TAP x=$x y=$y")
 
-        val root = rootInActiveWindow ?: return
+                        tap(x, y) {
+                            Log.d(TAG, "GESTURE COMPLETATA")
+                        }
 
-        val stock = productInfoReader.readStock(root)
+                    }, 500)
 
-        Log.d(TAG, "GIACENZA = $stock")
-    }
 
-    private fun readAdditionalProductInfo() {
+                    // ==========================
+                    // APERTURA GIACENZA
+                    // ==========================
 
-        val newRoot = rootInActiveWindow ?: return
+/*
 
-        val year = productInfoReader.readYear(newRoot)
-        val season = productInfoReader.readSeason(newRoot)
+handler.postDelayed({
 
-        Log.d(TAG, "ANNO = $year")
-        Log.d(TAG, "STAGIONE = $season")
+  val openedStock =
+      clickStockTab()
 
-        val clicked = clickStockTab()
+  Log.d(
+      TAG,
+      "APRO GIACENZA = $openedStock"
+  )
 
-        Log.d(TAG, "CLICK GIACENZA = $clicked")
 
-        if (clicked) {
+  if (openedStock) {
 
-            handler.postDelayed({
+      handler.postDelayed({
 
-                readStockPage()
+          val rootStock =
+              rootInActiveWindow
 
-            }, 300)
-        }
-    }
 
-    private fun clickStockTab(): Boolean {
+          val stock =
+              productInfoReader.readStock(rootStock)
 
-        val root = rootInActiveWindow ?: return false
 
-        fun search(node: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
+          Log.d(
+              TAG,
+              "GIACENZA LETTA = $stock"
+          )
 
-            if (node == null) return null
 
-            val text = node.text?.toString()
-            val desc = node.contentDescription?.toString()
+          currentProductInfo =
+              currentProductInfo?.copy(
+                  stock = stock ?: ""
+              )
 
-            if (text == "GIACENZA" || desc == "Giacenza") {
-                return node
-            }
 
-            for (i in 0 until node.childCount) {
-                val result = search(node.getChild(i))
-                if (result != null) return result
-            }
+          Log.d(
+              TAG,
+              "========== PRODUCT INFO COMPLETO =========="
+          )
 
-            return null
-        }
+          Log.d(
+              TAG,
+              "CODICE = ${currentProductInfo?.articleCode}"
+          )
 
-        val tab = search(root) ?: return false
+          Log.d(
+              TAG,
+              "EAN = ${currentProductInfo?.barcode}"
+          )
 
-        var node: AccessibilityNodeInfo? = tab
+          Log.d(
+              TAG,
+              "DESCRIZIONE = ${currentProductInfo?.description}"
+          )
 
-        while (node != null) {
+          Log.d(
+              TAG,
+              "IMPONIBILE = ${currentProductInfo?.taxablePrice}"
+          )
 
-            if (node.isClickable) {
+          Log.d(
+              TAG,
+              "IVA = ${currentProductInfo?.vatRate}"
+          )
 
-                val ok = node.performAction(
-                    AccessibilityNodeInfo.ACTION_CLICK
-                )
+          Log.d(
+              TAG,
+              "PREZZO PUBBLICO = ${currentProductInfo?.publicPrice}"
+          )
 
-                Log.d(TAG, "CLICK TAB GIACENZA = $ok")
+          Log.d(
+              TAG,
+              "ANNO = ${currentProductInfo?.year}"
+          )
 
-                return ok
-            }
+          Log.d(
+              TAG,
+              "STAGIONE = ${currentProductInfo?.season}"
+          )
 
-            node = node.parent
-        }
+          Log.d(
+              TAG,
+              "GIACENZA = ${currentProductInfo?.stock}"
+          )
 
-        return false
-    }
+          Log.d(
+              TAG,
+              "=========================================="
+          )
 
-    private fun clickPriceTab(): Boolean {
 
-        val root = rootInActiveWindow ?: return false
 
-        fun search(node: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
+      }, 1500)
 
-            if (node == null) return null
 
-            val text = node.text?.toString()
-            val desc = node.contentDescription?.toString()
 
-            if (text == "PRZ VEND" || desc == "Prz vend") {
-                return node
-            }
+  }
 
-            for (i in 0 until node.childCount) {
-                val result = search(node.getChild(i))
-                if (result != null) return result
-            }
 
-            return null
-        }
+}, 1000)
 
-        val tab = search(root) ?: return false
+ */
 
-        var node: AccessibilityNodeInfo? = tab
+}, 1500)
 
-        while (node != null) {
+}, 1500)
 
-            if (node.isClickable) {
 
-                val ok = node.performAction(
-                    AccessibilityNodeInfo.ACTION_CLICK
-                )
+return
 
-                Log.d(TAG, "CLICK TAB PRZ VEND = $ok")
 
-                return ok
-            }
+}
 
-            node = node.parent
-        }
 
-        return false
-    }
+retryReadProductData(attempt)
+}
 
 
-    private fun clickPurchasePriceTab(): Boolean {
 
-        val root = rootInActiveWindow ?: return false
 
-        fun search(node: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
+private fun scrollInfoDown(): Boolean {
 
-            if (node == null) return null
+val root = rootInActiveWindow ?: return false
 
-            val text = node.text?.toString()
-            val desc = node.contentDescription?.toString()
+val recyclers = root.findAccessibilityNodeInfosByViewId(
+"it.duebit.due:id/recycler_view"
+)
 
-            if (text == "PRZ ACQ" || desc == "Prz acq") {
-                return node
-            }
+if (recyclers.isEmpty()) {
+return false
+}
 
-            for (i in 0 until node.childCount) {
+val recycler = recyclers.first()
 
-                val result = search(node.getChild(i))
+Log.d(TAG, "SCROLL INFO")
 
-                if (result != null)
-                    return result
-            }
+return recycler.performAction(
+AccessibilityNodeInfo.ACTION_SCROLL_FORWARD
+)
+}
 
-            return null
-        }
+private fun readStockPage() {
 
-        val tab = search(root) ?: return false
+val root = rootInActiveWindow ?: return
 
-        var node: AccessibilityNodeInfo? = tab
+val stock = productInfoReader.readStock(root)
 
-        while (node != null) {
+Log.d(TAG, "GIACENZA = $stock")
+}
 
-            if (node.isClickable) {
+private fun readAdditionalProductInfo() {
 
-                val ok = node.performAction(
-                    AccessibilityNodeInfo.ACTION_CLICK
-                )
+val newRoot = rootInActiveWindow ?: return
 
-                Log.d(
-                    TAG,
-                    "CLICK TAB PRZ ACQ = $ok"
-                )
+val year = productInfoReader.readYear(newRoot)
+val season = productInfoReader.readSeason(newRoot)
 
-                return ok
-            }
+Log.d(TAG, "ANNO = $year")
+Log.d(TAG, "STAGIONE = $season")
 
-            node = node.parent
-        }
+val clicked = clickStockTab()
 
-        return false
-    }
+Log.d(TAG, "CLICK GIACENZA = $clicked")
 
+if (clicked) {
 
-    private fun clickPriceModeSwitch(): Boolean {
-        Log.d(
-            TAG,
-            "ENTRO IN clickPriceModeSwitch"
-        )
+handler.postDelayed({
 
-        val root = rootInActiveWindow ?: return false
+readStockPage()
 
-        val modeNodes =
-            root.findAccessibilityNodeInfosByViewId(
-                "it.duebit.due:id/price_mode_textview"
-            )
+}, 300)
+}
+}
 
-        if (modeNodes.isEmpty()) {
+private fun clickStockTab(): Boolean {
 
-            Log.d(
-                TAG,
-                "PRICE MODE TEXTVIEW NON TROVATO"
-            )
+val root = rootInActiveWindow ?: return false
 
-            return false
-        }
+fun search(node: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
 
+if (node == null) return null
 
-        val textNode = modeNodes.first()
+val text = node.text?.toString()
+val desc = node.contentDescription?.toString()
 
-        val modeText =
-            textNode.text?.toString()
+if (text == "GIACENZA" || desc == "Giacenza") {
+return node
+}
 
+for (i in 0 until node.childCount) {
+val result = search(node.getChild(i))
+if (result != null) return result
+}
 
-        Log.d(
-            TAG,
-            "CURRENT PRICE MODE = $modeText"
-        )
+return null
+}
 
+val tab = search(root) ?: return false
 
-        /*
-         * Se è già imponibile non fare nulla
-         */
-        if (modeText.equals("Imponibile", true)) {
+var node: AccessibilityNodeInfo? = tab
 
-            Log.d(
-                TAG,
-                "GIÀ IMPONIBILE - NESSUNO SWITCH"
-            )
+while (node != null) {
 
-            return false
-        }
+if (node.isClickable) {
 
+val ok = node.performAction(
+AccessibilityNodeInfo.ACTION_CLICK
+)
 
-        /*
-         * Cerca il contenitore cliccabile
-         */
-        var node: AccessibilityNodeInfo? =
-            textNode
+Log.d(TAG, "CLICK TAB GIACENZA = $ok")
 
+return ok
+}
 
-        while (node != null) {
+node = node.parent
+}
 
+return false
+}
 
-            if (node.isClickable) {
+private fun clickPriceTab(): Boolean {
 
+val root = rootInActiveWindow ?: return false
 
-                val ok =
-                    node.performAction(
-                        AccessibilityNodeInfo.ACTION_CLICK
-                    )
+fun search(node: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
 
+if (node == null) return null
 
-                Log.d(
-                    TAG,
-                    "CLICK PRICE MODE = $ok"
-                )
+val text = node.text?.toString()
+val desc = node.contentDescription?.toString()
 
+if (text == "PRZ VEND" || desc == "Prz vend") {
+return node
+}
 
-                return ok
-            }
+for (i in 0 until node.childCount) {
+val result = search(node.getChild(i))
+if (result != null) return result
+}
 
+return null
+}
 
-            node = node.parent
-        }
+val tab = search(root) ?: return false
 
+var node: AccessibilityNodeInfo? = tab
 
-        Log.d(
-            TAG,
-            "NESSUN PARENT CLICCABILE"
-        )
+while (node != null) {
 
+if (node.isClickable) {
 
-        return false
+val ok = node.performAction(
+AccessibilityNodeInfo.ACTION_CLICK
+)
 
-    }
-    private fun dumpChildren(node: AccessibilityNodeInfo?, level: Int = 0) {
+Log.d(TAG, "CLICK TAB PRZ VEND = $ok")
 
-        if (node == null) return
+return ok
+}
 
-        val rect = android.graphics.Rect()
-        node.getBoundsInScreen(rect)
+node = node.parent
+}
 
-        Log.d(
-            TAG,
-            "${" ".repeat(level * 2)}CLASS=${node.className} " +
-                    "ID=${node.viewIdResourceName} " +
-                    "TEXT=${node.text} " +
-                    "DESC=${node.contentDescription} " +
-                    "CLICK=${node.isClickable} " +
-                    "BOUNDS=$rect"
-        )
+return false
+}
 
-        for (i in 0 until node.childCount) {
-            dumpChildren(node.getChild(i), level + 1)
-        }
-    }
-    private fun clickUbicazioneSearchButton(): Boolean {
 
-        val root = rootInActiveWindow ?: return false
+private fun clickPurchasePriceTab(): Boolean {
 
-        val buttons =
-            root.findAccessibilityNodeInfosByViewId(
-                "it.duebit.due:id/button_search"
-            )
+val root = rootInActiveWindow ?: return false
 
-        if (buttons.isEmpty()) {
+fun search(node: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
 
-            Log.d(
-                TAG,
-                "PULSANTE CERCA UBICAZIONE NON TROVATO"
-            )
+if (node == null) return null
 
-            return false
-        }
+val text = node.text?.toString()
+val desc = node.contentDescription?.toString()
 
-        val button = buttons.first()
+if (text == "PRZ ACQ" || desc == "Prz acq") {
+return node
+}
 
-        val ok = button.performAction(
-            AccessibilityNodeInfo.ACTION_CLICK
-        )
+for (i in 0 until node.childCount) {
 
-        Log.d(
-            TAG,
-            "CLICK CERCA UBICAZIONE = $ok"
-        )
+val result = search(node.getChild(i))
 
-        return ok
-    }
+if (result != null)
+return result
+}
 
-    private fun scrollProductPage(): Boolean {
+return null
+}
 
-        val root = rootInActiveWindow ?: return false
+val tab = search(root) ?: return false
 
-        val recyclerView = findInfoRecyclerView(root)
-            ?: return false
+var node: AccessibilityNodeInfo? = tab
 
-        return recyclerView.performAction(
-            AccessibilityNodeInfo.ACTION_SCROLL_FORWARD
-        )
-    }
+while (node != null) {
 
-    private fun findInfoRecyclerView(
-        node: AccessibilityNodeInfo?
-    ): AccessibilityNodeInfo? {
+if (node.isClickable) {
 
-        if (node == null)
-            return null
+val ok = node.performAction(
+AccessibilityNodeInfo.ACTION_CLICK
+)
 
-        if (
-            node.viewIdResourceName ==
-            "it.duebit.due:id/recycler_view"
-        ) {
-            return node
-        }
+Log.d(
+TAG,
+"CLICK TAB PRZ ACQ = $ok"
+)
 
-        for (i in 0 until node.childCount) {
+return ok
+}
 
-            val result = findInfoRecyclerView(
-                node.getChild(i)
-            )
+node = node.parent
+}
 
-            if (result != null)
-                return result
-        }
+return false
+}
 
-        return null
-    }
 
-    private fun scrollForward(
-        node: AccessibilityNodeInfo
-    ): Boolean {
+private fun clickPriceModeSwitch(): Boolean {
+Log.d(
+TAG,
+"ENTRO IN clickPriceModeSwitch"
+)
 
-        if (node.isScrollable) {
+val root = rootInActiveWindow ?: return false
 
-            return node.performAction(
-                AccessibilityNodeInfo.ACTION_SCROLL_FORWARD
-            )
-        }
+val modeNodes =
+root.findAccessibilityNodeInfosByViewId(
+"it.duebit.due:id/price_mode_textview"
+)
 
-        for (i in 0 until node.childCount) {
+if (modeNodes.isEmpty()) {
 
-            val child = node.getChild(i) ?: continue
+Log.d(
+TAG,
+"PRICE MODE TEXTVIEW NON TROVATO"
+)
 
-            if (scrollForward(child)) {
-                return true
-            }
-        }
+return false
+}
 
-        return false
-    }
 
-    private fun retryReadProductData(
-        attempt: Int
-    ) {
+val textNode = modeNodes.first()
 
-        if (attempt >= 10) {
+val modeText =
+textNode.text?.toString()
 
-            Log.d(TAG, "descr_textview non trovato")
 
-            return
-        }
+Log.d(
+TAG,
+"CURRENT PRICE MODE = $modeText"
+)
 
 
-        handler.postDelayed({
+/*
+* Se è già imponibile non fare nulla
+*/
+if (modeText.equals("Imponibile", true)) {
 
-            readProductData(attempt + 1)
+Log.d(
+TAG,
+"GIÀ IMPONIBILE - NESSUNO SWITCH"
+)
 
-        }, 300)
-    }
+return false
+}
 
-    private fun findEditable(
-        node: AccessibilityNodeInfo?
-    ): AccessibilityNodeInfo? {
 
-        if (node == null)
-            return null
+/*
+* Cerca il contenitore cliccabile
+*/
+var node: AccessibilityNodeInfo? =
+textNode
 
-        if (node.isEditable)
-            return node
 
-        for (i in 0 until node.childCount) {
+while (node != null) {
 
-            val result =
-                findEditable(node.getChild(i))
 
-            if (result != null)
-                return result
-        }
+if (node.isClickable) {
 
-        return null
-    }
 
-    private fun dumpNode(
-        node: AccessibilityNodeInfo?,
-        level: Int = 0
-    ) {
+val ok =
+node.performAction(
+  AccessibilityNodeInfo.ACTION_CLICK
+)
 
-        if (node == null) return
 
-        val indent = " ".repeat(level * 2)
+Log.d(
+TAG,
+"CLICK PRICE MODE = $ok"
+)
 
-        Log.d(
-            TAG,
-            indent +
-                    "CLASS=${node.className} " +
-                    "TEXT=${node.text} " +
-                    "DESC=${node.contentDescription} " +
-                    "ID=${node.viewIdResourceName} " +
-                    "editable=${node.isEditable} " +
-                    "clickable=${node.isClickable} " +
-                    "focused=${node.isFocused}"
-        )
 
-        for (i in 0 until node.childCount) {
+return ok
+}
 
-            dumpNode(
-                node.getChild(i),
-                level + 1
-            )
 
-        }
+node = node.parent
+}
 
-    }
 
-    private fun dumpClickable(
-        node: AccessibilityNodeInfo?,
-        level: Int = 0
-    ) {
+Log.d(
+TAG,
+"NESSUN PARENT CLICCABILE"
+)
 
-        if (node == null) return
 
-        if (node.isClickable) {
+return false
 
-            Log.d(
-                TAG,
-                "CLICKABLE -> " +
-                        "CLASS=${node.className} " +
-                        "TEXT=${node.text} " +
-                        "DESC=${node.contentDescription} " +
-                        "ID=${node.viewIdResourceName}"
-            )
+}
+private fun dumpChildren(node: AccessibilityNodeInfo?, level: Int = 0) {
 
-        }
+if (node == null) return
 
-        for (i in 0 until node.childCount) {
+val rect = android.graphics.Rect()
+node.getBoundsInScreen(rect)
 
-            dumpClickable(
-                node.getChild(i),
-                level + 1
-            )
+Log.d(
+TAG,
+"${" ".repeat(level * 2)}CLASS=${node.className} " +
+"ID=${node.viewIdResourceName} " +
+"TEXT=${node.text} " +
+"DESC=${node.contentDescription} " +
+"CLICK=${node.isClickable} " +
+"BOUNDS=$rect"
+)
 
-        }
+for (i in 0 until node.childCount) {
+dumpChildren(node.getChild(i), level + 1)
+}
+}
+private fun clickUbicazioneSearchButton(): Boolean {
 
-    }
-    private fun readPriceMode(): String? {
+val root = rootInActiveWindow ?: return false
 
-        val root = rootInActiveWindow ?: return null
+val buttons =
+root.findAccessibilityNodeInfosByViewId(
+"it.duebit.due:id/button_search"
+)
 
-        val nodes =
-            root.findAccessibilityNodeInfosByViewId(
-                "it.duebit.due:id/price_mode_textview"
-            )
+if (buttons.isEmpty()) {
 
-        val mode =
-            nodes.firstOrNull()
-                ?.text
-                ?.toString()
+Log.d(
+TAG,
+"PULSANTE CERCA UBICAZIONE NON TROVATO"
+)
 
+return false
+}
 
-        Log.d(
-            TAG,
-            "READ PRICE MODE = $mode"
-        )
+val button = buttons.first()
 
+val ok = button.performAction(
+AccessibilityNodeInfo.ACTION_CLICK
+)
 
-        return mode
-    }
+Log.d(
+TAG,
+"CLICK CERCA UBICAZIONE = $ok"
+)
+
+return ok
+}
+
+private fun scrollProductPage(): Boolean {
+
+val root = rootInActiveWindow ?: return false
+
+val recyclerView = findInfoRecyclerView(root)
+?: return false
+
+return recyclerView.performAction(
+AccessibilityNodeInfo.ACTION_SCROLL_FORWARD
+)
+}
+
+private fun findInfoRecyclerView(
+node: AccessibilityNodeInfo?
+): AccessibilityNodeInfo? {
+
+if (node == null)
+return null
+
+if (
+node.viewIdResourceName ==
+"it.duebit.due:id/recycler_view"
+) {
+return node
+}
+
+for (i in 0 until node.childCount) {
+
+val result = findInfoRecyclerView(
+node.getChild(i)
+)
+
+if (result != null)
+return result
+}
+
+return null
+}
+
+private fun scrollForward(
+node: AccessibilityNodeInfo
+): Boolean {
+
+if (node.isScrollable) {
+
+return node.performAction(
+AccessibilityNodeInfo.ACTION_SCROLL_FORWARD
+)
+}
+
+for (i in 0 until node.childCount) {
+
+val child = node.getChild(i) ?: continue
+
+if (scrollForward(child)) {
+return true
+}
+}
+
+return false
+}
+
+private fun retryReadProductData(
+attempt: Int
+) {
+
+if (attempt >= 10) {
+
+Log.d(TAG, "descr_textview non trovato")
+
+return
+}
+
+
+handler.postDelayed({
+
+readProductData(attempt + 1)
+
+}, 300)
+}
+
+private fun findEditable(
+node: AccessibilityNodeInfo?
+): AccessibilityNodeInfo? {
+
+if (node == null)
+return null
+
+if (node.isEditable)
+return node
+
+for (i in 0 until node.childCount) {
+
+val result =
+findEditable(node.getChild(i))
+
+if (result != null)
+return result
+}
+
+return null
+}
+
+private fun dumpNode(
+node: AccessibilityNodeInfo?,
+level: Int = 0
+) {
+
+if (node == null) return
+
+val indent = " ".repeat(level * 2)
+
+Log.d(
+TAG,
+indent +
+"CLASS=${node.className} " +
+"TEXT=${node.text} " +
+"DESC=${node.contentDescription} " +
+"ID=${node.viewIdResourceName} " +
+"editable=${node.isEditable} " +
+"clickable=${node.isClickable} " +
+"focused=${node.isFocused}"
+)
+
+for (i in 0 until node.childCount) {
+
+dumpNode(
+node.getChild(i),
+level + 1
+)
+
+}
+
+}
+
+private fun dumpClickable(
+node: AccessibilityNodeInfo?,
+level: Int = 0
+) {
+
+if (node == null) return
+
+if (node.isClickable) {
+
+Log.d(
+TAG,
+"CLICKABLE -> " +
+  "CLASS=${node.className} " +
+  "TEXT=${node.text} " +
+  "DESC=${node.contentDescription} " +
+  "ID=${node.viewIdResourceName}"
+)
+
+}
+
+for (i in 0 until node.childCount) {
+
+dumpClickable(
+node.getChild(i),
+level + 1
+)
+
+}
+
+}
+private fun readPriceMode(): String? {
+
+val root = rootInActiveWindow ?: return null
+
+val nodes =
+root.findAccessibilityNodeInfosByViewId(
+"it.duebit.due:id/price_mode_textview"
+)
+
+val mode =
+nodes.firstOrNull()
+?.text
+?.toString()
+
+
+Log.d(
+TAG,
+"READ PRICE MODE = $mode"
+)
+
+
+return mode
+}
 }
