@@ -800,6 +800,108 @@ class ScanAccessibilityService : AccessibilityService() {
                                         "POPUP LISTINO CHIUSO = $popupClosed"
                                     )
 
+                                    if (!popupClosed) {
+                                        return@postDelayed
+                                    }
+
+                                    /*
+                                     * Attendo che il popup sia completamente scomparso
+                                     * prima di aprire la scheda GIACENZA.
+                                     */
+                                    handler.postDelayed({
+
+                                        val stockTabOpened =
+                                            clickStockTab()
+
+                                        Log.d(
+                                            TAG,
+                                            "APRO GIACENZA = $stockTabOpened"
+                                        )
+
+                                        if (!stockTabOpened) {
+                                            return@postDelayed
+                                        }
+
+                                        /*
+                                         * Attendo il caricamento della scheda GIACENZA.
+                                         */
+                                        handler.postDelayed({
+
+                                            val stockRoot =
+                                                rootInActiveWindow
+
+                                            val stock =
+                                                productInfoReader.readStock(stockRoot)
+
+                                            Log.d(
+                                                TAG,
+                                                "GIACENZA LETTA = $stock"
+                                            )
+
+                                            currentProductInfo =
+                                                currentProductInfo?.copy(
+                                                    stock = stock ?: ""
+                                                )
+
+                                            Log.d(
+                                                TAG,
+                                                "========== PRODUCT INFO COMPLETO =========="
+                                            )
+
+                                            Log.d(
+                                                TAG,
+                                                "CODICE = ${currentProductInfo?.articleCode}"
+                                            )
+
+                                            Log.d(
+                                                TAG,
+                                                "EAN = ${currentProductInfo?.barcode}"
+                                            )
+
+                                            Log.d(
+                                                TAG,
+                                                "DESCRIZIONE = ${currentProductInfo?.description}"
+                                            )
+
+                                            Log.d(
+                                                TAG,
+                                                "IMPONIBILE = ${currentProductInfo?.taxablePrice}"
+                                            )
+
+                                            Log.d(
+                                                TAG,
+                                                "IVA = ${currentProductInfo?.vatRate}"
+                                            )
+
+                                            Log.d(
+                                                TAG,
+                                                "PREZZO PUBBLICO = ${currentProductInfo?.publicPrice}"
+                                            )
+
+                                            Log.d(
+                                                TAG,
+                                                "ANNO = ${currentProductInfo?.year}"
+                                            )
+
+                                            Log.d(
+                                                TAG,
+                                                "STAGIONE = ${currentProductInfo?.season}"
+                                            )
+
+                                            Log.d(
+                                                TAG,
+                                                "GIACENZA = ${currentProductInfo?.stock}"
+                                            )
+
+                                            Log.d(
+                                                TAG,
+                                                "=========================================="
+                                            )
+
+                                        }, 1200)
+
+                                    }, 500)
+
                                 }, 300)
                             }, 500)
                         }
