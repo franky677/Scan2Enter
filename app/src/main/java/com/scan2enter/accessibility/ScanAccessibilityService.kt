@@ -16,7 +16,7 @@ import com.scan2enter.model.ProductInfoReader
 import com.scan2enter.model.ProductInfo
 import android.graphics.Path
 import android.accessibilityservice.GestureDescription
-
+import com.scan2enter.model.ProductInfoStore
 
 import android.graphics.Rect
 class ScanAccessibilityService : AccessibilityService() {
@@ -897,7 +897,12 @@ class ScanAccessibilityService : AccessibilityService() {
                                                 TAG,
                                                 "=========================================="
                                             )
+                                            ProductInfoStore.current = currentProductInfo
 
+                                            Log.d(
+                                                TAG,
+                                                "PRODUCT INFO SALVATO NELLO STORE"
+                                            )
                                         }, 1200)
 
                                     }, 500)
@@ -1003,7 +1008,12 @@ handler.postDelayed({
               TAG,
               "=========================================="
           )
+ProductInfoStore.current = currentProductInfo
 
+Log.d(
+    TAG,
+    "PRODUCT INFO SALVATO NELLO STORE"
+)
 
 
       }, 1500)
