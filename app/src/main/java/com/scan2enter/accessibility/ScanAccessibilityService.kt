@@ -87,6 +87,20 @@ class ScanAccessibilityService : AccessibilityService() {
                     root
                 )
             }
+        } else if (pkg == packageName) {
+
+            /*
+             * Il popup informazioni appartiene a Scan2Enter.
+             * Quando diventa la finestra attiva non devo arrestare
+             * OverlayService, altrimenti il popup scompare subito.
+             */
+            Log.d(
+                TAG,
+                "FINESTRA SCAN2ENTER ATTIVA - OVERLAY MANTENUTO"
+            )
+
+            return
+
         } else {
 
             if (overlayVisible) {
@@ -903,6 +917,8 @@ class ScanAccessibilityService : AccessibilityService() {
                                                 TAG,
                                                 "PRODUCT INFO SALVATO NELLO STORE"
                                             )
+
+                                            finishProductWorkflow()
                                         }, 1200)
 
                                     }, 500)
@@ -917,129 +933,190 @@ class ScanAccessibilityService : AccessibilityService() {
                     // APERTURA GIACENZA
                     // ==========================
 
-/*
+                    /*
 
-handler.postDelayed({
+                    handler.postDelayed({
 
-  val openedStock =
-      clickStockTab()
+                      val openedStock =
+                          clickStockTab()
 
-  Log.d(
-      TAG,
-      "APRO GIACENZA = $openedStock"
-  )
-
-
-  if (openedStock) {
-
-      handler.postDelayed({
-
-          val rootStock =
-              rootInActiveWindow
+                      Log.d(
+                          TAG,
+                          "APRO GIACENZA = $openedStock"
+                      )
 
 
-          val stock =
-              productInfoReader.readStock(rootStock)
+                      if (openedStock) {
+
+                          handler.postDelayed({
+
+                              val rootStock =
+                                  rootInActiveWindow
 
 
-          Log.d(
-              TAG,
-              "GIACENZA LETTA = $stock"
-          )
+                              val stock =
+                                  productInfoReader.readStock(rootStock)
 
 
-          currentProductInfo =
-              currentProductInfo?.copy(
-                  stock = stock ?: ""
-              )
+                              Log.d(
+                                  TAG,
+                                  "GIACENZA LETTA = $stock"
+                              )
 
 
-          Log.d(
-              TAG,
-              "========== PRODUCT INFO COMPLETO =========="
-          )
-
-          Log.d(
-              TAG,
-              "CODICE = ${currentProductInfo?.articleCode}"
-          )
-
-          Log.d(
-              TAG,
-              "EAN = ${currentProductInfo?.barcode}"
-          )
-
-          Log.d(
-              TAG,
-              "DESCRIZIONE = ${currentProductInfo?.description}"
-          )
-
-          Log.d(
-              TAG,
-              "IMPONIBILE = ${currentProductInfo?.taxablePrice}"
-          )
-
-          Log.d(
-              TAG,
-              "IVA = ${currentProductInfo?.vatRate}"
-          )
-
-          Log.d(
-              TAG,
-              "PREZZO PUBBLICO = ${currentProductInfo?.publicPrice}"
-          )
-
-          Log.d(
-              TAG,
-              "ANNO = ${currentProductInfo?.year}"
-          )
-
-          Log.d(
-              TAG,
-              "STAGIONE = ${currentProductInfo?.season}"
-          )
-
-          Log.d(
-              TAG,
-              "GIACENZA = ${currentProductInfo?.stock}"
-          )
-
-          Log.d(
-              TAG,
-              "=========================================="
-          )
-ProductInfoStore.current = currentProductInfo
-
-Log.d(
-    TAG,
-    "PRODUCT INFO SALVATO NELLO STORE"
-)
+                              currentProductInfo =
+                                  currentProductInfo?.copy(
+                                      stock = stock ?: ""
+                                  )
 
 
-      }, 1500)
+                              Log.d(
+                                  TAG,
+                                  "========== PRODUCT INFO COMPLETO =========="
+                              )
+
+                              Log.d(
+                                  TAG,
+                                  "CODICE = ${currentProductInfo?.articleCode}"
+                              )
+
+                              Log.d(
+                                  TAG,
+                                  "EAN = ${currentProductInfo?.barcode}"
+                              )
+
+                              Log.d(
+                                  TAG,
+                                  "DESCRIZIONE = ${currentProductInfo?.description}"
+                              )
+
+                              Log.d(
+                                  TAG,
+                                  "IMPONIBILE = ${currentProductInfo?.taxablePrice}"
+                              )
+
+                              Log.d(
+                                  TAG,
+                                  "IVA = ${currentProductInfo?.vatRate}"
+                              )
+
+                              Log.d(
+                                  TAG,
+                                  "PREZZO PUBBLICO = ${currentProductInfo?.publicPrice}"
+                              )
+
+                              Log.d(
+                                  TAG,
+                                  "ANNO = ${currentProductInfo?.year}"
+                              )
+
+                              Log.d(
+                                  TAG,
+                                  "STAGIONE = ${currentProductInfo?.season}"
+                              )
+
+                              Log.d(
+                                  TAG,
+                                  "GIACENZA = ${currentProductInfo?.stock}"
+                              )
+
+                              Log.d(
+                                  TAG,
+                                  "=========================================="
+                              )
+                    ProductInfoStore.current = currentProductInfo
+
+                    Log.d(
+                        TAG,
+                        "PRODUCT INFO SALVATO NELLO STORE"
+                    )
+
+
+                          }, 1500)
 
 
 
-  }
+                      }
 
 
-}, 1000)
+                    }, 1000)
 
- */
+                     */
 
-}, 1500)
+                }, 1500)
 
-}, 1500)
-
-
-return
+            }, 1500)
 
 
-}
+            return
 
 
-retryReadProductData(attempt)
-}
+        }
+
+
+        retryReadProductData(attempt)
+    }
+
+
+    /**
+     * Conclude la lettura dell'articolo e torna alla finestrella
+     * dei risultati di Due Retail Mobile, pronta per una nuova scansione.
+     */
+    private fun finishProductWorkflow() {
+
+        handler.postDelayed({
+
+            Log.d(
+                TAG,
+                "RITORNO ALLA FINESTRELLA RISULTATO"
+            )
+
+            val backResult =
+                performGlobalAction(
+                    GLOBAL_ACTION_BACK
+                )
+
+            Log.d(
+                TAG,
+                "GLOBAL_ACTION_BACK = $backResult"
+            )
+
+            /*
+             * Azzera solamente lo stato del ciclo di scansione.
+             * ProductInfoStore.current conserva l'ultimo articolo letto,
+             * così il pulsante con lo scatolone può mostrarlo nuovamente.
+             */
+            lastInjected = ""
+            lastWindowId = -1
+            currentProductInfo = null
+
+            Log.d(
+                TAG,
+                "WORKFLOW RESET - PRONTO PER NUOVA SCANSIONE"
+            )
+
+            handler.postDelayed({
+
+                val popupIntent =
+                    Intent(
+                        this,
+                        OverlayService::class.java
+                    ).apply {
+                        action =
+                            OverlayService.ACTION_SHOW_PRODUCT_INFO
+                    }
+
+                startService(popupIntent)
+
+                Log.d(
+                    TAG,
+                    "RICHIESTA POPUP INFORMAZIONI AUTOMATICO"
+                )
+
+            }, 500)
+
+        }, 500)
+    }
 
 
     private fun closePublicPricePopup(): Boolean {
@@ -1120,538 +1197,538 @@ retryReadProductData(attempt)
 
 
 
-private fun scrollInfoDown(): Boolean {
+    private fun scrollInfoDown(): Boolean {
 
-val root = rootInActiveWindow ?: return false
+        val root = rootInActiveWindow ?: return false
 
-val recyclers = root.findAccessibilityNodeInfosByViewId(
-"it.duebit.due:id/recycler_view"
-)
+        val recyclers = root.findAccessibilityNodeInfosByViewId(
+            "it.duebit.due:id/recycler_view"
+        )
 
-if (recyclers.isEmpty()) {
-return false
-}
+        if (recyclers.isEmpty()) {
+            return false
+        }
 
-val recycler = recyclers.first()
+        val recycler = recyclers.first()
 
-Log.d(TAG, "SCROLL INFO")
+        Log.d(TAG, "SCROLL INFO")
 
-return recycler.performAction(
-AccessibilityNodeInfo.ACTION_SCROLL_FORWARD
-)
-}
+        return recycler.performAction(
+            AccessibilityNodeInfo.ACTION_SCROLL_FORWARD
+        )
+    }
 
-private fun readStockPage() {
+    private fun readStockPage() {
 
-val root = rootInActiveWindow ?: return
+        val root = rootInActiveWindow ?: return
 
-val stock = productInfoReader.readStock(root)
+        val stock = productInfoReader.readStock(root)
 
-Log.d(TAG, "GIACENZA = $stock")
-}
+        Log.d(TAG, "GIACENZA = $stock")
+    }
 
-private fun readAdditionalProductInfo() {
+    private fun readAdditionalProductInfo() {
 
-val newRoot = rootInActiveWindow ?: return
+        val newRoot = rootInActiveWindow ?: return
 
-val year = productInfoReader.readYear(newRoot)
-val season = productInfoReader.readSeason(newRoot)
+        val year = productInfoReader.readYear(newRoot)
+        val season = productInfoReader.readSeason(newRoot)
 
-Log.d(TAG, "ANNO = $year")
-Log.d(TAG, "STAGIONE = $season")
+        Log.d(TAG, "ANNO = $year")
+        Log.d(TAG, "STAGIONE = $season")
 
-val clicked = clickStockTab()
+        val clicked = clickStockTab()
 
-Log.d(TAG, "CLICK GIACENZA = $clicked")
+        Log.d(TAG, "CLICK GIACENZA = $clicked")
 
-if (clicked) {
+        if (clicked) {
 
-handler.postDelayed({
+            handler.postDelayed({
 
-readStockPage()
+                readStockPage()
 
-}, 300)
-}
-}
+            }, 300)
+        }
+    }
 
-private fun clickStockTab(): Boolean {
+    private fun clickStockTab(): Boolean {
 
-val root = rootInActiveWindow ?: return false
+        val root = rootInActiveWindow ?: return false
 
-fun search(node: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
+        fun search(node: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
 
-if (node == null) return null
+            if (node == null) return null
 
-val text = node.text?.toString()
-val desc = node.contentDescription?.toString()
+            val text = node.text?.toString()
+            val desc = node.contentDescription?.toString()
 
-if (text == "GIACENZA" || desc == "Giacenza") {
-return node
-}
+            if (text == "GIACENZA" || desc == "Giacenza") {
+                return node
+            }
 
-for (i in 0 until node.childCount) {
-val result = search(node.getChild(i))
-if (result != null) return result
-}
+            for (i in 0 until node.childCount) {
+                val result = search(node.getChild(i))
+                if (result != null) return result
+            }
 
-return null
-}
+            return null
+        }
 
-val tab = search(root) ?: return false
+        val tab = search(root) ?: return false
 
-var node: AccessibilityNodeInfo? = tab
+        var node: AccessibilityNodeInfo? = tab
 
-while (node != null) {
+        while (node != null) {
 
-if (node.isClickable) {
+            if (node.isClickable) {
 
-val ok = node.performAction(
-AccessibilityNodeInfo.ACTION_CLICK
-)
+                val ok = node.performAction(
+                    AccessibilityNodeInfo.ACTION_CLICK
+                )
 
-Log.d(TAG, "CLICK TAB GIACENZA = $ok")
+                Log.d(TAG, "CLICK TAB GIACENZA = $ok")
 
-return ok
-}
+                return ok
+            }
 
-node = node.parent
-}
+            node = node.parent
+        }
 
-return false
-}
+        return false
+    }
 
-private fun clickPriceTab(): Boolean {
+    private fun clickPriceTab(): Boolean {
 
-val root = rootInActiveWindow ?: return false
+        val root = rootInActiveWindow ?: return false
 
-fun search(node: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
+        fun search(node: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
 
-if (node == null) return null
+            if (node == null) return null
 
-val text = node.text?.toString()
-val desc = node.contentDescription?.toString()
+            val text = node.text?.toString()
+            val desc = node.contentDescription?.toString()
 
-if (text == "PRZ VEND" || desc == "Prz vend") {
-return node
-}
+            if (text == "PRZ VEND" || desc == "Prz vend") {
+                return node
+            }
 
-for (i in 0 until node.childCount) {
-val result = search(node.getChild(i))
-if (result != null) return result
-}
+            for (i in 0 until node.childCount) {
+                val result = search(node.getChild(i))
+                if (result != null) return result
+            }
 
-return null
-}
+            return null
+        }
 
-val tab = search(root) ?: return false
+        val tab = search(root) ?: return false
 
-var node: AccessibilityNodeInfo? = tab
+        var node: AccessibilityNodeInfo? = tab
 
-while (node != null) {
+        while (node != null) {
 
-if (node.isClickable) {
+            if (node.isClickable) {
 
-val ok = node.performAction(
-AccessibilityNodeInfo.ACTION_CLICK
-)
+                val ok = node.performAction(
+                    AccessibilityNodeInfo.ACTION_CLICK
+                )
 
-Log.d(TAG, "CLICK TAB PRZ VEND = $ok")
+                Log.d(TAG, "CLICK TAB PRZ VEND = $ok")
 
-return ok
-}
+                return ok
+            }
 
-node = node.parent
-}
+            node = node.parent
+        }
 
-return false
-}
+        return false
+    }
 
 
-private fun clickPurchasePriceTab(): Boolean {
+    private fun clickPurchasePriceTab(): Boolean {
 
-val root = rootInActiveWindow ?: return false
+        val root = rootInActiveWindow ?: return false
 
-fun search(node: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
+        fun search(node: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
 
-if (node == null) return null
+            if (node == null) return null
 
-val text = node.text?.toString()
-val desc = node.contentDescription?.toString()
+            val text = node.text?.toString()
+            val desc = node.contentDescription?.toString()
 
-if (text == "PRZ ACQ" || desc == "Prz acq") {
-return node
-}
+            if (text == "PRZ ACQ" || desc == "Prz acq") {
+                return node
+            }
 
-for (i in 0 until node.childCount) {
+            for (i in 0 until node.childCount) {
 
-val result = search(node.getChild(i))
+                val result = search(node.getChild(i))
 
-if (result != null)
-return result
-}
+                if (result != null)
+                    return result
+            }
 
-return null
-}
+            return null
+        }
 
-val tab = search(root) ?: return false
+        val tab = search(root) ?: return false
 
-var node: AccessibilityNodeInfo? = tab
+        var node: AccessibilityNodeInfo? = tab
 
-while (node != null) {
+        while (node != null) {
 
-if (node.isClickable) {
+            if (node.isClickable) {
 
-val ok = node.performAction(
-AccessibilityNodeInfo.ACTION_CLICK
-)
+                val ok = node.performAction(
+                    AccessibilityNodeInfo.ACTION_CLICK
+                )
 
-Log.d(
-TAG,
-"CLICK TAB PRZ ACQ = $ok"
-)
+                Log.d(
+                    TAG,
+                    "CLICK TAB PRZ ACQ = $ok"
+                )
 
-return ok
-}
+                return ok
+            }
 
-node = node.parent
-}
+            node = node.parent
+        }
 
-return false
-}
+        return false
+    }
 
 
-private fun clickPriceModeSwitch(): Boolean {
-Log.d(
-TAG,
-"ENTRO IN clickPriceModeSwitch"
-)
+    private fun clickPriceModeSwitch(): Boolean {
+        Log.d(
+            TAG,
+            "ENTRO IN clickPriceModeSwitch"
+        )
 
-val root = rootInActiveWindow ?: return false
+        val root = rootInActiveWindow ?: return false
 
-val modeNodes =
-root.findAccessibilityNodeInfosByViewId(
-"it.duebit.due:id/price_mode_textview"
-)
+        val modeNodes =
+            root.findAccessibilityNodeInfosByViewId(
+                "it.duebit.due:id/price_mode_textview"
+            )
 
-if (modeNodes.isEmpty()) {
+        if (modeNodes.isEmpty()) {
 
-Log.d(
-TAG,
-"PRICE MODE TEXTVIEW NON TROVATO"
-)
+            Log.d(
+                TAG,
+                "PRICE MODE TEXTVIEW NON TROVATO"
+            )
 
-return false
-}
+            return false
+        }
 
 
-val textNode = modeNodes.first()
+        val textNode = modeNodes.first()
 
-val modeText =
-textNode.text?.toString()
+        val modeText =
+            textNode.text?.toString()
 
 
-Log.d(
-TAG,
-"CURRENT PRICE MODE = $modeText"
-)
+        Log.d(
+            TAG,
+            "CURRENT PRICE MODE = $modeText"
+        )
 
 
-/*
-* Se è già imponibile non fare nulla
-*/
-if (modeText.equals("Imponibile", true)) {
+        /*
+        * Se è già imponibile non fare nulla
+        */
+        if (modeText.equals("Imponibile", true)) {
 
-Log.d(
-TAG,
-"GIÀ IMPONIBILE - NESSUNO SWITCH"
-)
+            Log.d(
+                TAG,
+                "GIÀ IMPONIBILE - NESSUNO SWITCH"
+            )
 
-return false
-}
+            return false
+        }
 
 
-/*
-* Cerca il contenitore cliccabile
-*/
-var node: AccessibilityNodeInfo? =
-textNode
+        /*
+        * Cerca il contenitore cliccabile
+        */
+        var node: AccessibilityNodeInfo? =
+            textNode
 
 
-while (node != null) {
+        while (node != null) {
 
 
-if (node.isClickable) {
+            if (node.isClickable) {
 
 
-val ok =
-node.performAction(
-  AccessibilityNodeInfo.ACTION_CLICK
-)
+                val ok =
+                    node.performAction(
+                        AccessibilityNodeInfo.ACTION_CLICK
+                    )
 
 
-Log.d(
-TAG,
-"CLICK PRICE MODE = $ok"
-)
+                Log.d(
+                    TAG,
+                    "CLICK PRICE MODE = $ok"
+                )
 
 
-return ok
-}
+                return ok
+            }
 
 
-node = node.parent
-}
+            node = node.parent
+        }
 
 
-Log.d(
-TAG,
-"NESSUN PARENT CLICCABILE"
-)
+        Log.d(
+            TAG,
+            "NESSUN PARENT CLICCABILE"
+        )
 
 
-return false
+        return false
 
-}
-private fun dumpChildren(node: AccessibilityNodeInfo?, level: Int = 0) {
+    }
+    private fun dumpChildren(node: AccessibilityNodeInfo?, level: Int = 0) {
 
-if (node == null) return
+        if (node == null) return
 
-val rect = android.graphics.Rect()
-node.getBoundsInScreen(rect)
+        val rect = android.graphics.Rect()
+        node.getBoundsInScreen(rect)
 
-Log.d(
-TAG,
-"${" ".repeat(level * 2)}CLASS=${node.className} " +
-"ID=${node.viewIdResourceName} " +
-"TEXT=${node.text} " +
-"DESC=${node.contentDescription} " +
-"CLICK=${node.isClickable} " +
-"BOUNDS=$rect"
-)
+        Log.d(
+            TAG,
+            "${" ".repeat(level * 2)}CLASS=${node.className} " +
+                    "ID=${node.viewIdResourceName} " +
+                    "TEXT=${node.text} " +
+                    "DESC=${node.contentDescription} " +
+                    "CLICK=${node.isClickable} " +
+                    "BOUNDS=$rect"
+        )
 
-for (i in 0 until node.childCount) {
-dumpChildren(node.getChild(i), level + 1)
-}
-}
-private fun clickUbicazioneSearchButton(): Boolean {
+        for (i in 0 until node.childCount) {
+            dumpChildren(node.getChild(i), level + 1)
+        }
+    }
+    private fun clickUbicazioneSearchButton(): Boolean {
 
-val root = rootInActiveWindow ?: return false
+        val root = rootInActiveWindow ?: return false
 
-val buttons =
-root.findAccessibilityNodeInfosByViewId(
-"it.duebit.due:id/button_search"
-)
+        val buttons =
+            root.findAccessibilityNodeInfosByViewId(
+                "it.duebit.due:id/button_search"
+            )
 
-if (buttons.isEmpty()) {
+        if (buttons.isEmpty()) {
 
-Log.d(
-TAG,
-"PULSANTE CERCA UBICAZIONE NON TROVATO"
-)
+            Log.d(
+                TAG,
+                "PULSANTE CERCA UBICAZIONE NON TROVATO"
+            )
 
-return false
-}
+            return false
+        }
 
-val button = buttons.first()
+        val button = buttons.first()
 
-val ok = button.performAction(
-AccessibilityNodeInfo.ACTION_CLICK
-)
+        val ok = button.performAction(
+            AccessibilityNodeInfo.ACTION_CLICK
+        )
 
-Log.d(
-TAG,
-"CLICK CERCA UBICAZIONE = $ok"
-)
+        Log.d(
+            TAG,
+            "CLICK CERCA UBICAZIONE = $ok"
+        )
 
-return ok
-}
+        return ok
+    }
 
-private fun scrollProductPage(): Boolean {
+    private fun scrollProductPage(): Boolean {
 
-val root = rootInActiveWindow ?: return false
+        val root = rootInActiveWindow ?: return false
 
-val recyclerView = findInfoRecyclerView(root)
-?: return false
+        val recyclerView = findInfoRecyclerView(root)
+            ?: return false
 
-return recyclerView.performAction(
-AccessibilityNodeInfo.ACTION_SCROLL_FORWARD
-)
-}
+        return recyclerView.performAction(
+            AccessibilityNodeInfo.ACTION_SCROLL_FORWARD
+        )
+    }
 
-private fun findInfoRecyclerView(
-node: AccessibilityNodeInfo?
-): AccessibilityNodeInfo? {
+    private fun findInfoRecyclerView(
+        node: AccessibilityNodeInfo?
+    ): AccessibilityNodeInfo? {
 
-if (node == null)
-return null
+        if (node == null)
+            return null
 
-if (
-node.viewIdResourceName ==
-"it.duebit.due:id/recycler_view"
-) {
-return node
-}
+        if (
+            node.viewIdResourceName ==
+            "it.duebit.due:id/recycler_view"
+        ) {
+            return node
+        }
 
-for (i in 0 until node.childCount) {
+        for (i in 0 until node.childCount) {
 
-val result = findInfoRecyclerView(
-node.getChild(i)
-)
+            val result = findInfoRecyclerView(
+                node.getChild(i)
+            )
 
-if (result != null)
-return result
-}
+            if (result != null)
+                return result
+        }
 
-return null
-}
+        return null
+    }
 
-private fun scrollForward(
-node: AccessibilityNodeInfo
-): Boolean {
+    private fun scrollForward(
+        node: AccessibilityNodeInfo
+    ): Boolean {
 
-if (node.isScrollable) {
+        if (node.isScrollable) {
 
-return node.performAction(
-AccessibilityNodeInfo.ACTION_SCROLL_FORWARD
-)
-}
+            return node.performAction(
+                AccessibilityNodeInfo.ACTION_SCROLL_FORWARD
+            )
+        }
 
-for (i in 0 until node.childCount) {
+        for (i in 0 until node.childCount) {
 
-val child = node.getChild(i) ?: continue
+            val child = node.getChild(i) ?: continue
 
-if (scrollForward(child)) {
-return true
-}
-}
+            if (scrollForward(child)) {
+                return true
+            }
+        }
 
-return false
-}
+        return false
+    }
 
-private fun retryReadProductData(
-attempt: Int
-) {
+    private fun retryReadProductData(
+        attempt: Int
+    ) {
 
-if (attempt >= 10) {
+        if (attempt >= 10) {
 
-Log.d(TAG, "descr_textview non trovato")
+            Log.d(TAG, "descr_textview non trovato")
 
-return
-}
+            return
+        }
 
 
-handler.postDelayed({
+        handler.postDelayed({
 
-readProductData(attempt + 1)
+            readProductData(attempt + 1)
 
-}, 300)
-}
+        }, 300)
+    }
 
-private fun findEditable(
-node: AccessibilityNodeInfo?
-): AccessibilityNodeInfo? {
+    private fun findEditable(
+        node: AccessibilityNodeInfo?
+    ): AccessibilityNodeInfo? {
 
-if (node == null)
-return null
+        if (node == null)
+            return null
 
-if (node.isEditable)
-return node
+        if (node.isEditable)
+            return node
 
-for (i in 0 until node.childCount) {
+        for (i in 0 until node.childCount) {
 
-val result =
-findEditable(node.getChild(i))
+            val result =
+                findEditable(node.getChild(i))
 
-if (result != null)
-return result
-}
+            if (result != null)
+                return result
+        }
 
-return null
-}
+        return null
+    }
 
-private fun dumpNode(
-node: AccessibilityNodeInfo?,
-level: Int = 0
-) {
+    private fun dumpNode(
+        node: AccessibilityNodeInfo?,
+        level: Int = 0
+    ) {
 
-if (node == null) return
+        if (node == null) return
 
-val indent = " ".repeat(level * 2)
+        val indent = " ".repeat(level * 2)
 
-Log.d(
-TAG,
-indent +
-"CLASS=${node.className} " +
-"TEXT=${node.text} " +
-"DESC=${node.contentDescription} " +
-"ID=${node.viewIdResourceName} " +
-"editable=${node.isEditable} " +
-"clickable=${node.isClickable} " +
-"focused=${node.isFocused}"
-)
+        Log.d(
+            TAG,
+            indent +
+                    "CLASS=${node.className} " +
+                    "TEXT=${node.text} " +
+                    "DESC=${node.contentDescription} " +
+                    "ID=${node.viewIdResourceName} " +
+                    "editable=${node.isEditable} " +
+                    "clickable=${node.isClickable} " +
+                    "focused=${node.isFocused}"
+        )
 
-for (i in 0 until node.childCount) {
+        for (i in 0 until node.childCount) {
 
-dumpNode(
-node.getChild(i),
-level + 1
-)
+            dumpNode(
+                node.getChild(i),
+                level + 1
+            )
 
-}
+        }
 
-}
+    }
 
-private fun dumpClickable(
-node: AccessibilityNodeInfo?,
-level: Int = 0
-) {
+    private fun dumpClickable(
+        node: AccessibilityNodeInfo?,
+        level: Int = 0
+    ) {
 
-if (node == null) return
+        if (node == null) return
 
-if (node.isClickable) {
+        if (node.isClickable) {
 
-Log.d(
-TAG,
-"CLICKABLE -> " +
-  "CLASS=${node.className} " +
-  "TEXT=${node.text} " +
-  "DESC=${node.contentDescription} " +
-  "ID=${node.viewIdResourceName}"
-)
+            Log.d(
+                TAG,
+                "CLICKABLE -> " +
+                        "CLASS=${node.className} " +
+                        "TEXT=${node.text} " +
+                        "DESC=${node.contentDescription} " +
+                        "ID=${node.viewIdResourceName}"
+            )
 
-}
+        }
 
-for (i in 0 until node.childCount) {
+        for (i in 0 until node.childCount) {
 
-dumpClickable(
-node.getChild(i),
-level + 1
-)
+            dumpClickable(
+                node.getChild(i),
+                level + 1
+            )
 
-}
+        }
 
-}
-private fun readPriceMode(): String? {
+    }
+    private fun readPriceMode(): String? {
 
-val root = rootInActiveWindow ?: return null
+        val root = rootInActiveWindow ?: return null
 
-val nodes =
-root.findAccessibilityNodeInfosByViewId(
-"it.duebit.due:id/price_mode_textview"
-)
+        val nodes =
+            root.findAccessibilityNodeInfosByViewId(
+                "it.duebit.due:id/price_mode_textview"
+            )
 
-val mode =
-nodes.firstOrNull()
-?.text
-?.toString()
+        val mode =
+            nodes.firstOrNull()
+                ?.text
+                ?.toString()
 
 
-Log.d(
-TAG,
-"READ PRICE MODE = $mode"
-)
+        Log.d(
+            TAG,
+            "READ PRICE MODE = $mode"
+        )
 
 
-return mode
-}
+        return mode
+    }
 }
