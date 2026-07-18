@@ -214,7 +214,14 @@ class OverlayService : Service() {
             }
         }
 
-        dockView.setOnTouchListener { _, event ->
+        /*
+         * Lo stesso listener viene applicato alla Dock e ai due pulsanti.
+         *
+         * Gli ImageButton intercettano normalmente gli eventi touch e,
+         * se il listener fosse assegnato solo a dockView, il trascinamento
+         * non partirebbe quando il dito si trova sopra infoArea o scannerArea.
+         */
+        val dockTouchListener = View.OnTouchListener { touchedView, event ->
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     startX = layoutParams.x
@@ -240,6 +247,7 @@ class OverlayService : Service() {
                         layoutParams.x = startX + dx
                         layoutParams.y = startY + dy
                         clampVertical()
+
                         windowManager.updateViewLayout(
                             dockView,
                             layoutParams
@@ -250,10 +258,10 @@ class OverlayService : Service() {
                 }
 
                 MotionEvent.ACTION_UP -> {
-                    if (!isDragging) {
-                        dockView.performClick()
-                    } else {
+                    if (isDragging) {
                         snapToEdge()
+                    } else {
+                        touchedView.performClick()
                     }
 
                     isDragging = false
@@ -263,12 +271,16 @@ class OverlayService : Service() {
                 MotionEvent.ACTION_CANCEL -> {
                     isDragging = false
                     saveCurrentPosition()
-                    false
+                    true
                 }
 
                 else -> false
             }
         }
+
+        dockView.setOnTouchListener(dockTouchListener)
+        infoArea.setOnTouchListener(dockTouchListener)
+        scannerArea.setOnTouchListener(dockTouchListener)
     }
 
     /**
