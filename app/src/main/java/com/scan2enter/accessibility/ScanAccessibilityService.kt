@@ -1217,15 +1217,17 @@ class ScanAccessibilityService : AccessibilityService() {
     private fun hideProductInfoPopup(onHidden: () -> Unit) {
         startService(
             Intent(this, OverlayService::class.java).apply {
-                action = OverlayService.ACTION_HIDE_PRODUCT_INFO
+                action =
+                    OverlayService.ACTION_ENABLE_PRODUCT_INFO_TOUCH_THROUGH
             }
         )
 
-        Log.d(TAG, "RICHIESTA PAUSA POPUP")
+        Log.d(TAG, "RICHIESTA TOUCH THROUGH POPUP")
 
         /*
-         * Concedo a WindowManager il tempo di rimuovere visivamente
-         * l'overlay prima di inviare il gesto a Due Retail.
+         * Concedo a WindowManager il tempo di applicare
+         * FLAG_NOT_TOUCHABLE prima di inviare il gesto a Due Retail.
+         * La finestra resta sempre visibile.
          */
         handler.postDelayed(onHidden, 120)
     }
@@ -1234,11 +1236,12 @@ class ScanAccessibilityService : AccessibilityService() {
         handler.postDelayed({
             startService(
                 Intent(this, OverlayService::class.java).apply {
-                    action = OverlayService.ACTION_RESTORE_PRODUCT_INFO
+                    action =
+                        OverlayService.ACTION_DISABLE_PRODUCT_INFO_TOUCH_THROUGH
                 }
             )
 
-            Log.d(TAG, "RICHIESTA RIPRISTINO POPUP")
+            Log.d(TAG, "RICHIESTA POPUP OPACO")
         }, delayMs)
     }
 

@@ -5,6 +5,7 @@ import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.PixelFormat
+import android.graphics.drawable.GradientDrawable
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
@@ -12,7 +13,9 @@ import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewOutlineProvider
 import android.view.WindowManager
+import android.widget.FrameLayout
 import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.LinearLayout
@@ -35,11 +38,11 @@ class OverlayService : Service() {
         const val ACTION_UPDATE_PRODUCT_INFO =
             "com.scan2enter.action.UPDATE_PRODUCT_INFO"
 
-        const val ACTION_HIDE_PRODUCT_INFO =
-            "com.scan2enter.action.HIDE_PRODUCT_INFO"
+        const val ACTION_ENABLE_PRODUCT_INFO_TOUCH_THROUGH =
+            "com.scan2enter.action.ENABLE_PRODUCT_INFO_TOUCH_THROUGH"
 
-        const val ACTION_RESTORE_PRODUCT_INFO =
-            "com.scan2enter.action.RESTORE_PRODUCT_INFO"
+        const val ACTION_DISABLE_PRODUCT_INFO_TOUCH_THROUGH =
+            "com.scan2enter.action.DISABLE_PRODUCT_INFO_TOUCH_THROUGH"
 
         const val EXTRA_WORKFLOW_COMPLETED =
             "com.scan2enter.extra.WORKFLOW_COMPLETED"
@@ -69,6 +72,7 @@ class OverlayService : Service() {
     private val popupHandler = Handler(Looper.getMainLooper())
 
     private var productInfoPopup: View? = null
+    private var productInfoPopupParams: WindowManager.LayoutParams? = null
 
     private var priceValueText: TextView? = null
     private var articleCodeValueText: TextView? = null
@@ -132,20 +136,12 @@ class OverlayService : Service() {
                 )
             }
 
-            ACTION_HIDE_PRODUCT_INFO -> {
-                productInfoPopup?.visibility = View.INVISIBLE
-                android.util.Log.d(
-                    "OverlayService",
-                    "POPUP NASCOSTO TEMPORANEAMENTE"
-                )
+            ACTION_ENABLE_PRODUCT_INFO_TOUCH_THROUGH -> {
+                setProductInfoTouchThrough(enabled = true)
             }
 
-            ACTION_RESTORE_PRODUCT_INFO -> {
-                productInfoPopup?.visibility = View.VISIBLE
-                android.util.Log.d(
-                    "OverlayService",
-                    "POPUP RIPRISTINATO"
-                )
+            ACTION_DISABLE_PRODUCT_INFO_TOUCH_THROUGH -> {
+                setProductInfoTouchThrough(enabled = false)
             }
         }
 
@@ -321,8 +317,20 @@ class OverlayService : Service() {
         val screenWidth = resources.displayMetrics.widthPixels
         val screenHeight = resources.displayMetrics.heightPixels
 
+        /*
+         * La finestra overlay occupa tutto lo schermo.
+         * Il wrapper scuro ricrea la separazione visiva del vecchio dialogo,
+         * mentre la card interna resta completamente bianca e opaca.
+         */
+        val overlayRoot = FrameLayout(this).apply {
+            setBackgroundColor(Color.BLACK)
+            alpha = 1.0f
+            clipChildren = false
+            clipToPadding = false
+        }
+
         val popupView = LayoutInflater.from(this)
-            .inflate(R.layout.product_info_popup, null)
+            .inflate(R.layout.product_info_popup, overlayRoot, false)
 
         descriptionValueText =
             popupView.findViewById(R.id.productDescriptionText)
@@ -354,37 +362,42 @@ class OverlayService : Service() {
         stockValueText =
             popupView.findViewById(R.id.productStockText)
 
-        // Il popup deve restare non interattivo per permettere ad Accessibility
-        // di continuare a lavorare su Due Retail. Il vecchio pulsante X viene
-        // quindi nascosto; la chiusura resta automatica come nella versione
-        // progressiva già testata.
+        // Il popup resta non interattivo durante il workflow Accessibility.
         popupView.findViewById<TextView>(R.id.closeProductInfoButton)
             .visibility = View.GONE
 
+        val horizontalMargin = (24 * density).toInt()
+        val verticalMargin = (42 * density).toInt()
+        val bottomBreathingRoom = (14 * density).toInt()
+        val shadowOffset = (5 * density).toInt()
+
         val popupWidth = min(
             (390 * density).toInt(),
-            screenWidth - (24 * density).toInt()
+            screenWidth - horizontalMargin * 2
         )
 
-        val popupMaxHeight = screenHeight - (48 * density).toInt()
+        val popupMaxHeight = screenHeight - verticalMargin * 2
 
-        val popupParams = WindowManager.LayoutParams(
-            popupWidth,
-            WindowManager.LayoutParams.WRAP_CONTENT,
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                    WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
-                    WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
-                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
-            PixelFormat.RGBA_8888
-        ).apply {
-            gravity = Gravity.CENTER
+        /*
+         * La card bianca resta completamente opaca.
+         * Il padding inferiore aggiunge circa 3-4 mm sotto la giacenza.
+         */
+        popupView.setPadding(
+            popupView.paddingLeft,
+            popupView.paddingTop,
+            popupView.paddingRight,
+            popupView.paddingBottom + bottomBreathingRoom
+        )
+
+        popupView.background = GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            setColor(Color.WHITE)
+            cornerRadius = 22 * density
         }
-
-        // Mantiene la card completamente opaca senza usare FLAG_DIM_BEHIND,
-        // che interferiva con il workflow Accessibility.
         popupView.alpha = 1.0f
-        popupView.background?.alpha = 255
+        popupView.clipToOutline = true
+        popupView.outlineProvider = ViewOutlineProvider.BACKGROUND
+        popupView.elevation = 14 * density
 
         popupView.measure(
             View.MeasureSpec.makeMeasureSpec(
@@ -392,13 +405,131 @@ class OverlayService : Service() {
                 View.MeasureSpec.EXACTLY
             ),
             View.MeasureSpec.makeMeasureSpec(
-                popupMaxHeight,
+                popupMaxHeight - shadowOffset,
                 View.MeasureSpec.AT_MOST
             )
         )
 
-        productInfoPopup = popupView
-        windowManager.addView(popupView, popupParams)
+        val cardHeight = min(
+            popupView.measuredHeight,
+            popupMaxHeight - shadowOffset
+        )
+
+        /*
+         * Base nera leggermente spostata verso il basso:
+         * ricrea profondità visiva senza rendere trasparente la card.
+         */
+        val cardContainer = FrameLayout(this).apply {
+            clipChildren = false
+            clipToPadding = false
+        }
+
+        val grayBase = View(this).apply {
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                setColor(Color.BLACK)
+                cornerRadius = 22 * density
+            }
+        }
+
+        val grayBaseParams = FrameLayout.LayoutParams(
+            popupWidth,
+            cardHeight
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+            topMargin = shadowOffset
+        }
+
+        val whiteCardParams = FrameLayout.LayoutParams(
+            popupWidth,
+            cardHeight
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+        }
+
+        cardContainer.addView(grayBase, grayBaseParams)
+        cardContainer.addView(popupView, whiteCardParams)
+
+        val containerParams = FrameLayout.LayoutParams(
+            popupWidth,
+            cardHeight + shadowOffset
+        ).apply {
+            gravity = Gravity.CENTER
+        }
+
+        overlayRoot.addView(cardContainer, containerParams)
+
+        val popupParams = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                    WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            PixelFormat.OPAQUE
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+            alpha = 1.0f
+        }
+
+        productInfoPopup = overlayRoot
+        productInfoPopupParams = popupParams
+        windowManager.addView(overlayRoot, popupParams)
+    }
+
+    /**
+     * Abilita o disabilita il passaggio dei tocchi senza nascondere
+     * e senza ricreare la superficie grafica del popup.
+     *
+     * Quando FLAG_NOT_TOUCHABLE è attivo, Android può limitare
+     * temporaneamente l'alpha della finestra overlay a 0,80.
+     * Quando viene rimosso, la finestra torna opaca al 100%.
+     */
+    private fun setProductInfoTouchThrough(enabled: Boolean) {
+        val popup = productInfoPopup ?: return
+        val params = productInfoPopupParams ?: return
+
+        val newFlags =
+            if (enabled) {
+                params.flags or
+                        WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+            } else {
+                params.flags and
+                        WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
+            }
+
+        if (params.flags == newFlags) {
+            android.util.Log.d(
+                "OverlayService",
+                "TOUCH THROUGH GIA' ${if (enabled) "ATTIVO" else "DISATTIVO"}"
+            )
+            return
+        }
+
+        params.flags = newFlags
+        params.alpha = 1.0f
+
+        try {
+            windowManager.updateViewLayout(
+                popup,
+                params
+            )
+
+            android.util.Log.d(
+                "OverlayService",
+                if (enabled) {
+                    "TOUCH THROUGH ATTIVATO - POPUP SEMPRE VISIBILE"
+                } else {
+                    "TOUCH THROUGH DISATTIVATO - POPUP OPACO"
+                }
+            )
+        } catch (error: Exception) {
+            android.util.Log.e(
+                "OverlayService",
+                "ERRORE AGGIORNAMENTO TOUCH THROUGH",
+                error
+            )
+        }
     }
 
     private fun updateProductInfoPopup(
@@ -460,6 +591,7 @@ class OverlayService : Service() {
         }
 
         productInfoPopup = null
+        productInfoPopupParams = null
         priceValueText = null
         articleCodeValueText = null
         barcodeValueText = null
