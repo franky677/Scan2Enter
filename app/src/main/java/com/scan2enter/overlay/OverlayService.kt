@@ -180,6 +180,8 @@ class OverlayService : Service() {
     override fun onCreate() {
         super.onCreate()
 
+        ProductInfoStore.initialize(applicationContext)
+
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
         scanOverlay = ScanOverlay(this)
 
