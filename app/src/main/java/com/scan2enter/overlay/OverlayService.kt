@@ -546,6 +546,24 @@ class OverlayService : Service() {
 
         return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
+            isClickable = true
+            isFocusable = true
+
+            setOnClickListener {
+                ProductInfoStore.current = product
+                removeHistoryPopup()
+
+                showOrUpdateProductInfoPopup(
+                    workflowCompleted = true,
+                    manualOpen = true
+                )
+
+                android.util.Log.d(
+                    "OverlayService",
+                    "ARTICOLO CRONOLOGIA APERTO EAN=${product.barcode}"
+                )
+            }
+
             setPadding(
                 (14 * density).toInt(),
                 (12 * density).toInt(),
