@@ -1298,9 +1298,15 @@ class ScanAccessibilityService : AccessibilityService() {
                                                         )
                                                         ProductInfoStore.current = currentProductInfo
 
+                                                        currentProductInfo?.let { completedProduct ->
+                                                            ProductInfoStore.addToHistory(
+                                                                completedProduct
+                                                            )
+                                                        }
+
                                                         Log.d(
                                                             TAG,
-                                                            "PRODUCT INFO SALVATO NELLO STORE"
+                                                            "PRODUCT INFO SALVATO NELLO STORE E NELLA CRONOLOGIA"
                                                         )
 
                                                         publishProductInfo(
