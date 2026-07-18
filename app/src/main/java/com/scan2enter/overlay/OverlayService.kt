@@ -44,6 +44,12 @@ class OverlayService : Service() {
         const val ACTION_DISABLE_PRODUCT_INFO_TOUCH_THROUGH =
             "com.scan2enter.action.DISABLE_PRODUCT_INFO_TOUCH_THROUGH"
 
+        const val ACTION_PREPARE_SCANNER =
+            "com.scan2enter.action.PREPARE_SCANNER"
+
+        const val ACTION_OPEN_SCANNER =
+            "com.scan2enter.action.OPEN_SCANNER"
+
         const val EXTRA_WORKFLOW_COMPLETED =
             "com.scan2enter.extra.WORKFLOW_COMPLETED"
 
@@ -143,6 +149,26 @@ class OverlayService : Service() {
             ACTION_DISABLE_PRODUCT_INFO_TOUCH_THROUGH -> {
                 setProductInfoTouchThrough(enabled = false)
             }
+
+            ACTION_OPEN_SCANNER -> {
+                android.util.Log.d(
+                    "OverlayService",
+                    "SCHERMATA INFORMAZIONI PRONTA - APRO SCANNER"
+                )
+
+                if (BuildFlags.USE_NEW_SCANNER) {
+                    scanOverlay.show()
+                } else {
+                    val scannerIntent = Intent(
+                        this,
+                        MainActivity::class.java
+                    ).apply {
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+
+                    startActivity(scannerIntent)
+                }
+            }
         }
 
         return START_STICKY
@@ -200,18 +226,20 @@ class OverlayService : Service() {
         scannerArea.setOnClickListener {
             if (isDragging) return@setOnClickListener
 
-            if (BuildFlags.USE_NEW_SCANNER) {
-                scanOverlay.show()
-            } else {
-                val intent = Intent(
-                    this,
-                    MainActivity::class.java
-                ).apply {
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            /*
+             * Prima di mostrare CameraX chiedo al servizio Accessibility
+             * di aprire la schermata Informazioni di Due Retail.
+             */
+            sendBroadcast(
+                Intent(ACTION_PREPARE_SCANNER).apply {
+                    setPackage(packageName)
                 }
+            )
 
-                startActivity(intent)
-            }
+            android.util.Log.d(
+                "OverlayService",
+                "RICHIESTA PREPARAZIONE DUE RETAIL"
+            )
         }
 
         /*

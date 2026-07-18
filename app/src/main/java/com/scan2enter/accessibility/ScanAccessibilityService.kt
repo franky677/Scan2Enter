@@ -1,7 +1,11 @@
 package com.scan2enter.accessibility
 
 import android.accessibilityservice.AccessibilityService
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -38,10 +42,48 @@ class ScanAccessibilityService : AccessibilityService() {
     private val handler = Handler(Looper.getMainLooper())
     private val productInfoReader = ProductInfoReader()
     private var currentProductInfo: ProductInfo? = null
+
+    private val prepareScannerReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action != OverlayService.ACTION_PREPARE_SCANNER) {
+                return
+            }
+
+            Log.d(TAG, "RICHIESTA PREPARAZIONE SCANNER")
+
+            prepareAndOpenScanner()
+        }
+    }
     override fun onServiceConnected() {
 
         Log.d(TAG, "Accessibility connessa")
 
+        val filter = IntentFilter(
+            OverlayService.ACTION_PREPARE_SCANNER
+        )
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(
+                prepareScannerReceiver,
+                filter,
+                Context.RECEIVER_NOT_EXPORTED
+            )
+        } else {
+            @Suppress("DEPRECATION")
+            registerReceiver(
+                prepareScannerReceiver,
+                filter
+            )
+        }
+    }
+
+    override fun onDestroy() {
+        try {
+            unregisterReceiver(prepareScannerReceiver)
+        } catch (_: IllegalArgumentException) {
+        }
+
+        super.onDestroy()
     }
 
     override fun onInterrupt() {}
@@ -131,6 +173,200 @@ class ScanAccessibilityService : AccessibilityService() {
         }, INSERT_DELAY)
 
     }
+
+    /**
+     * Prepara Due Retail prima dell'apertura della fotocamera.
+     *
+     * Se il campo di ricerca articolo è già visibile, apre subito lo scanner.
+     * Altrimenti preme il pulsante Informazioni e attende che la schermata
+     * corretta sia realmente pronta.
+     */
+    private fun prepareAndOpenScanner() {
+
+        val root = rootInActiveWindow
+
+        if (root?.packageName?.toString() != DUE_PACKAGE) {
+            Log.d(TAG, "DUE RETAIL NON ATTIVO - SCANNER NON APERTO")
+            return
+        }
+
+        if (findEditable(root) != null) {
+            Log.d(TAG, "SCHERMATA INFORMAZIONI GIA PRONTA")
+            requestScannerOpen()
+            return
+        }
+
+        val clicked = clickInformationHomeTile(root)
+
+        Log.d(TAG, "CLICK INFORMAZIONI PRIMA DELLO SCAN = $clicked")
+
+        if (!clicked) {
+            Log.d(TAG, "PULSANTE INFORMAZIONI NON TROVATO")
+            return
+        }
+
+        waitForInformationSearchScreen()
+    }
+
+    /**
+     * Cerca il riquadro "Informazioni" nella home di Due Retail.
+     *
+     * In questa schermata non è presente search_product_layout:
+     * il testo "Informazioni" è contenuto nella tessera verde iniziale.
+     * Provo prima ACTION_CLICK sul nodo o su un suo genitore cliccabile;
+     * se Due Retail non espone la proprietà clickable, uso un tap al centro
+     * del contenitore della tessera.
+     */
+    private fun clickInformationHomeTile(
+        root: AccessibilityNodeInfo
+    ): Boolean {
+
+        fun findInformationNode(
+            node: AccessibilityNodeInfo?
+        ): AccessibilityNodeInfo? {
+
+            if (node == null) {
+                return null
+            }
+
+            val text =
+                node.text?.toString()?.trim()
+
+            val description =
+                node.contentDescription?.toString()?.trim()
+
+            if (
+                text.equals("Informazioni", ignoreCase = true) ||
+                description.equals("Informazioni", ignoreCase = true)
+            ) {
+                return node
+            }
+
+            for (index in 0 until node.childCount) {
+                val result =
+                    findInformationNode(node.getChild(index))
+
+                if (result != null) {
+                    return result
+                }
+            }
+
+            return null
+        }
+
+        val informationNode =
+            findInformationNode(root)
+
+        if (informationNode == null) {
+            Log.d(TAG, "TESTO INFORMAZIONI NON TROVATO")
+            return false
+        }
+
+        Log.d(
+            TAG,
+            "INFORMAZIONI TROVATO " +
+                    "id=${informationNode.viewIdResourceName} " +
+                    "class=${informationNode.className}"
+        )
+
+        var node: AccessibilityNodeInfo? =
+            informationNode
+
+        var tapCandidate: AccessibilityNodeInfo =
+            informationNode
+
+        while (node != null) {
+
+            val bounds = Rect()
+            node.getBoundsInScreen(bounds)
+
+            /*
+             * Memorizzo il contenitore più ampio ma ancora compatibile
+             * con una tessera della home, evitando di arrivare all'intera Activity.
+             */
+            if (
+                !bounds.isEmpty &&
+                bounds.width() >= 250 &&
+                bounds.height() in 150..700
+            ) {
+                tapCandidate = node
+            }
+
+            if (node.isClickable) {
+
+                val clicked =
+                    node.performAction(
+                        AccessibilityNodeInfo.ACTION_CLICK
+                    )
+
+                Log.d(
+                    TAG,
+                    "CLICK CONTENITORE INFORMAZIONI = $clicked"
+                )
+
+                if (clicked) {
+                    return true
+                }
+            }
+
+            node = node.parent
+        }
+
+        val tapResult =
+            tapNode(tapCandidate)
+
+        Log.d(
+            TAG,
+            "TAP CONTENITORE INFORMAZIONI = $tapResult"
+        )
+
+        return tapResult
+    }
+
+
+    private fun waitForInformationSearchScreen(
+        attempt: Int = 0
+    ) {
+
+        val root = rootInActiveWindow
+
+        val dueRetailActive =
+            root?.packageName?.toString() == DUE_PACKAGE
+
+        val searchFieldReady =
+            dueRetailActive && findEditable(root) != null
+
+        Log.d(
+            TAG,
+            "ATTESA INFORMAZIONI attempt=$attempt ready=$searchFieldReady"
+        )
+
+        if (searchFieldReady) {
+            requestScannerOpen()
+            return
+        }
+
+        if (attempt >= 25) {
+            Log.d(TAG, "TIMEOUT APERTURA SCHERMATA INFORMAZIONI")
+            return
+        }
+
+        handler.postDelayed({
+            waitForInformationSearchScreen(attempt + 1)
+        }, 100)
+    }
+
+    private fun requestScannerOpen() {
+
+        startService(
+            Intent(this, OverlayService::class.java).apply {
+                action = OverlayService.ACTION_OPEN_SCANNER
+            }
+        )
+
+        Log.d(TAG, "RICHIESTA APERTURA SCANNER")
+    }
+
 
     private fun injectBarcode() {
 
