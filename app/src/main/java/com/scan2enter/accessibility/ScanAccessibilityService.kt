@@ -199,22 +199,9 @@ class ScanAccessibilityService : AccessibilityService() {
 
             if (clickBarcodeButton(root)) {
 
-                Log.d(TAG, "Barcode click OK, provo click risultato tra 200ms")
+                Log.d(TAG, "Barcode click OK, attendo il primo risultato")
 
-                handler.postDelayed({
-
-                    Log.d(TAG, "Eseguo clickFirstResult()")
-
-                    clickFirstResult()
-
-                    handler.postDelayed({
-
-                        readProductData()
-
-                    }, 300)
-
-                }, 200)
-
+                waitAndClickFirstResult()
 
             } else {
 
@@ -378,40 +365,135 @@ class ScanAccessibilityService : AccessibilityService() {
         return null
     }
 
-    private fun clickFirstResult() {
+    private fun waitAndClickFirstResult(
+        attempt: Int = 0,
+        recoveryAttempt: Int = 0
+    ) {
 
-        val root = rootInActiveWindow ?: return
+        val expectedBarcode = lastInjected.filter(Char::isDigit)
+
+        if (expectedBarcode.isBlank()) {
+            Log.d(TAG, "BARCODE ATTESO NON DISPONIBILE")
+            return
+        }
+
+        /*
+         * La riga della finestrella risultati non espone sempre il barcode
+         * nell'albero Accessibility. Attendo quindi un breve tempo di
+         * stabilizzazione e apro il primo risultato appena disponibile.
+         */
+        if (attempt < 3) {
+            handler.postDelayed({
+                waitAndClickFirstResult(attempt + 1, recoveryAttempt)
+            }, 100)
+            return
+        }
+
+        if (clickFirstResult()) {
+
+            Log.d(
+                TAG,
+                "PRIMO RISULTATO APERTO - verifico scheda articolo"
+            )
+
+            waitForArticleDetail(expectedBarcode, recoveryAttempt = recoveryAttempt)
+
+            return
+        }
+
+        if (attempt >= 25) {
+
+            Log.d(
+                TAG,
+                "TIMEOUT ATTESA PRIMO RISULTATO barcode=$expectedBarcode"
+            )
+
+            return
+        }
+
+        handler.postDelayed({
+            waitAndClickFirstResult(attempt + 1, recoveryAttempt)
+        }, 100)
+    }
+
+
+    private fun waitForArticleDetail(
+        expectedBarcode: String,
+        attempt: Int = 0,
+        recoveryAttempt: Int = 0
+    ) {
+
+        val root = rootInActiveWindow
+
+        val descriptionReady =
+            root?.findAccessibilityNodeInfosByViewId(
+                "it.duebit.due:id/descr_textview"
+            )?.isNotEmpty() == true
+
+        Log.d(
+            TAG,
+            "ATTESA SCHEDA attempt=$attempt " +
+                    "descriptionReady=$descriptionReady"
+        )
+
+        /*
+         * Nella scheda Informazioni il barcode non viene sempre esposto
+         * nello stesso formato del codice scansito. Usarlo come condizione
+         * bloccante fermava quindi il workflow anche sulla scheda corretta.
+         *
+         * Quando descr_textview compare, lascio tre cicli da 100 ms alla UI
+         * per stabilizzarsi e poi avvio la pipeline già collaudata.
+         */
+        if (descriptionReady && attempt >= 3) {
+
+            Log.d(TAG, "SCHEDA ARTICOLO PRONTA")
+
+            readProductData()
+
+            return
+        }
+
+        if (attempt >= 30) {
+
+            Log.d(
+                TAG,
+                "TIMEOUT ATTESA SCHEDA ARTICOLO barcode=$expectedBarcode"
+            )
+
+            return
+        }
+
+        handler.postDelayed({
+            waitForArticleDetail(
+                expectedBarcode = expectedBarcode,
+                attempt = attempt + 1,
+                recoveryAttempt = recoveryAttempt
+            )
+        }, 100)
+    }
+
+
+    private fun clickFirstResult(): Boolean {
+
+        val root = rootInActiveWindow ?: return false
 
         val recycler = root.findAccessibilityNodeInfosByViewId(
             "it.duebit.due:id/recycler_view"
         )
 
         if (recycler.isEmpty()) {
-
-            Log.d(TAG, "RecyclerView NON trovata")
-
-            return
+            return false
         }
 
         val list = recycler.first()
 
         if (list.childCount == 0) {
-
-            Log.d(TAG, "RecyclerView vuota")
-
-            return
+            return false
         }
 
-        val firstItem = list.getChild(0)
+        val firstItem = list.getChild(0) ?: return false
 
-        if (firstItem == null) {
-
-            Log.d(TAG, "Primo elemento nullo")
-
-            return
-        }
-
-        Log.d(TAG, "Click primo elemento RecyclerView")
+        Log.d(TAG, "Click primo elemento RecyclerView disponibile")
 
         var ok = firstItem.performAction(
             AccessibilityNodeInfo.ACTION_CLICK
@@ -443,8 +525,9 @@ class ScanAccessibilityService : AccessibilityService() {
         }
 
         Log.d(TAG, "CLICK primo elemento = $ok")
-    }
 
+        return ok
+    }
 
 
     private fun tap(x: Float, y: Float, onComplete: (() -> Unit)? = null) {
@@ -566,8 +649,14 @@ class ScanAccessibilityService : AccessibilityService() {
         Log.d(TAG, "==================================")
 
 
-        currentProductInfo =
+        val initialProductInfo =
             productInfoReader.buildProductInfo(root)
+
+        currentProductInfo = initialProductInfo.copy(
+            barcode = initialProductInfo.barcode.ifBlank {
+                lastInjected
+            }
+        )
 
         val productInfo = currentProductInfo
 
@@ -599,9 +688,24 @@ class ScanAccessibilityService : AccessibilityService() {
 
                 val root2 = rootInActiveWindow
 
-                Log.d(TAG, "READ BARCODE = ${productInfoReader.readBarcode(root2)}")
-                Log.d(TAG, "READ YEAR = ${productInfoReader.readYear(root2)}")
-                Log.d(TAG, "READ SEASON = ${productInfoReader.readSeason(root2)}")
+                val barcode = productInfoReader.readBarcode(root2)
+                val year = productInfoReader.readYear(root2)
+                val season = productInfoReader.readSeason(root2)
+
+                Log.d(TAG, "READ BARCODE = $barcode")
+                Log.d(TAG, "READ YEAR = $year")
+                Log.d(TAG, "READ SEASON = $season")
+
+                currentProductInfo = currentProductInfo?.copy(
+                    barcode = barcode ?: currentProductInfo?.barcode.orEmpty(),
+                    year = year ?: currentProductInfo?.year.orEmpty(),
+                    season = season ?: currentProductInfo?.season.orEmpty()
+                )
+
+                publishProductInfo(
+                    showPopup = false,
+                    workflowCompleted = false
+                )
 
             }, 600)
 
@@ -646,7 +750,28 @@ class ScanAccessibilityService : AccessibilityService() {
                         val info =
                             productInfoReader.buildProductInfo(priceRoot)
 
-                        currentProductInfo = info
+                        val previous = currentProductInfo
+
+                        currentProductInfo = info.copy(
+                            articleCode = info.articleCode.ifBlank {
+                                previous?.articleCode.orEmpty()
+                            },
+                            description = info.description.ifBlank {
+                                previous?.description.orEmpty()
+                            },
+                            barcode = info.barcode.ifBlank {
+                                previous?.barcode.orEmpty()
+                            },
+                            year = info.year.ifBlank {
+                                previous?.year.orEmpty()
+                            },
+                            season = info.season.ifBlank {
+                                previous?.season.orEmpty()
+                            },
+                            taxablePrice = previous?.taxablePrice.orEmpty(),
+                            vatRate = previous?.vatRate.orEmpty(),
+                            stock = previous?.stock.orEmpty()
+                        )
 
                         val spinnerNodes =
                             root?.findAccessibilityNodeInfosByViewId(
@@ -672,7 +797,17 @@ class ScanAccessibilityService : AccessibilityService() {
 
                         Log.d(
                             TAG,
-                            "PREZZO LETTO = ${info.publicPrice}"
+                            "PREZZO LETTO = ${currentProductInfo?.publicPrice}"
+                        )
+
+                        /*
+                         * Mostro subito il popup Scan2Enter. Da questo momento
+                         * le altre finestre di Due Retail continuano a cambiare
+                         * sotto un overlay non focalizzabile.
+                         */
+                        publishProductInfo(
+                            showPopup = true,
+                            workflowCompleted = false
                         )
 
                     }
@@ -749,184 +884,205 @@ class ScanAccessibilityService : AccessibilityService() {
                         Log.d(TAG, "ROW COMPLETA = $rowRect")
                         Log.d(TAG, "TAP x=$x y=$y")
 
-                        tap(x, y) {
+                        hideProductInfoPopup {
+                            tap(x, y) {
 
-                            Log.d(TAG, "GESTURE COMPLETATA")
+                                Log.d(TAG, "GESTURE COMPLETATA")
+                                restoreProductInfoPopup()
 
-                            handler.postDelayed({
-
-                                val popupRoot = rootInActiveWindow
-
-                                if (popupRoot == null) {
-
-                                    Log.d(
-                                        TAG,
-                                        "ROOT POPUP NON DISPONIBILE"
-                                    )
-
-                                    return@postDelayed
-                                }
-
-                                val taxablePrice =
-                                    readTextById(
-                                        popupRoot,
-                                        "it.duebit.due:id/imponibile"
-                                    )
-
-                                val vatRate =
-                                    readTextById(
-                                        popupRoot,
-                                        "it.duebit.due:id/aliquota_iva"
-                                    )
-
-                                Log.d(
-                                    TAG,
-                                    "IMPONIBILE POPUP = $taxablePrice"
-                                )
-
-                                Log.d(
-                                    TAG,
-                                    "IVA POPUP = $vatRate"
-                                )
-
-                                currentProductInfo =
-                                    currentProductInfo?.copy(
-                                        taxablePrice = taxablePrice ?: "",
-                                        vatRate = vatRate ?: ""
-                                    )
-
-                                Log.d(
-                                    TAG,
-                                    "IMPONIBILE SALVATO = ${currentProductInfo?.taxablePrice}"
-                                )
-
-                                Log.d(
-                                    TAG,
-                                    "IVA SALVATA = ${currentProductInfo?.vatRate}"
-                                )
                                 handler.postDelayed({
 
-                                    val popupClosed =
-                                        closePublicPricePopup()
+                                    val popupRoot = rootInActiveWindow
 
-                                    Log.d(
-                                        TAG,
-                                        "POPUP LISTINO CHIUSO = $popupClosed"
-                                    )
-
-                                    if (!popupClosed) {
-                                        return@postDelayed
-                                    }
-
-                                    /*
-                                     * Attendo che il popup sia completamente scomparso
-                                     * prima di aprire la scheda GIACENZA.
-                                     */
-                                    handler.postDelayed({
-
-                                        val stockTabOpened =
-                                            clickStockTab()
+                                    if (popupRoot == null) {
 
                                         Log.d(
                                             TAG,
-                                            "APRO GIACENZA = $stockTabOpened"
+                                            "ROOT POPUP NON DISPONIBILE"
                                         )
 
-                                        if (!stockTabOpened) {
-                                            return@postDelayed
+                                        return@postDelayed
+                                    }
+
+                                    val taxablePrice =
+                                        readTextById(
+                                            popupRoot,
+                                            "it.duebit.due:id/imponibile"
+                                        )
+
+                                    val vatRate =
+                                        readTextById(
+                                            popupRoot,
+                                            "it.duebit.due:id/aliquota_iva"
+                                        )
+
+                                    Log.d(
+                                        TAG,
+                                        "IMPONIBILE POPUP = $taxablePrice"
+                                    )
+
+                                    Log.d(
+                                        TAG,
+                                        "IVA POPUP = $vatRate"
+                                    )
+
+                                    currentProductInfo =
+                                        currentProductInfo?.copy(
+                                            taxablePrice = taxablePrice ?: "",
+                                            vatRate = vatRate ?: ""
+                                        )
+
+                                    Log.d(
+                                        TAG,
+                                        "IMPONIBILE SALVATO = ${currentProductInfo?.taxablePrice}"
+                                    )
+
+                                    Log.d(
+                                        TAG,
+                                        "IVA SALVATA = ${currentProductInfo?.vatRate}"
+                                    )
+
+                                    publishProductInfo(
+                                        showPopup = false,
+                                        workflowCompleted = false
+                                    )
+
+                                    handler.postDelayed({
+
+                                        hideProductInfoPopup {
+                                            val popupClosed =
+                                                closePublicPricePopup()
+
+                                            Log.d(
+                                                TAG,
+                                                "POPUP LISTINO CHIUSO = $popupClosed"
+                                            )
+
+                                            restoreProductInfoPopup()
+
+                                            if (!popupClosed) {
+                                                return@hideProductInfoPopup
+                                            }
+
+                                            /*
+                                             * Attendo che il popup sia completamente scomparso
+                                             * prima di aprire la scheda GIACENZA.
+                                             */
+                                            handler.postDelayed({
+
+                                                hideProductInfoPopup {
+                                                    val stockTabOpened =
+                                                        clickStockTab()
+
+                                                    Log.d(
+                                                        TAG,
+                                                        "APRO GIACENZA = $stockTabOpened"
+                                                    )
+
+                                                    restoreProductInfoPopup()
+
+                                                    if (!stockTabOpened) {
+                                                        return@hideProductInfoPopup
+                                                    }
+
+                                                    /*
+                                                     * Attendo il caricamento della scheda GIACENZA.
+                                                     */
+                                                    handler.postDelayed({
+
+                                                        val stockRoot =
+                                                            rootInActiveWindow
+
+                                                        val stock =
+                                                            productInfoReader.readStock(stockRoot)
+
+                                                        Log.d(
+                                                            TAG,
+                                                            "GIACENZA LETTA = $stock"
+                                                        )
+
+                                                        currentProductInfo =
+                                                            currentProductInfo?.copy(
+                                                                stock = stock ?: ""
+                                                            )
+
+                                                        Log.d(
+                                                            TAG,
+                                                            "========== PRODUCT INFO COMPLETO =========="
+                                                        )
+
+                                                        Log.d(
+                                                            TAG,
+                                                            "CODICE = ${currentProductInfo?.articleCode}"
+                                                        )
+
+                                                        Log.d(
+                                                            TAG,
+                                                            "EAN = ${currentProductInfo?.barcode}"
+                                                        )
+
+                                                        Log.d(
+                                                            TAG,
+                                                            "DESCRIZIONE = ${currentProductInfo?.description}"
+                                                        )
+
+                                                        Log.d(
+                                                            TAG,
+                                                            "IMPONIBILE = ${currentProductInfo?.taxablePrice}"
+                                                        )
+
+                                                        Log.d(
+                                                            TAG,
+                                                            "IVA = ${currentProductInfo?.vatRate}"
+                                                        )
+
+                                                        Log.d(
+                                                            TAG,
+                                                            "PREZZO PUBBLICO = ${currentProductInfo?.publicPrice}"
+                                                        )
+
+                                                        Log.d(
+                                                            TAG,
+                                                            "ANNO = ${currentProductInfo?.year}"
+                                                        )
+
+                                                        Log.d(
+                                                            TAG,
+                                                            "STAGIONE = ${currentProductInfo?.season}"
+                                                        )
+
+                                                        Log.d(
+                                                            TAG,
+                                                            "GIACENZA = ${currentProductInfo?.stock}"
+                                                        )
+
+                                                        Log.d(
+                                                            TAG,
+                                                            "=========================================="
+                                                        )
+                                                        ProductInfoStore.current = currentProductInfo
+
+                                                        Log.d(
+                                                            TAG,
+                                                            "PRODUCT INFO SALVATO NELLO STORE"
+                                                        )
+
+                                                        publishProductInfo(
+                                                            showPopup = false,
+                                                            workflowCompleted = true
+                                                        )
+
+                                                        finishProductWorkflow()
+                                                    }, 650)
+                                                }
+                                            }, 300)
                                         }
 
-                                        /*
-                                         * Attendo il caricamento della scheda GIACENZA.
-                                         */
-                                        handler.postDelayed({
-
-                                            val stockRoot =
-                                                rootInActiveWindow
-
-                                            val stock =
-                                                productInfoReader.readStock(stockRoot)
-
-                                            Log.d(
-                                                TAG,
-                                                "GIACENZA LETTA = $stock"
-                                            )
-
-                                            currentProductInfo =
-                                                currentProductInfo?.copy(
-                                                    stock = stock ?: ""
-                                                )
-
-                                            Log.d(
-                                                TAG,
-                                                "========== PRODUCT INFO COMPLETO =========="
-                                            )
-
-                                            Log.d(
-                                                TAG,
-                                                "CODICE = ${currentProductInfo?.articleCode}"
-                                            )
-
-                                            Log.d(
-                                                TAG,
-                                                "EAN = ${currentProductInfo?.barcode}"
-                                            )
-
-                                            Log.d(
-                                                TAG,
-                                                "DESCRIZIONE = ${currentProductInfo?.description}"
-                                            )
-
-                                            Log.d(
-                                                TAG,
-                                                "IMPONIBILE = ${currentProductInfo?.taxablePrice}"
-                                            )
-
-                                            Log.d(
-                                                TAG,
-                                                "IVA = ${currentProductInfo?.vatRate}"
-                                            )
-
-                                            Log.d(
-                                                TAG,
-                                                "PREZZO PUBBLICO = ${currentProductInfo?.publicPrice}"
-                                            )
-
-                                            Log.d(
-                                                TAG,
-                                                "ANNO = ${currentProductInfo?.year}"
-                                            )
-
-                                            Log.d(
-                                                TAG,
-                                                "STAGIONE = ${currentProductInfo?.season}"
-                                            )
-
-                                            Log.d(
-                                                TAG,
-                                                "GIACENZA = ${currentProductInfo?.stock}"
-                                            )
-
-                                            Log.d(
-                                                TAG,
-                                                "=========================================="
-                                            )
-                                            ProductInfoStore.current = currentProductInfo
-
-                                            Log.d(
-                                                TAG,
-                                                "PRODUCT INFO SALVATO NELLO STORE"
-                                            )
-
-                                            finishProductWorkflow()
-                                        }, 1200)
-
-                                    }, 500)
-
-                                }, 300)
-                            }, 500)
+                                    }, 200)
+                                }, 400)
+                            }
                         }
-                    }, 500)
+                    }, 300)
 
 
                     // ==========================
@@ -1043,9 +1199,9 @@ class ScanAccessibilityService : AccessibilityService() {
 
                      */
 
-                }, 1500)
+                }, 700)
 
-            }, 1500)
+            }, 800)
 
 
             return
@@ -1055,6 +1211,67 @@ class ScanAccessibilityService : AccessibilityService() {
 
 
         retryReadProductData(attempt)
+    }
+
+
+    private fun hideProductInfoPopup(onHidden: () -> Unit) {
+        startService(
+            Intent(this, OverlayService::class.java).apply {
+                action = OverlayService.ACTION_HIDE_PRODUCT_INFO
+            }
+        )
+
+        Log.d(TAG, "RICHIESTA PAUSA POPUP")
+
+        /*
+         * Concedo a WindowManager il tempo di rimuovere visivamente
+         * l'overlay prima di inviare il gesto a Due Retail.
+         */
+        handler.postDelayed(onHidden, 120)
+    }
+
+    private fun restoreProductInfoPopup(delayMs: Long = 120L) {
+        handler.postDelayed({
+            startService(
+                Intent(this, OverlayService::class.java).apply {
+                    action = OverlayService.ACTION_RESTORE_PRODUCT_INFO
+                }
+            )
+
+            Log.d(TAG, "RICHIESTA RIPRISTINO POPUP")
+        }, delayMs)
+    }
+
+    private fun publishProductInfo(
+        showPopup: Boolean,
+        workflowCompleted: Boolean
+    ) {
+        val productInfo = currentProductInfo ?: return
+
+        ProductInfoStore.current = productInfo
+
+        val popupIntent = Intent(
+            this,
+            OverlayService::class.java
+        ).apply {
+            action = if (showPopup) {
+                OverlayService.ACTION_SHOW_PRODUCT_INFO
+            } else {
+                OverlayService.ACTION_UPDATE_PRODUCT_INFO
+            }
+
+            putExtra(
+                OverlayService.EXTRA_WORKFLOW_COMPLETED,
+                workflowCompleted
+            )
+        }
+
+        startService(popupIntent)
+
+        Log.d(
+            TAG,
+            "PUBBLICAZIONE POPUP show=$showPopup completed=$workflowCompleted"
+        )
     }
 
 
@@ -1095,27 +1312,12 @@ class ScanAccessibilityService : AccessibilityService() {
                 "WORKFLOW RESET - PRONTO PER NUOVA SCANSIONE"
             )
 
-            handler.postDelayed({
+            Log.d(
+                TAG,
+                "POPUP PROGRESSIVO GIA AGGIORNATO - NESSUNA RIAPERTURA"
+            )
 
-                val popupIntent =
-                    Intent(
-                        this,
-                        OverlayService::class.java
-                    ).apply {
-                        action =
-                            OverlayService.ACTION_SHOW_PRODUCT_INFO
-                    }
-
-                startService(popupIntent)
-
-                Log.d(
-                    TAG,
-                    "RICHIESTA POPUP INFORMAZIONI AUTOMATICO"
-                )
-
-            }, 500)
-
-        }, 500)
+        }, 250)
     }
 
 
