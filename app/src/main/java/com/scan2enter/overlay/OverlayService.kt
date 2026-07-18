@@ -19,6 +19,7 @@ import android.widget.FrameLayout
 import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.TextView
 import com.scan2enter.BuildFlags
 import com.scan2enter.MainActivity
@@ -90,6 +91,8 @@ class OverlayService : Service() {
     private var taxablePriceValueText: TextView? = null
     private var vatRateValueText: TextView? = null
     private var stockValueText: TextView? = null
+
+    private var historyPopup: View? = null
 
     private val dismissPopupRunnable = Runnable {
         removeProductInfoPopup()
@@ -217,10 +220,7 @@ class OverlayService : Service() {
         infoArea.setOnClickListener {
             if (isDragging) return@setOnClickListener
 
-            showOrUpdateProductInfoPopup(
-                workflowCompleted = true,
-                manualOpen = true
-            )
+            showHistoryPopup()
         }
 
         scannerArea.setOnClickListener {
@@ -309,6 +309,341 @@ class OverlayService : Service() {
         dockView.setOnTouchListener(dockTouchListener)
         infoArea.setOnTouchListener(dockTouchListener)
         scannerArea.setOnTouchListener(dockTouchListener)
+    }
+
+    /**
+     * Mostra la cronologia degli ultimi articoli letti.
+     *
+     * La cronologia è già mantenuta in RAM da ProductInfoStore e viene
+     * soltanto letta quando l'utente preme il pulsante con lo scatolone.
+     * Non viene quindi aggiunto alcun lavoro al workflow di scansione.
+     */
+    private fun showHistoryPopup() {
+        if (historyPopup != null) {
+            return
+        }
+
+        removeProductInfoPopup()
+
+        val density = resources.displayMetrics.density
+        val screenWidth = resources.displayMetrics.widthPixels
+        val screenHeight = resources.displayMetrics.heightPixels
+        val history = ProductInfoStore.getHistory()
+
+        val overlayRoot = FrameLayout(this).apply {
+            setBackgroundColor(Color.BLACK)
+            isClickable = true
+            isFocusable = true
+        }
+
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(
+                (20 * density).toInt(),
+                (18 * density).toInt(),
+                (20 * density).toInt(),
+                (18 * density).toInt()
+            )
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                setColor(Color.WHITE)
+                cornerRadius = 22 * density
+            }
+            elevation = 14 * density
+        }
+
+        val header = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+
+        val title = TextView(this).apply {
+            text = "Cronologia articoli"
+            textSize = 24f
+            setTextColor(Color.BLACK)
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+        }
+
+        val closeButton = TextView(this).apply {
+            text = "✕"
+            textSize = 28f
+            gravity = Gravity.CENTER
+            setTextColor(Color.BLACK)
+            setPadding(
+                (12 * density).toInt(),
+                (4 * density).toInt(),
+                (4 * density).toInt(),
+                (4 * density).toInt()
+            )
+            isClickable = true
+            setOnClickListener {
+                removeHistoryPopup()
+            }
+        }
+
+        header.addView(
+            title,
+            LinearLayout.LayoutParams(
+                0,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                1f
+            )
+        )
+
+        header.addView(
+            closeButton,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+        )
+
+        card.addView(
+            header,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+        )
+
+        val subtitle = TextView(this).apply {
+            text = if (history.isEmpty()) {
+                "Nessun articolo presente"
+            } else {
+                "${history.size} articoli recenti"
+            }
+            textSize = 14f
+            setTextColor(Color.DKGRAY)
+            setPadding(
+                0,
+                (4 * density).toInt(),
+                0,
+                (12 * density).toInt()
+            )
+        }
+
+        card.addView(
+            subtitle,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+        )
+
+        val listContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+
+        if (history.isEmpty()) {
+            val emptyText = TextView(this).apply {
+                text = "Effettua una scansione completa per aggiungere il primo articolo."
+                textSize = 17f
+                setTextColor(Color.DKGRAY)
+                gravity = Gravity.CENTER
+                setPadding(
+                    (8 * density).toInt(),
+                    (40 * density).toInt(),
+                    (8 * density).toInt(),
+                    (40 * density).toInt()
+                )
+            }
+
+            listContainer.addView(
+                emptyText,
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                )
+            )
+        } else {
+            history.forEachIndexed { index, product ->
+                listContainer.addView(
+                    createHistoryItemView(
+                        product = product,
+                        position = index + 1
+                    ),
+                    LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT
+                    ).apply {
+                        bottomMargin = (10 * density).toInt()
+                    }
+                )
+            }
+        }
+
+        val scrollView = ScrollView(this).apply {
+            isFillViewport = true
+            addView(
+                listContainer,
+                FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.WRAP_CONTENT
+                )
+            )
+        }
+
+        card.addView(
+            scrollView,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                0,
+                1f
+            )
+        )
+
+        val horizontalMargin = (18 * density).toInt()
+        val verticalMargin = (36 * density).toInt()
+
+        val cardWidth = min(
+            (430 * density).toInt(),
+            screenWidth - horizontalMargin * 2
+        )
+
+        val cardHeight = min(
+            (720 * density).toInt(),
+            screenHeight - verticalMargin * 2
+        )
+
+        overlayRoot.addView(
+            card,
+            FrameLayout.LayoutParams(
+                cardWidth,
+                cardHeight
+            ).apply {
+                gravity = Gravity.CENTER
+            }
+        )
+
+        val popupParams = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            PixelFormat.OPAQUE
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+            alpha = 1.0f
+        }
+
+        historyPopup = overlayRoot
+        windowManager.addView(
+            overlayRoot,
+            popupParams
+        )
+
+        android.util.Log.d(
+            "OverlayService",
+            "CRONOLOGIA APERTA elementi=${history.size}"
+        )
+    }
+
+    private fun createHistoryItemView(
+        product: ProductInfo,
+        position: Int
+    ): View {
+        val density = resources.displayMetrics.density
+
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(
+                (14 * density).toInt(),
+                (12 * density).toInt(),
+                (14 * density).toInt(),
+                (12 * density).toInt()
+            )
+
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                setColor(Color.rgb(245, 245, 245))
+                cornerRadius = 14 * density
+                setStroke(
+                    (1 * density).toInt().coerceAtLeast(1),
+                    Color.LTGRAY
+                )
+            }
+
+            val description = product.description
+                .trim()
+                .ifEmpty { "Articolo senza descrizione" }
+
+            val titleText = TextView(this@OverlayService).apply {
+                text = "$position. $description"
+                textSize = 17f
+                setTextColor(Color.BLACK)
+                setTypeface(typeface, android.graphics.Typeface.BOLD)
+            }
+
+            addView(
+                titleText,
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                )
+            )
+
+            val details = buildString {
+                if (product.articleCode.isNotBlank()) {
+                    append("Codice: ${product.articleCode.trim()}")
+                }
+
+                if (product.barcode.isNotBlank()) {
+                    if (isNotEmpty()) append("   •   ")
+                    append("EAN: ${product.barcode.trim()}")
+                }
+
+                if (product.publicPrice.isNotBlank()) {
+                    append("\nPrezzo: ${product.publicPrice.trim()}")
+                }
+
+                if (product.stock.isNotBlank()) {
+                    if (product.publicPrice.isNotBlank()) {
+                        append("   •   ")
+                    } else {
+                        append("\n")
+                    }
+                    append("Giacenza: ${product.stock.trim()}")
+                }
+            }.ifEmpty {
+                "Dati aggiuntivi non disponibili"
+            }
+
+            val detailText = TextView(this@OverlayService).apply {
+                text = details
+                textSize = 14f
+                setTextColor(Color.DKGRAY)
+                setPadding(
+                    0,
+                    (6 * density).toInt(),
+                    0,
+                    0
+                )
+            }
+
+            addView(
+                detailText,
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                )
+            )
+        }
+    }
+
+    private fun removeHistoryPopup() {
+        val popup = historyPopup ?: return
+
+        try {
+            windowManager.removeView(popup)
+        } catch (_: Exception) {
+        }
+
+        historyPopup = null
+
+        android.util.Log.d(
+            "OverlayService",
+            "CRONOLOGIA CHIUSA"
+        )
     }
 
     /**
@@ -788,6 +1123,7 @@ class OverlayService : Service() {
     override fun onDestroy() {
         popupHandler.removeCallbacks(dismissPopupRunnable)
         removeProductInfoPopup()
+        removeHistoryPopup()
 
         try {
             scanOverlay.hide()
