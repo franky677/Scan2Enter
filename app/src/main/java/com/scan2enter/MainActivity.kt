@@ -11,6 +11,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.scan2enter.overlay.OverlayService
+import com.scan2enter.api.DueRetailApiTest
 import com.scan2enter.ui.screens.CameraScreen
 import com.scan2enter.ui.theme.Scan2EnterTheme
 import com.scan2enter.viewmodel.MainViewModel
@@ -19,6 +20,10 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        Log.d("DueRetailApi", "MAIN ACTIVITY AVVIATA")
+        DueRetailApiTest.run()
+        Log.d("DueRetailApi", "TEST API LANCIATO")
 
         // Richiede il permesso Overlay
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
