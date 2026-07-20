@@ -91,6 +91,9 @@ class OverlayService : Service() {
     private var taxablePriceValueText: TextView? = null
     private var vatRateValueText: TextView? = null
     private var stockValueText: TextView? = null
+    private var stockStatusContainer: LinearLayout? = null
+    private var stockStatusText: TextView? = null
+    private var reorderText: TextView? = null
 
     private var historyPopup: View? = null
 
@@ -757,6 +760,15 @@ class OverlayService : Service() {
         stockValueText =
             popupView.findViewById(R.id.productStockText)
 
+        stockStatusContainer =
+            popupView.findViewById(R.id.productStockStatusContainer)
+
+        stockStatusText =
+            popupView.findViewById(R.id.productStockStatusText)
+
+        reorderText =
+            popupView.findViewById(R.id.productReorderText)
+
         // Il popup resta non interattivo durante il workflow Accessibility.
         popupView.findViewById<TextView>(R.id.closeProductInfoButton)
             .visibility = View.GONE
@@ -945,6 +957,9 @@ class OverlayService : Service() {
             taxablePriceValueText?.text = "—"
             vatRateValueText?.text = "—"
             stockValueText?.text = "—"
+            stockStatusContainer?.visibility = View.GONE
+            stockStatusText?.text = ""
+            reorderText?.text = ""
             return
         }
 
@@ -959,6 +974,7 @@ class OverlayService : Service() {
         seasonValueText?.text = valueOrLoading(product.season)
         yearValueText?.text = valueOrLoading(product.year)
         stockValueText?.text = valueOrLoading(product.stock)
+        updateStockStatus(product)
 
         val barcodeBitmap = createEan13Bitmap(product.barcode)
 
@@ -997,7 +1013,100 @@ class OverlayService : Service() {
         taxablePriceValueText = null
         vatRateValueText = null
         stockValueText = null
+        stockStatusContainer = null
+        stockStatusText = null
+        reorderText = null
     }
+
+    /**
+     * Aggiorna la fascia della giacenza usando colori ad alto contrasto.
+     *
+     * Verde: giacenza sopra la scorta minima.
+     * Giallo vivo: giacenza uguale alla scorta minima.
+     * Rosso: giacenza sotto la scorta minima.
+     */
+    private fun updateStockStatus(product: ProductInfo) {
+        val stock = product.stock.toNumericValue()
+        val minimumStock = product.minimumStock.toNumericValue()
+        val reorderLot = product.reorderLot.toNumericValue()
+
+        val container = stockStatusContainer ?: return
+        val statusText = stockStatusText ?: return
+        val orderText = reorderText ?: return
+
+        if (stock == null || minimumStock == null) {
+            container.visibility = View.GONE
+            statusText.text = ""
+            orderText.text = ""
+            return
+        }
+
+        container.visibility = View.VISIBLE
+
+        val density = resources.displayMetrics.density
+        val background = GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = 16 * density
+        }
+
+        when {
+            stock > minimumStock -> {
+                background.setColor(Color.rgb(0, 200, 83))
+                statusText.text = "SCORTA REGOLARE"
+                statusText.setTextColor(Color.BLACK)
+                orderText.visibility = View.GONE
+                orderText.text = ""
+            }
+
+            stock == minimumStock -> {
+                background.setColor(Color.rgb(255, 214, 0))
+                statusText.text = "ATTENZIONE - AL LIMITE"
+                statusText.setTextColor(Color.BLACK)
+
+                if (reorderLot != null && reorderLot > 0.0) {
+                    orderText.visibility = View.VISIBLE
+                    orderText.text =
+                        "LOTTO RIORDINO: ${reorderLot.formatStockQuantity()} PEZZI"
+                    orderText.setTextColor(Color.BLACK)
+                } else {
+                    orderText.visibility = View.GONE
+                    orderText.text = ""
+                }
+            }
+
+            else -> {
+                background.setColor(Color.rgb(213, 0, 0))
+                statusText.text = "DA RIORDINARE"
+                statusText.setTextColor(Color.WHITE)
+
+                if (reorderLot != null && reorderLot > 0.0) {
+                    orderText.visibility = View.VISIBLE
+                    orderText.text =
+                        "ORDINA ${reorderLot.formatStockQuantity()} PEZZI"
+                    orderText.setTextColor(Color.WHITE)
+                } else {
+                    orderText.visibility = View.GONE
+                    orderText.text = ""
+                }
+            }
+        }
+
+        container.background = background
+    }
+
+    private fun String.toNumericValue(): Double? =
+        trim()
+            .replace("€", "")
+            .replace(" ", "")
+            .replace(",", ".")
+            .toDoubleOrNull()
+
+    private fun Double.formatStockQuantity(): String =
+        if (this == toInt().toDouble()) {
+            toInt().toString()
+        } else {
+            String.format(java.util.Locale.US, "%.2f", this)
+        }
 
     /**
      * Genera il barcode EAN-13 grafico senza dipendenze esterne.
