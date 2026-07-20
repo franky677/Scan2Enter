@@ -2,7 +2,7 @@ package com.scan2enter.model
 
 /**
  * Contiene tutte le informazioni lette automaticamente
- * da Due Retail Mobile.
+ * da Due Retail Mobile o dalle API.
  */
 data class ProductInfo(
 
@@ -49,5 +49,25 @@ data class ProductInfo(
     /**
      * Giacenza.
      */
-    val stock: String = ""
+    val stock: String = "",
+
+    /**
+     * Giacenza disponibile.
+     */
+    val availableStock: String = "",
+
+    /**
+     * Scorta minima.
+     */
+    val minimumStock: String = "",
+
+    /**
+     * Scorta massima.
+     */
+    val maximumStock: String = "",
+
+    /**
+     * Lotto di riordino.
+     */
+    val reorderLot: String = ""
 )

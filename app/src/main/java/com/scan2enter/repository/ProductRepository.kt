@@ -38,6 +38,25 @@ class ProductRepository(
 
                     stock = product.stock
                         ?.formatQuantity()
+                        ?: "",
+
+                    availableStock = product.availableStock
+                        ?.formatQuantity()
+                        ?: "",
+
+                    minimumStock = product.minimumStock
+                        .takeIf { it >= 0.0 }
+                        ?.formatQuantity()
+                        ?: "",
+
+                    maximumStock = product.maximumStock
+                        .takeIf { it >= 0.0 }
+                        ?.formatQuantity()
+                        ?: "",
+
+                    reorderLot = product.reorderLot
+                        .takeIf { it >= 0.0 }
+                        ?.formatQuantity()
                         ?: ""
                 )
             }

@@ -77,7 +77,11 @@ class ScanSession(
                     ProductInfoStore.initialize(
                         context.applicationContext
                     )
-
+                    Log.d(TAG, "GIACENZA = ${productInfo.stock}")
+                    Log.d(TAG, "DISPONIBILE = ${productInfo.availableStock}")
+                    Log.d(TAG, "SCORTA MINIMA = ${productInfo.minimumStock}")
+                    Log.d(TAG, "SCORTA MASSIMA = ${productInfo.maximumStock}")
+                    Log.d(TAG, "LOTTO RIORDINO = ${productInfo.reorderLot}")
                     ProductInfoStore.current = productInfo
                     ProductInfoStore.addToHistory(productInfo)
 
