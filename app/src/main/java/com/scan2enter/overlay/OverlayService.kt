@@ -1,6 +1,7 @@
 package com.scan2enter.overlay
 
 import android.app.Service
+import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Color
@@ -24,6 +25,7 @@ import android.widget.TextView
 import com.scan2enter.BuildFlags
 import com.scan2enter.MainActivity
 import com.scan2enter.R
+import com.scan2enter.feedback.ScanFeedbackManager
 import com.scan2enter.model.ProductInfo
 import com.scan2enter.model.ProductInfoStore
 import kotlin.math.abs
@@ -51,12 +53,26 @@ class OverlayService : Service() {
         const val ACTION_OPEN_SCANNER =
             "com.scan2enter.action.OPEN_SCANNER"
 
+        const val ACTION_OPEN_RAPID_SCANNER =
+            "com.scan2enter.action.OPEN_RAPID_SCANNER"
+
+        const val ACTION_SHOW_SCAN_ERROR =
+            "com.scan2enter.action.SHOW_SCAN_ERROR"
+
+        const val EXTRA_SCAN_ERROR_MESSAGE =
+            "com.scan2enter.extra.SCAN_ERROR_MESSAGE"
+
         const val EXTRA_WORKFLOW_COMPLETED =
             "com.scan2enter.extra.WORKFLOW_COMPLETED"
 
         private const val CLICK_THRESHOLD = 12f
-        private const val COMPLETED_POPUP_DURATION_MS = 6000L
+        private const val COMPLETED_POPUP_DURATION_MS = 4000L
         private const val MANUAL_POPUP_DURATION_MS = 6000L
+        private const val SCAN_ERROR_DURATION_MS = 2200L
+
+        private const val WORKFLOW_PREFS = "scan_workflow"
+        private const val WORKFLOW_MODE_KEY = "mode"
+        private const val MODE_INFO = "INFO"
     }
 
     private lateinit var windowManager: WindowManager
@@ -96,6 +112,19 @@ class OverlayService : Service() {
     private var reorderText: TextView? = null
 
     private var historyPopup: View? = null
+    private var scanErrorPopup: View? = null
+
+    private val dismissScanErrorRunnable = Runnable {
+        removeScanErrorPopup()
+    }
+
+    private enum class StockSoundStatus {
+        REGULAR,
+        WARNING,
+        REORDER
+    }
+
+    private var reopenScannerAfterPopup = false
 
     private val dismissPopupRunnable = Runnable {
         removeProductInfoPopup()
@@ -103,6 +132,20 @@ class OverlayService : Service() {
             "OverlayService",
             "POPUP INFORMAZIONI CHIUSO AUTOMATICAMENTE"
         )
+
+        /*
+         * Il ciclo automatico viene attivato soltanto nella schermata INFO.
+         * Collo veloce ed Etichette conservano il loro comportamento attuale.
+         */
+        val shouldReopenScanner = reopenScannerAfterPopup
+        reopenScannerAfterPopup = false
+
+        if (
+            shouldReopenScanner &&
+            loadCurrentScanMode() == MODE_INFO
+        ) {
+            openRapidScanner()
+        }
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -156,6 +199,14 @@ class OverlayService : Service() {
                 setProductInfoTouchThrough(enabled = false)
             }
 
+            ACTION_SHOW_SCAN_ERROR -> {
+                val message = intent.getStringExtra(
+                    EXTRA_SCAN_ERROR_MESSAGE
+                ) ?: "Lettura errata\nRiprovare"
+
+                showScanErrorPopup(message)
+            }
+
             ACTION_OPEN_SCANNER -> {
                 android.util.Log.d(
                     "OverlayService",
@@ -163,7 +214,7 @@ class OverlayService : Service() {
                 )
 
                 if (BuildFlags.USE_NEW_SCANNER) {
-                    scanOverlay.show()
+                    scanOverlay.show(rapidRescan = false)
                 } else {
                     val scannerIntent = Intent(
                         this,
@@ -175,9 +226,36 @@ class OverlayService : Service() {
                     startActivity(scannerIntent)
                 }
             }
+
+            ACTION_OPEN_RAPID_SCANNER -> {
+                openRapidScanner()
+            }
         }
 
         return START_STICKY
+    }
+
+    private fun loadCurrentScanMode(): String {
+        return applicationContext
+            .getSharedPreferences(
+                WORKFLOW_PREFS,
+                Context.MODE_PRIVATE
+            )
+            .getString(WORKFLOW_MODE_KEY, MODE_INFO)
+            ?: MODE_INFO
+    }
+
+    private fun openRapidScanner() {
+        if (!BuildFlags.USE_NEW_SCANNER) {
+            return
+        }
+
+        android.util.Log.d(
+            "OverlayService",
+            "APERTURA SCANNER AUTOMATICO 2 SECONDI"
+        )
+
+        scanOverlay.show(rapidRescan = true)
     }
 
     override fun onCreate() {
@@ -187,6 +265,8 @@ class OverlayService : Service() {
 
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
         scanOverlay = ScanOverlay(this)
+
+        ScanFeedbackManager.initialize(applicationContext)
 
         dockView = LayoutInflater.from(this)
             .inflate(R.layout.overlay_button, null)
@@ -688,10 +768,12 @@ class OverlayService : Service() {
 
         updateProductInfoPopup(
             product = product,
-            workflowCompleted = workflowCompleted
+            workflowCompleted = workflowCompleted,
+            playStockSound = workflowCompleted && !manualOpen
         )
 
         popupHandler.removeCallbacks(dismissPopupRunnable)
+        reopenScannerAfterPopup = workflowCompleted && !manualOpen
 
         if (workflowCompleted || manualOpen) {
             popupHandler.postDelayed(
@@ -941,7 +1023,8 @@ class OverlayService : Service() {
 
     private fun updateProductInfoPopup(
         product: ProductInfo?,
-        workflowCompleted: Boolean
+        workflowCompleted: Boolean,
+        playStockSound: Boolean
     ) {
         fun valueOrLoading(value: String): String =
             value.trim().takeIf { it.isNotEmpty() } ?: "lettura…"
@@ -974,7 +1057,15 @@ class OverlayService : Service() {
         seasonValueText?.text = valueOrLoading(product.season)
         yearValueText?.text = valueOrLoading(product.year)
         stockValueText?.text = valueOrLoading(product.stock)
-        updateStockStatus(product)
+
+        val stockSoundStatus = updateStockStatus(product)
+
+        if (playStockSound && stockSoundStatus != null) {
+            playStockStatusSound(
+                product = product,
+                status = stockSoundStatus
+            )
+        }
 
         val barcodeBitmap = createEan13Bitmap(product.barcode)
 
@@ -991,6 +1082,108 @@ class OverlayService : Service() {
             "POPUP GRAFICO AGGIORNATO completed=$workflowCompleted " +
                     "EAN=${product.barcode} barcodeGraphic=${barcodeBitmap != null}"
         )
+    }
+
+    private fun showScanErrorPopup(message: String) {
+        removeScanErrorPopup()
+
+        val density = resources.displayMetrics.density
+        val screenWidth = resources.displayMetrics.widthPixels
+
+        val root = FrameLayout(this).apply {
+            setBackgroundColor(Color.argb(150, 0, 0, 0))
+        }
+
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            setPadding(
+                (28 * density).toInt(),
+                (22 * density).toInt(),
+                (28 * density).toInt(),
+                (22 * density).toInt()
+            )
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                setColor(Color.rgb(198, 40, 40))
+                cornerRadius = 20 * density
+            }
+            elevation = 16 * density
+        }
+
+        val title = TextView(this).apply {
+            text = "LETTURA ERRATA"
+            textSize = 24f
+            gravity = Gravity.CENTER
+            setTextColor(Color.WHITE)
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+        }
+
+        val detail = TextView(this).apply {
+            text = message
+                .replace("Lettura errata", "", ignoreCase = true)
+                .trim()
+                .ifEmpty { "Riprovare" }
+            textSize = 18f
+            gravity = Gravity.CENTER
+            setTextColor(Color.WHITE)
+            setPadding(0, (8 * density).toInt(), 0, 0)
+        }
+
+        card.addView(title)
+        card.addView(detail)
+
+        val width = min(
+            (360 * density).toInt(),
+            screenWidth - (32 * density).toInt()
+        )
+
+        root.addView(
+            card,
+            FrameLayout.LayoutParams(
+                width,
+                FrameLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                gravity = Gravity.CENTER
+            }
+        )
+
+        val params = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                    WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            PixelFormat.TRANSLUCENT
+        )
+
+        scanErrorPopup = root
+        windowManager.addView(root, params)
+
+        popupHandler.removeCallbacks(dismissScanErrorRunnable)
+        popupHandler.postDelayed(
+            dismissScanErrorRunnable,
+            SCAN_ERROR_DURATION_MS
+        )
+
+        android.util.Log.d(
+            "OverlayService",
+            "POPUP ERRORE LETTURA MOSTRATO: $message"
+        )
+    }
+
+    private fun removeScanErrorPopup() {
+        popupHandler.removeCallbacks(dismissScanErrorRunnable)
+
+        val popup = scanErrorPopup ?: return
+
+        try {
+            windowManager.removeView(popup)
+        } catch (_: Exception) {
+        }
+
+        scanErrorPopup = null
     }
 
     private fun removeProductInfoPopup() {
@@ -1025,20 +1218,22 @@ class OverlayService : Service() {
      * Giallo vivo: giacenza uguale alla scorta minima.
      * Rosso: giacenza sotto la scorta minima.
      */
-    private fun updateStockStatus(product: ProductInfo) {
+    private fun updateStockStatus(
+        product: ProductInfo
+    ): StockSoundStatus? {
         val stock = product.stock.toNumericValue()
         val minimumStock = product.minimumStock.toNumericValue()
         val reorderLot = product.reorderLot.toNumericValue()
 
-        val container = stockStatusContainer ?: return
-        val statusText = stockStatusText ?: return
-        val orderText = reorderText ?: return
+        val container = stockStatusContainer ?: return null
+        val statusText = stockStatusText ?: return null
+        val orderText = reorderText ?: return null
 
         if (stock == null || minimumStock == null) {
             container.visibility = View.GONE
             statusText.text = ""
             orderText.text = ""
-            return
+            return null
         }
 
         container.visibility = View.VISIBLE
@@ -1049,13 +1244,14 @@ class OverlayService : Service() {
             cornerRadius = 16 * density
         }
 
-        when {
+        val soundStatus = when {
             stock > minimumStock -> {
                 background.setColor(Color.rgb(0, 200, 83))
                 statusText.text = "SCORTA REGOLARE"
                 statusText.setTextColor(Color.BLACK)
                 orderText.visibility = View.GONE
                 orderText.text = ""
+                StockSoundStatus.REGULAR
             }
 
             stock == minimumStock -> {
@@ -1072,6 +1268,8 @@ class OverlayService : Service() {
                     orderText.visibility = View.GONE
                     orderText.text = ""
                 }
+
+                StockSoundStatus.WARNING
             }
 
             else -> {
@@ -1088,10 +1286,41 @@ class OverlayService : Service() {
                     orderText.visibility = View.GONE
                     orderText.text = ""
                 }
+
+                StockSoundStatus.REORDER
             }
         }
 
         container.background = background
+        return soundStatus
+    }
+
+    /**
+     * Riproduce il feedback stock soltanto quando il workflow è completo.
+     *
+     * Verde  -> BLIP breve.
+     * Giallo -> CRASH: articolo al limite.
+     * Rosso  -> CRASH: articolo da riordinare.
+     */
+    private fun playStockStatusSound(
+        product: ProductInfo,
+        status: StockSoundStatus
+    ) {
+        when (status) {
+            StockSoundStatus.REGULAR -> {
+                ScanFeedbackManager.playSuccess(applicationContext)
+            }
+
+            StockSoundStatus.WARNING,
+            StockSoundStatus.REORDER -> {
+                ScanFeedbackManager.playWarning(applicationContext)
+            }
+        }
+
+        android.util.Log.d(
+            "OverlayService",
+            "SUONO STOCK RIPRODOTTO status=$status EAN=${product.barcode}"
+        )
     }
 
     private fun String.toNumericValue(): Double? =
@@ -1251,7 +1480,9 @@ class OverlayService : Service() {
 
     override fun onDestroy() {
         popupHandler.removeCallbacks(dismissPopupRunnable)
+        popupHandler.removeCallbacks(dismissScanErrorRunnable)
         removeProductInfoPopup()
+        removeScanErrorPopup()
         removeHistoryPopup()
 
         try {

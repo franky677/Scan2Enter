@@ -1,5 +1,6 @@
 package com.scan2enter.api
 
+import android.util.Log
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.BufferedReader
@@ -19,6 +20,18 @@ class DueRetailApiClient(
     private val application: String = "DueMobileRetail",
     private val appVersion: String = "24.8.9"
 ) {
+
+    companion object {
+        private const val TAG = "Scan2Enter"
+    }
+
+    init {
+        Log.d(TAG, "========================================")
+        Log.d(TAG, "DueRetailApiClient CREATED")
+        Log.d(TAG, "clientId=$clientId")
+        Log.d(TAG, "baseUrl=$baseUrl")
+        Log.d(TAG, "========================================")
+    }
 
     @Volatile
     private var accessToken: String? = null
@@ -57,6 +70,9 @@ class DueRetailApiClient(
         }
 
     private fun authenticatedGetJson(urlString: String): String {
+        Log.d(TAG, "GET REQUEST")
+        Log.d(TAG, "URL = $urlString")
+
         var token = getOrCreateAccessToken()
 
         var response = executeGet(
@@ -64,7 +80,11 @@ class DueRetailApiClient(
             bearerToken = token
         )
 
+        Log.d(TAG, "GET RESPONSE code=${response.code}")
+
         if (response.code == HttpURLConnection.HTTP_UNAUTHORIZED) {
+            Log.w(TAG, "401 ricevuto - richiedo un nuovo token")
+
             accessToken = null
             token = getOrCreateAccessToken()
 
@@ -72,9 +92,15 @@ class DueRetailApiClient(
                 urlString = urlString,
                 bearerToken = token
             )
+
+            Log.d(TAG, "GET RETRY RESPONSE code=${response.code}")
         }
 
         if (response.code !in 200..299) {
+            Log.e(TAG, "GET ERROR")
+            Log.e(TAG, "HTTP=${response.code}")
+            Log.e(TAG, response.body)
+
             error("Errore HTTP ${response.code}: ${response.body}")
         }
 
@@ -83,14 +109,25 @@ class DueRetailApiClient(
 
     @Synchronized
     private fun getOrCreateAccessToken(): String {
-        accessToken?.takeIf { it.isNotBlank() }?.let { return it }
+        accessToken?.takeIf { it.isNotBlank() }?.let {
+            Log.d(TAG, "TOKEN riutilizzato")
+            return it
+        }
+
+        Log.d(TAG, "TOKEN non presente - richiesta autenticazione")
 
         val token = requestAccessToken()
+
+        Log.d(TAG, "TOKEN ottenuto con successo")
+
         accessToken = token
         return token
     }
 
     private fun requestAccessToken(): String {
+        Log.d(TAG, "TOKEN REQUEST")
+        Log.d(TAG, "clientId=$clientId")
+
         val formBody = listOf(
             "username" to username,
             "password" to password,
@@ -124,7 +161,12 @@ class DueRetailApiClient(
             val responseCode = connection.responseCode
             val responseBody = readResponseBody(connection, responseCode)
 
+            Log.d(TAG, "TOKEN RESPONSE")
+            Log.d(TAG, "HTTP=$responseCode")
+            Log.d(TAG, responseBody)
+
             if (responseCode !in 200..299) {
+                Log.e(TAG, "AUTENTICAZIONE FALLITA")
                 error("Autenticazione HTTP $responseCode: $responseBody")
             }
 
@@ -141,9 +183,13 @@ class DueRetailApiClient(
                 root.optJSONObject("data")?.optString("Token").orEmpty()
             ).firstOrNull { it.isNotBlank() }
 
-            return token ?: error(
+            val resolvedToken = token ?: error(
                 "Token non trovato nella risposta di autenticazione: $responseBody"
             )
+
+            Log.d(TAG, "ACCESS TOKEN ricevuto")
+
+            return resolvedToken
         } finally {
             connection.disconnect()
         }

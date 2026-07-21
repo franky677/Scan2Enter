@@ -38,29 +38,72 @@ class ScanOverlay(
     @Volatile
     private var closing = false
 
+    private var rapidRescan = false
+
     private val timeoutRunnable = Runnable {
 
-        Log.d("Scan2Enter", "Scanner timeout")
+        Log.d(
+            "Scan2Enter",
+            "Scanner timeout rapidRescan=$rapidRescan"
+        )
+
+        /*
+         * Il timeout della riapertura automatica non è un errore: significa
+         * semplicemente che l'operatore ha terminato il ciclo spara-spara.
+         */
+        if (!rapidRescan) {
+            context.startService(
+                android.content.Intent(
+                    context,
+                    OverlayService::class.java
+                ).apply {
+                    action = OverlayService.ACTION_SHOW_SCAN_ERROR
+                    putExtra(
+                        OverlayService.EXTRA_SCAN_ERROR_MESSAGE,
+                        "Nessun codice letto. Riprovare."
+                    )
+                }
+            )
+        }
 
         hide()
     }
 
-    fun show() {
+    fun show(
+        rapidRescan: Boolean = false
+    ) {
 
         if (container != null) return
 
         closing = false
+        this.rapidRescan = rapidRescan
 
         scanSession.start()
 
         handler.postDelayed(
             timeoutRunnable,
-            ScanConfig.SCAN_TIMEOUT
+            if (rapidRescan) {
+                2_000L
+            } else {
+                ScanConfig.SCAN_TIMEOUT
+            }
         )
 
         val frame = FrameLayout(context)
 
+        val closeScanner = android.view.View.OnClickListener {
+            Log.d("Scan2Enter", "Scanner chiuso con tocco")
+            hide()
+        }
+
+        /*
+         * Assegno il tap sia al contenitore sia ai suoi figli: PreviewView e
+         * grafica di mira possono intercettare il tocco prima del FrameLayout.
+         */
+        frame.setOnClickListener(closeScanner)
+
         val preview = PreviewView(context)
+        preview.setOnClickListener(closeScanner)
 
         preview.scaleType =
             PreviewView.ScaleType.FILL_CENTER
@@ -73,8 +116,11 @@ class ScanOverlay(
             )
         )
 
+        val overlayView = ScanOverlayView(context)
+        overlayView.setOnClickListener(closeScanner)
+
         frame.addView(
-            ScanOverlayView(context),
+            overlayView,
             FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT
@@ -141,6 +187,8 @@ class ScanOverlay(
 
         container = null
         previewView = null
+        rapidRescan = false
+        closing = false
     }
 
     private fun dp(value: Int): Int {

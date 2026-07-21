@@ -2,6 +2,8 @@ package com.scan2enter.scanner
 
 import android.content.Context
 import android.content.Intent
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import com.scan2enter.api.DueRetailApiClient
 import com.scan2enter.data.ScanStorage
@@ -9,6 +11,7 @@ import com.scan2enter.feedback.ScanFeedbackManager
 import com.scan2enter.model.ProductInfoStore
 import com.scan2enter.overlay.OverlayService
 import com.scan2enter.repository.ProductRepository
+import java.util.UUID
 
 class ScanSession(
     private val context: Context
@@ -25,21 +28,77 @@ class ScanSession(
          */
         private const val API_USERNAME = "2bit@2bit.it"
         private const val API_PASSWORD = "2bit"
+
+        private const val API_PREFS_NAME = "due_retail_api"
+        private const val API_CLIENT_ID_KEY = "client_id"
+
+        private const val WORKFLOW_PREFS = "scan_workflow"
+        private const val WORKFLOW_MODE_KEY = "mode"
+
+        private const val MODE_INFO = "INFO"
+        private const val MODE_FAST_PACKAGE = "COLLO_VELOCE"
+        private const val MODE_LABELS = "ETICHETTE"
+    }
+
+    /**
+     * Identificativo stabile di questa installazione.
+     *
+     * Viene generato una sola volta e salvato nelle SharedPreferences.
+     * Anche se Android ricrea ScanSession, OverlayService o l'intero processo,
+     * Due Retail continuerà quindi a vedere lo stesso terminale.
+     */
+    private val persistentClientId: String by lazy {
+        getOrCreatePersistentClientId()
     }
 
     private val productRepository by lazy {
         ProductRepository(
             DueRetailApiClient(
                 username = API_USERNAME,
-                password = API_PASSWORD
+                password = API_PASSWORD,
+                clientId = persistentClientId
             )
         )
+    }
+
+    private fun getOrCreatePersistentClientId(): String {
+        val appContext = context.applicationContext
+
+        val preferences = appContext.getSharedPreferences(
+            API_PREFS_NAME,
+            Context.MODE_PRIVATE
+        )
+
+        val savedClientId = preferences
+            .getString(API_CLIENT_ID_KEY, null)
+            ?.trim()
+            .orEmpty()
+
+        if (savedClientId.isNotBlank()) {
+            Log.d(TAG, "CLIENT ID PERSISTENTE RIUTILIZZATO = $savedClientId")
+            return savedClientId
+        }
+
+        val newClientId = UUID.randomUUID().toString()
+
+        val saved = preferences.edit()
+            .putString(API_CLIENT_ID_KEY, newClientId)
+            .commit()
+
+        check(saved) {
+            "Impossibile salvare il clientId persistente"
+        }
+
+        Log.d(TAG, "NUOVO CLIENT ID PERSISTENTE CREATO = $newClientId")
+
+        return newClientId
     }
 
     @Volatile
     private var running = false
 
     fun start() {
+        ScanFeedbackManager.initialize(context.applicationContext)
         running = true
         Log.d(TAG, "ScanSession START")
     }
@@ -59,9 +118,27 @@ class ScanSession(
 
         running = false
 
-        Log.d(TAG, "Barcode = $barcode")
+        val normalizedBarcode = barcode.trim()
 
-        ScanFeedbackManager.beep()
+        Log.d(TAG, "Barcode grezzo = $barcode")
+        Log.d(TAG, "Barcode normalizzato = $normalizedBarcode")
+
+        if (!isValidEan13(normalizedBarcode)) {
+            running = false
+            onCompleted()
+
+            Log.d(
+                TAG,
+                "LETTURA RIFIUTATA - NON EAN13 VALIDO: $normalizedBarcode"
+            )
+
+            ScanFeedbackManager.playError(context.applicationContext)
+
+            showScanError(
+                "Codice non valido o QR rilevato. Riprovare."
+            )
+            return
+        }
 
         /*
          * La fotocamera può essere chiusa subito.
@@ -69,10 +146,41 @@ class ScanSession(
          */
         onCompleted()
 
-        Thread {
-            Log.d(TAG, "API PRODUCT LOOKUP START barcode=$barcode")
+        val scanMode = loadCurrentScanMode()
 
-            productRepository.getProduct(barcode)
+        Log.d(
+            TAG,
+            "BARCODE ROUTING mode=$scanMode barcode=$normalizedBarcode"
+        )
+
+        if (
+            scanMode == MODE_FAST_PACKAGE ||
+            scanMode == MODE_LABELS
+        ) {
+            sendBarcodeToAccessibility(
+                barcode = normalizedBarcode,
+                scanMode = scanMode
+            )
+
+            return
+        }
+
+        /*
+         * In INFO mantengo il lookup veloce via API, ma invio lo stesso EAN
+         * anche ad Accessibility. Il servizio compila il campo e preme Cerca,
+         * poi si arresta lasciando visibile la finestrella dei risultati.
+         */
+        if (scanMode == MODE_INFO) {
+            sendBarcodeToAccessibility(
+                barcode = normalizedBarcode,
+                scanMode = scanMode
+            )
+        }
+
+        Thread {
+            Log.d(TAG, "API PRODUCT LOOKUP START barcode=$normalizedBarcode")
+
+            productRepository.getProduct(normalizedBarcode)
                 .onSuccess { productInfo ->
                     ProductInfoStore.initialize(
                         context.applicationContext
@@ -115,22 +223,72 @@ class ScanSession(
                 .onFailure { error ->
                     Log.e(
                         TAG,
-                        "API PRODUCT LOOKUP ERROR - AVVIO FALLBACK ACCESSIBILITY",
+                        "API PRODUCT LOOKUP ERROR - WORKFLOW TERMINATO",
                         error
                     )
 
-                    startAccessibilityFallback(barcode)
+                    /*
+                     * Nessun fallback Accessibility.
+                     *
+                     * In caso di errore API il tentativo termina qui:
+                     * niente invio barcode, click, apertura scheda o scroll.
+                     */
+                    Handler(Looper.getMainLooper()).post {
+                        ScanFeedbackManager.playError(
+                            context.applicationContext
+                        )
+
+                        showScanError(
+                            "Articolo non trovato. Riprovare la lettura."
+                        )
+                    }
                 }
         }.start()
     }
 
-    /**
-     * Mantiene invariato il vecchio workflow.
-     *
-     * Viene eseguito soltanto quando la richiesta API fallisce:
-     * broadcast verso Due Retail + ScanStorage per Accessibility.
-     */
-    private fun startAccessibilityFallback(barcode: String) {
+    private fun isValidEan13(value: String): Boolean {
+        if (value.length != 13 || !value.all(Char::isDigit)) {
+            return false
+        }
+
+        val expectedCheckDigit = value.last().digitToInt()
+        var sum = 0
+
+        for (index in 0 until 12) {
+            val digit = value[index].digitToInt()
+            sum += if (index % 2 == 0) digit else digit * 3
+        }
+
+        val calculatedCheckDigit = (10 - (sum % 10)) % 10
+        return calculatedCheckDigit == expectedCheckDigit
+    }
+
+    private fun showScanError(message: String) {
+        context.startService(
+            Intent(context, OverlayService::class.java).apply {
+                action = OverlayService.ACTION_SHOW_SCAN_ERROR
+                putExtra(
+                    OverlayService.EXTRA_SCAN_ERROR_MESSAGE,
+                    message
+                )
+            }
+        )
+    }
+
+    private fun loadCurrentScanMode(): String {
+        return context.applicationContext
+            .getSharedPreferences(
+                WORKFLOW_PREFS,
+                Context.MODE_PRIVATE
+            )
+            .getString(WORKFLOW_MODE_KEY, MODE_INFO)
+            ?: MODE_INFO
+    }
+
+    private fun sendBarcodeToAccessibility(
+        barcode: String,
+        scanMode: String
+    ) {
         BarcodeIntentSender.send(
             context,
             barcode
@@ -143,7 +301,7 @@ class ScanSession(
 
         Log.d(
             TAG,
-            "FALLBACK ACCESSIBILITY PREPARATO barcode=$barcode"
+            "ACCESSIBILITY PREPARATA mode=$scanMode barcode=$barcode"
         )
     }
 

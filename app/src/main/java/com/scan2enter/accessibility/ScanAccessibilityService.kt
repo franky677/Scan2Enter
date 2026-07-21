@@ -15,7 +15,6 @@ import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import com.scan2enter.data.ScanStorage
 import com.scan2enter.overlay.OverlayService
-import com.scan2enter.accessibility.UiDumpExporter
 import com.scan2enter.model.ProductInfoReader
 import com.scan2enter.model.ProductInfo
 import android.graphics.Path
@@ -31,6 +30,15 @@ class ScanAccessibilityService : AccessibilityService() {
         private const val DUE_PACKAGE = "it.duebit.due"
 
         private const val INSERT_DELAY = 150L
+
+        private const val WORKFLOW_PREFS = "scan_workflow"
+        private const val WORKFLOW_MODE_KEY = "mode"
+
+        private const val MODE_HOME = "HOME"
+        private const val MODE_INFO = "INFO"
+        private const val MODE_FAST_PACKAGE = "COLLO_VELOCE"
+        private const val MODE_LABELS = "ETICHETTE"
+        private const val MODE_UNKNOWN = "UNKNOWN"
 
         private var overlayVisible = false
 
@@ -160,7 +168,6 @@ class ScanAccessibilityService : AccessibilityService() {
         }
 
 
-
         if (!ScanStorage.hasPendingCode(applicationContext))
             return
 
@@ -175,11 +182,12 @@ class ScanAccessibilityService : AccessibilityService() {
     }
 
     /**
-     * Prepara Due Retail prima dell'apertura della fotocamera.
+     * Apre lo scanner da qualunque schermata di Due Retail.
      *
-     * Se il campo di ricerca articolo è già visibile, apre subito lo scanner.
-     * Altrimenti preme il pulsante Informazioni e attende che la schermata
-     * corretta sia realmente pronta.
+     * Il lookup articolo avviene ora esclusivamente tramite API, quindi non
+     * serve più portare automaticamente Due Retail nella schermata
+     * "Informazioni". In questo modo la Dock funziona anche dentro procedure
+     * come Stampa etichette e Collo veloce.
      */
     private fun prepareAndOpenScanner() {
 
@@ -190,22 +198,119 @@ class ScanAccessibilityService : AccessibilityService() {
             return
         }
 
-        if (findEditable(root) != null) {
-            Log.d(TAG, "SCHERMATA INFORMAZIONI GIA PRONTA")
-            requestScannerOpen()
-            return
+        handler.removeCallbacksAndMessages(null)
+
+        when (detectCurrentScanMode(root)) {
+
+            MODE_HOME -> {
+                saveCurrentScanMode(MODE_INFO)
+                Log.d(TAG, "HOME RICONOSCIUTA - APRO INFORMAZIONI")
+
+                val clicked = clickInformationHomeTile(root)
+                Log.d(TAG, "CLICK INFORMAZIONI DALLA HOME = $clicked")
+
+                if (clicked) {
+                    waitForInformationSearchScreen()
+                }
+            }
+
+            MODE_FAST_PACKAGE -> {
+                saveCurrentScanMode(MODE_FAST_PACKAGE)
+                Log.d(TAG, "COLLO VELOCE RICONOSCIUTO - APERTURA SCANNER")
+                requestScannerOpen()
+            }
+
+            MODE_LABELS -> {
+                saveCurrentScanMode(MODE_LABELS)
+                Log.d(TAG, "GESTIONE ETICHETTE RICONOSCIUTA - APERTURA SCANNER")
+                requestScannerOpen()
+            }
+
+            MODE_INFO -> {
+                saveCurrentScanMode(MODE_INFO)
+                Log.d(TAG, "INFORMAZIONI RICONOSCIUTE - APERTURA SCANNER")
+                requestScannerOpen()
+            }
+
+            else -> {
+                Log.d(TAG, "SCHERMATA NON RICONOSCIUTA - SCANNER NON APERTO")
+            }
         }
+    }
 
-        val clicked = clickInformationHomeTile(root)
+    private fun detectCurrentScanMode(
+        root: AccessibilityNodeInfo
+    ): String {
 
-        Log.d(TAG, "CLICK INFORMAZIONI PRIMA DELLO SCAN = $clicked")
+        val title = root
+            .findAccessibilityNodeInfosByViewId(
+                "it.duebit.due:id/code_textview"
+            )
+            .firstOrNull()
+            ?.text
+            ?.toString()
+            ?.trim()
+            .orEmpty()
 
-        if (!clicked) {
-            Log.d(TAG, "PULSANTE INFORMAZIONI NON TROVATO")
-            return
+        /*
+         * La schermata Informazioni non espone un titolo in code_textview.
+         * La riconosco quindi tramite la combinazione di tre elementi
+         * presenti contemporaneamente nel relativo pannello di ricerca.
+         */
+        val hasInfoSearchField =
+            root.findAccessibilityNodeInfosByViewId(
+                "it.duebit.due:id/search_text_edittext"
+            ).isNotEmpty()
+
+        val hasInfoBarcodeButton =
+            root.findAccessibilityNodeInfosByViewId(
+                "it.duebit.due:id/search_barcode_imagebutton"
+            ).isNotEmpty()
+
+        val hasInfoRecyclerView =
+            root.findAccessibilityNodeInfosByViewId(
+                "it.duebit.due:id/recycler_view"
+            ).isNotEmpty()
+
+        val isInformationScreen =
+            hasInfoSearchField &&
+                    hasInfoBarcodeButton &&
+                    hasInfoRecyclerView
+
+        Log.d(TAG, "TITOLO SCHERMATA DUE RETAIL = $title")
+        Log.d(
+            TAG,
+            "RICONOSCIMENTO INFO " +
+                    "searchField=$hasInfoSearchField " +
+                    "barcodeButton=$hasInfoBarcodeButton " +
+                    "recyclerView=$hasInfoRecyclerView " +
+                    "result=$isInformationScreen"
+        )
+
+        return when {
+            title.equals("Due Retail Mobile", ignoreCase = true) -> MODE_HOME
+            title.startsWith("Collo: COLLO VELOCE", ignoreCase = true) -> MODE_FAST_PACKAGE
+            title.equals("Nuova etichetta", ignoreCase = true) -> MODE_LABELS
+            isInformationScreen -> MODE_INFO
+            else -> MODE_UNKNOWN
         }
+    }
 
-        waitForInformationSearchScreen()
+    private fun saveCurrentScanMode(mode: String) {
+        applicationContext
+            .getSharedPreferences(WORKFLOW_PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putString(WORKFLOW_MODE_KEY, mode)
+            .apply()
+
+        Log.d(TAG, "MODALITA SCANSIONE SALVATA = $mode")
+    }
+
+    private fun loadCurrentScanMode(): String {
+        return applicationContext
+            .getSharedPreferences(WORKFLOW_PREFS, Context.MODE_PRIVATE)
+            .getString(WORKFLOW_MODE_KEY, MODE_INFO)
+            ?: MODE_INFO
     }
 
     /**
@@ -342,7 +447,27 @@ class ScanAccessibilityService : AccessibilityService() {
         )
 
         if (searchFieldReady) {
-            requestScannerOpen()
+            /*
+             * Alla prima apertura Due Retail espone il campo editabile prima
+             * che la schermata Informazioni sia completamente stabilizzata.
+             * Attendo quindi altri 500 ms e verifico nuovamente la modalità
+             * prima di aprire CameraX. Le aperture successive da INFO restano
+             * invece immediate perché passano direttamente da prepareAndOpenScanner().
+             */
+            handler.postDelayed({
+                val stableRoot = rootInActiveWindow
+                val stableInfo =
+                    stableRoot?.packageName?.toString() == DUE_PACKAGE &&
+                            detectCurrentScanMode(stableRoot) == MODE_INFO
+
+                Log.d(TAG, "VERIFICA INFO STABILE = $stableInfo")
+
+                if (stableInfo) {
+                    requestScannerOpen()
+                } else {
+                    waitForInformationSearchScreen(attempt + 1)
+                }
+            }, 500)
             return
         }
 
@@ -435,9 +560,35 @@ class ScanAccessibilityService : AccessibilityService() {
 
             if (clickBarcodeButton(root)) {
 
-                Log.d(TAG, "Barcode click OK, attendo il primo risultato")
+                val currentMode = loadCurrentScanMode()
 
-                waitAndClickFirstResult()
+                Log.d(
+                    TAG,
+                    "Barcode click OK - MODALITA = $currentMode"
+                )
+
+                if (currentMode == MODE_INFO) {
+
+                    /*
+                     * In modalità INFO mi fermo volutamente dopo la ricerca.
+                     * I dati del popup arrivano dall'API; Accessibility serve
+                     * soltanto a lasciare visibile in Due Retail la lista con
+                     * l'articolo appena letto, senza aprirlo automaticamente.
+                     */
+                    Log.d(
+                        TAG,
+                        "INFO - RICERCA ESEGUITA, LASCIO VISIBILE LA LISTA RISULTATI"
+                    )
+
+                } else {
+
+                    Log.d(
+                        TAG,
+                        "ACCODAMENTO - attendo e clicco il primo risultato"
+                    )
+
+                    waitAndClickFirstQueueResult()
+                }
 
             } else {
 
@@ -600,6 +751,40 @@ class ScanAccessibilityService : AccessibilityService() {
 
         return null
     }
+
+    private fun waitAndClickFirstQueueResult(
+        attempt: Int = 0
+    ) {
+
+        if (attempt < 3) {
+            handler.postDelayed({
+                waitAndClickFirstQueueResult(attempt + 1)
+            }, 100)
+            return
+        }
+
+        if (clickFirstResult()) {
+            Log.d(TAG, "PRIMO RISULTATO CLICCATO - ARTICOLO ACCODATO")
+
+            handler.postDelayed({
+                lastInjected = ""
+                lastWindowId = -1
+                Log.d(TAG, "ACCODAMENTO RESET - PRONTO PER NUOVA SCANSIONE")
+            }, 500)
+
+            return
+        }
+
+        if (attempt >= 25) {
+            Log.d(TAG, "TIMEOUT ATTESA RISULTATO DA ACCODARE")
+            return
+        }
+
+        handler.postDelayed({
+            waitAndClickFirstQueueResult(attempt + 1)
+        }, 100)
+    }
+
 
     private fun waitAndClickFirstResult(
         attempt: Int = 0,
@@ -802,72 +987,6 @@ class ScanAccessibilityService : AccessibilityService() {
     }
 
 
-    private fun waitInfoComplete(
-        attempt: Int = 0
-    ) {
-
-        val root = rootInActiveWindow
-
-        if (root == null) {
-
-            if (attempt < 10) {
-                handler.postDelayed({
-                    waitInfoComplete(attempt + 1)
-                }, 300)
-            }
-
-            return
-        }
-
-        val barcode =
-            productInfoReader.readBarcode(root)
-
-        val year =
-            productInfoReader.readYear(root)
-
-        val season =
-            productInfoReader.readSeason(root)
-
-        Log.d(
-            TAG,
-            "WAIT INFO attempt=$attempt  barcode=$barcode  year=$year  season=$season"
-        )
-
-        if (!year.isNullOrBlank() &&
-            !season.isNullOrBlank()) {
-
-            currentProductInfo =
-                productInfoReader.buildProductInfo(root)
-
-            Log.d(
-                TAG,
-                "INFO COMPLETA"
-            )
-
-            return
-        }
-
-        if (attempt < 10) {
-
-            handler.postDelayed({
-
-                waitInfoComplete(attempt + 1)
-
-            }, 300)
-
-        } else {
-
-            Log.d(
-                TAG,
-                "TIMEOUT INFO"
-            )
-
-            currentProductInfo =
-                productInfoReader.buildProductInfo(root)
-        }
-    }
-
-
     private fun readProductData(
         attempt: Int = 0
     ) {
@@ -944,7 +1063,6 @@ class ScanAccessibilityService : AccessibilityService() {
                 )
 
             }, 600)
-
 
 
             /*
@@ -1433,7 +1551,6 @@ class ScanAccessibilityService : AccessibilityService() {
                           }, 1500)
 
 
-
                       }
 
 
@@ -1615,7 +1732,6 @@ class ScanAccessibilityService : AccessibilityService() {
     }
 
 
-
     private fun readTextById(
         root: AccessibilityNodeInfo?,
         viewId: String
@@ -1643,7 +1759,6 @@ class ScanAccessibilityService : AccessibilityService() {
     }
 
 
-
     private fun scrollInfoDown(): Boolean {
 
         val root = rootInActiveWindow ?: return false
@@ -1663,39 +1778,6 @@ class ScanAccessibilityService : AccessibilityService() {
         return recycler.performAction(
             AccessibilityNodeInfo.ACTION_SCROLL_FORWARD
         )
-    }
-
-    private fun readStockPage() {
-
-        val root = rootInActiveWindow ?: return
-
-        val stock = productInfoReader.readStock(root)
-
-        Log.d(TAG, "GIACENZA = $stock")
-    }
-
-    private fun readAdditionalProductInfo() {
-
-        val newRoot = rootInActiveWindow ?: return
-
-        val year = productInfoReader.readYear(newRoot)
-        val season = productInfoReader.readSeason(newRoot)
-
-        Log.d(TAG, "ANNO = $year")
-        Log.d(TAG, "STAGIONE = $season")
-
-        val clicked = clickStockTab()
-
-        Log.d(TAG, "CLICK GIACENZA = $clicked")
-
-        if (clicked) {
-
-            handler.postDelayed({
-
-                readStockPage()
-
-            }, 300)
-        }
     }
 
     private fun clickStockTab(): Boolean {
@@ -1790,268 +1872,6 @@ class ScanAccessibilityService : AccessibilityService() {
         return false
     }
 
-
-    private fun clickPurchasePriceTab(): Boolean {
-
-        val root = rootInActiveWindow ?: return false
-
-        fun search(node: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
-
-            if (node == null) return null
-
-            val text = node.text?.toString()
-            val desc = node.contentDescription?.toString()
-
-            if (text == "PRZ ACQ" || desc == "Prz acq") {
-                return node
-            }
-
-            for (i in 0 until node.childCount) {
-
-                val result = search(node.getChild(i))
-
-                if (result != null)
-                    return result
-            }
-
-            return null
-        }
-
-        val tab = search(root) ?: return false
-
-        var node: AccessibilityNodeInfo? = tab
-
-        while (node != null) {
-
-            if (node.isClickable) {
-
-                val ok = node.performAction(
-                    AccessibilityNodeInfo.ACTION_CLICK
-                )
-
-                Log.d(
-                    TAG,
-                    "CLICK TAB PRZ ACQ = $ok"
-                )
-
-                return ok
-            }
-
-            node = node.parent
-        }
-
-        return false
-    }
-
-
-    private fun clickPriceModeSwitch(): Boolean {
-        Log.d(
-            TAG,
-            "ENTRO IN clickPriceModeSwitch"
-        )
-
-        val root = rootInActiveWindow ?: return false
-
-        val modeNodes =
-            root.findAccessibilityNodeInfosByViewId(
-                "it.duebit.due:id/price_mode_textview"
-            )
-
-        if (modeNodes.isEmpty()) {
-
-            Log.d(
-                TAG,
-                "PRICE MODE TEXTVIEW NON TROVATO"
-            )
-
-            return false
-        }
-
-
-        val textNode = modeNodes.first()
-
-        val modeText =
-            textNode.text?.toString()
-
-
-        Log.d(
-            TAG,
-            "CURRENT PRICE MODE = $modeText"
-        )
-
-
-        /*
-        * Se è già imponibile non fare nulla
-        */
-        if (modeText.equals("Imponibile", true)) {
-
-            Log.d(
-                TAG,
-                "GIÀ IMPONIBILE - NESSUNO SWITCH"
-            )
-
-            return false
-        }
-
-
-        /*
-        * Cerca il contenitore cliccabile
-        */
-        var node: AccessibilityNodeInfo? =
-            textNode
-
-
-        while (node != null) {
-
-
-            if (node.isClickable) {
-
-
-                val ok =
-                    node.performAction(
-                        AccessibilityNodeInfo.ACTION_CLICK
-                    )
-
-
-                Log.d(
-                    TAG,
-                    "CLICK PRICE MODE = $ok"
-                )
-
-
-                return ok
-            }
-
-
-            node = node.parent
-        }
-
-
-        Log.d(
-            TAG,
-            "NESSUN PARENT CLICCABILE"
-        )
-
-
-        return false
-
-    }
-    private fun dumpChildren(node: AccessibilityNodeInfo?, level: Int = 0) {
-
-        if (node == null) return
-
-        val rect = android.graphics.Rect()
-        node.getBoundsInScreen(rect)
-
-        Log.d(
-            TAG,
-            "${" ".repeat(level * 2)}CLASS=${node.className} " +
-                    "ID=${node.viewIdResourceName} " +
-                    "TEXT=${node.text} " +
-                    "DESC=${node.contentDescription} " +
-                    "CLICK=${node.isClickable} " +
-                    "BOUNDS=$rect"
-        )
-
-        for (i in 0 until node.childCount) {
-            dumpChildren(node.getChild(i), level + 1)
-        }
-    }
-    private fun clickUbicazioneSearchButton(): Boolean {
-
-        val root = rootInActiveWindow ?: return false
-
-        val buttons =
-            root.findAccessibilityNodeInfosByViewId(
-                "it.duebit.due:id/button_search"
-            )
-
-        if (buttons.isEmpty()) {
-
-            Log.d(
-                TAG,
-                "PULSANTE CERCA UBICAZIONE NON TROVATO"
-            )
-
-            return false
-        }
-
-        val button = buttons.first()
-
-        val ok = button.performAction(
-            AccessibilityNodeInfo.ACTION_CLICK
-        )
-
-        Log.d(
-            TAG,
-            "CLICK CERCA UBICAZIONE = $ok"
-        )
-
-        return ok
-    }
-
-    private fun scrollProductPage(): Boolean {
-
-        val root = rootInActiveWindow ?: return false
-
-        val recyclerView = findInfoRecyclerView(root)
-            ?: return false
-
-        return recyclerView.performAction(
-            AccessibilityNodeInfo.ACTION_SCROLL_FORWARD
-        )
-    }
-
-    private fun findInfoRecyclerView(
-        node: AccessibilityNodeInfo?
-    ): AccessibilityNodeInfo? {
-
-        if (node == null)
-            return null
-
-        if (
-            node.viewIdResourceName ==
-            "it.duebit.due:id/recycler_view"
-        ) {
-            return node
-        }
-
-        for (i in 0 until node.childCount) {
-
-            val result = findInfoRecyclerView(
-                node.getChild(i)
-            )
-
-            if (result != null)
-                return result
-        }
-
-        return null
-    }
-
-    private fun scrollForward(
-        node: AccessibilityNodeInfo
-    ): Boolean {
-
-        if (node.isScrollable) {
-
-            return node.performAction(
-                AccessibilityNodeInfo.ACTION_SCROLL_FORWARD
-            )
-        }
-
-        for (i in 0 until node.childCount) {
-
-            val child = node.getChild(i) ?: continue
-
-            if (scrollForward(child)) {
-                return true
-            }
-        }
-
-        return false
-    }
-
     private fun retryReadProductData(
         attempt: Int
     ) {
@@ -2123,59 +1943,5 @@ class ScanAccessibilityService : AccessibilityService() {
 
         }
 
-    }
-
-    private fun dumpClickable(
-        node: AccessibilityNodeInfo?,
-        level: Int = 0
-    ) {
-
-        if (node == null) return
-
-        if (node.isClickable) {
-
-            Log.d(
-                TAG,
-                "CLICKABLE -> " +
-                        "CLASS=${node.className} " +
-                        "TEXT=${node.text} " +
-                        "DESC=${node.contentDescription} " +
-                        "ID=${node.viewIdResourceName}"
-            )
-
-        }
-
-        for (i in 0 until node.childCount) {
-
-            dumpClickable(
-                node.getChild(i),
-                level + 1
-            )
-
-        }
-
-    }
-    private fun readPriceMode(): String? {
-
-        val root = rootInActiveWindow ?: return null
-
-        val nodes =
-            root.findAccessibilityNodeInfosByViewId(
-                "it.duebit.due:id/price_mode_textview"
-            )
-
-        val mode =
-            nodes.firstOrNull()
-                ?.text
-                ?.toString()
-
-
-        Log.d(
-            TAG,
-            "READ PRICE MODE = $mode"
-        )
-
-
-        return mode
     }
 }
