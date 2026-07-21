@@ -46,9 +46,10 @@ class DueRetailApiClient(
                 "Username Due Retail non configurato"
             }
 
+            val normalizedBarcode = barcode.trim()
 
             val encodedBarcode = URLEncoder.encode(
-                barcode.trim(),
+                normalizedBarcode,
                 StandardCharsets.UTF_8.name()
             )
 
@@ -57,7 +58,9 @@ class DueRetailApiClient(
             )
 
             val summary = parseSearchResponse(searchJson)
-                ?: error("Nessun articolo trovato per il barcode $barcode")
+                ?: error(
+                    "Nessun articolo trovato per il barcode $normalizedBarcode"
+                )
 
             val detailJson = authenticatedGetJson(
                 "$baseUrl/api/Articolo/${summary.id}"
@@ -65,8 +68,152 @@ class DueRetailApiClient(
 
             parseDetailResponse(
                 jsonText = detailJson,
-                requestedBarcode = barcode.trim()
+                requestedBarcode = normalizedBarcode
             )
+        }
+
+    /**
+     * Aggiorna esclusivamente i parametri di riordino dell'articolo.
+     *
+     * Procedura:
+     * 1. GET del DTO completo;
+     * 2. modifica dei soli campi richiesti;
+     * 3. PUT dello stesso DTO;
+     * 4. GET di verifica.
+     *
+     * Un valore null lascia invariato il campo corrispondente.
+     */
+    fun updateStockSettings(
+        articleId: Long,
+        minimumStock: Double? = null,
+        maximumStock: Double? = null,
+        reorderLot: Double? = null
+    ): Result<DueRetailStockSettings> =
+        runCatching {
+            require(articleId > 0L) {
+                "articleId non valido: $articleId"
+            }
+
+            require(
+                minimumStock != null ||
+                        maximumStock != null ||
+                        reorderLot != null
+            ) {
+                "Nessun valore da aggiornare"
+            }
+
+            minimumStock?.let {
+                require(it >= 0.0) {
+                    "Scorta minima non valida: $it"
+                }
+            }
+
+            maximumStock?.let {
+                require(it >= -1.0) {
+                    "Scorta massima non valida: $it"
+                }
+            }
+
+            reorderLot?.let {
+                require(it >= 0.0) {
+                    "Lotto riordino non valido: $it"
+                }
+            }
+
+            val url = "$baseUrl/api/Articolo/$articleId"
+
+            Log.d(TAG, "========================================")
+            Log.d(TAG, "STOCK SETTINGS UPDATE START")
+            Log.d(TAG, "articleId=$articleId")
+            Log.d(TAG, "minimumStock=$minimumStock")
+            Log.d(TAG, "maximumStock=$maximumStock")
+            Log.d(TAG, "reorderLot=$reorderLot")
+            Log.d(TAG, "========================================")
+
+            val beforeJson = authenticatedGetJson(url)
+            val beforeRoot = parseSuccessfulRoot(beforeJson)
+            val articleDto = beforeRoot.getJSONObject("data")
+
+            val articleCode = articleDto.optString("Codice")
+
+            val previous = DueRetailStockSettings(
+                articleId = articleDto.getLong("Id"),
+                articleCode = articleCode,
+                minimumStock =
+                    articleDto.optDouble("ScortaMinima", -1.0),
+                maximumStock =
+                    articleDto.optDouble("ScortaMassima", -1.0),
+                reorderLot =
+                    articleDto.optDouble("LottoRiordino", -1.0)
+            )
+
+            minimumStock?.let {
+                articleDto.put("ScortaMinima", it)
+            }
+
+            maximumStock?.let {
+                articleDto.put("ScortaMassima", it)
+            }
+
+            reorderLot?.let {
+                articleDto.put("LottoRiordino", it)
+            }
+
+            authenticatedPutJson(
+                urlString = url,
+                jsonBody = articleDto.toString()
+            )
+
+            val afterJson = authenticatedGetJson(url)
+            val afterRoot = parseSuccessfulRoot(afterJson)
+            val verifiedDto = afterRoot.getJSONObject("data")
+
+            val updated = DueRetailStockSettings(
+                articleId = verifiedDto.getLong("Id"),
+                articleCode = verifiedDto.optString("Codice"),
+                minimumStock =
+                    verifiedDto.optDouble("ScortaMinima", -1.0),
+                maximumStock =
+                    verifiedDto.optDouble("ScortaMassima", -1.0),
+                reorderLot =
+                    verifiedDto.optDouble("LottoRiordino", -1.0)
+            )
+
+            minimumStock?.let {
+                check(updated.minimumStock == it) {
+                    "Verifica ScortaMinima fallita: " +
+                            "atteso=$it, ricevuto=${updated.minimumStock}"
+                }
+            }
+
+            maximumStock?.let {
+                check(updated.maximumStock == it) {
+                    "Verifica ScortaMassima fallita: " +
+                            "atteso=$it, ricevuto=${updated.maximumStock}"
+                }
+            }
+
+            reorderLot?.let {
+                check(updated.reorderLot == it) {
+                    "Verifica LottoRiordino fallita: " +
+                            "atteso=$it, ricevuto=${updated.reorderLot}"
+                }
+            }
+
+            Log.d(TAG, "STOCK SETTINGS UPDATE OK")
+            Log.d(
+                TAG,
+                "article=${updated.articleCode} " +
+                        "minimum ${previous.minimumStock} -> " +
+                        "${updated.minimumStock}, " +
+                        "maximum ${previous.maximumStock} -> " +
+                        "${updated.maximumStock}, " +
+                        "lot ${previous.reorderLot} -> " +
+                        "${updated.reorderLot}"
+            )
+            Log.d(TAG, "========================================")
+
+            updated
         }
 
     private fun authenticatedGetJson(urlString: String): String {
@@ -96,15 +243,84 @@ class DueRetailApiClient(
             Log.d(TAG, "GET RETRY RESPONSE code=${response.code}")
         }
 
-        if (response.code !in 200..299) {
-            Log.e(TAG, "GET ERROR")
-            Log.e(TAG, "HTTP=${response.code}")
-            Log.e(TAG, response.body)
+        requireHttpSuccess(
+            operation = "GET",
+            response = response
+        )
 
-            error("Errore HTTP ${response.code}: ${response.body}")
+        return response.body
+    }
+
+    private fun authenticatedPutJson(
+        urlString: String,
+        jsonBody: String
+    ): String {
+        Log.d(TAG, "PUT REQUEST")
+        Log.d(TAG, "URL = $urlString")
+
+        var token = getOrCreateAccessToken()
+
+        var response = executePut(
+            urlString = urlString,
+            bearerToken = token,
+            jsonBody = jsonBody
+        )
+
+        Log.d(TAG, "PUT RESPONSE code=${response.code}")
+
+        if (response.code == HttpURLConnection.HTTP_UNAUTHORIZED) {
+            Log.w(TAG, "PUT 401 ricevuto - richiedo un nuovo token")
+
+            accessToken = null
+            token = getOrCreateAccessToken()
+
+            response = executePut(
+                urlString = urlString,
+                bearerToken = token,
+                jsonBody = jsonBody
+            )
+
+            Log.d(TAG, "PUT RETRY RESPONSE code=${response.code}")
+        }
+
+        requireHttpSuccess(
+            operation = "PUT",
+            response = response
+        )
+
+        if (response.body.isNotBlank()) {
+            parseSuccessfulRoot(response.body)
         }
 
         return response.body
+    }
+
+    private fun parseSuccessfulRoot(jsonText: String): JSONObject {
+        val root = JSONObject(jsonText)
+
+        check(root.optInt("result_code", -1) == 0) {
+            root.optString(
+                "error_message",
+                "Errore API sconosciuto"
+            )
+        }
+
+        return root
+    }
+
+    private fun requireHttpSuccess(
+        operation: String,
+        response: HttpResponse
+    ) {
+        if (response.code !in 200..299) {
+            Log.e(TAG, "$operation ERROR")
+            Log.e(TAG, "HTTP=${response.code}")
+            Log.e(TAG, response.body)
+
+            error(
+                "$operation HTTP ${response.code}: ${response.body}"
+            )
+        }
     }
 
     @Synchronized
@@ -139,9 +355,8 @@ class DueRetailApiClient(
             "${urlEncode(name)}=${urlEncode(value)}"
         }
 
-        val connection = (
-                URL("$baseUrl/Token").openConnection() as HttpURLConnection
-                )
+        val connection =
+            URL("$baseUrl/Token").openConnection() as HttpURLConnection
 
         try {
             connection.requestMethod = "POST"
@@ -155,11 +370,16 @@ class DueRetailApiClient(
             connection.setRequestProperty("Accept", "application/json")
 
             connection.outputStream.use { output ->
-                output.write(formBody.toByteArray(StandardCharsets.UTF_8))
+                output.write(
+                    formBody.toByteArray(StandardCharsets.UTF_8)
+                )
             }
 
             val responseCode = connection.responseCode
-            val responseBody = readResponseBody(connection, responseCode)
+            val responseBody = readResponseBody(
+                connection,
+                responseCode
+            )
 
             Log.d(TAG, "TOKEN RESPONSE")
             Log.d(TAG, "HTTP=$responseCode")
@@ -167,7 +387,10 @@ class DueRetailApiClient(
 
             if (responseCode !in 200..299) {
                 Log.e(TAG, "AUTENTICAZIONE FALLITA")
-                error("Autenticazione HTTP $responseCode: $responseBody")
+                error(
+                    "Autenticazione HTTP $responseCode: " +
+                            responseBody
+                )
             }
 
             val root = JSONObject(responseBody)
@@ -177,14 +400,23 @@ class DueRetailApiClient(
                 root.optString("AccessToken"),
                 root.optString("token"),
                 root.optString("Token"),
-                root.optJSONObject("data")?.optString("access_token").orEmpty(),
-                root.optJSONObject("data")?.optString("AccessToken").orEmpty(),
-                root.optJSONObject("data")?.optString("token").orEmpty(),
-                root.optJSONObject("data")?.optString("Token").orEmpty()
+                root.optJSONObject("data")
+                    ?.optString("access_token")
+                    .orEmpty(),
+                root.optJSONObject("data")
+                    ?.optString("AccessToken")
+                    .orEmpty(),
+                root.optJSONObject("data")
+                    ?.optString("token")
+                    .orEmpty(),
+                root.optJSONObject("data")
+                    ?.optString("Token")
+                    .orEmpty()
             ).firstOrNull { it.isNotBlank() }
 
             val resolvedToken = token ?: error(
-                "Token non trovato nella risposta di autenticazione: $responseBody"
+                "Token non trovato nella risposta di autenticazione: " +
+                        responseBody
             )
 
             Log.d(TAG, "ACCESS TOKEN ricevuto")
@@ -198,23 +430,69 @@ class DueRetailApiClient(
     private fun executeGet(
         urlString: String,
         bearerToken: String
+    ): HttpResponse =
+        executeJsonRequest(
+            urlString = urlString,
+            method = "GET",
+            bearerToken = bearerToken,
+            jsonBody = null
+        )
+
+    private fun executePut(
+        urlString: String,
+        bearerToken: String,
+        jsonBody: String
+    ): HttpResponse =
+        executeJsonRequest(
+            urlString = urlString,
+            method = "PUT",
+            bearerToken = bearerToken,
+            jsonBody = jsonBody
+        )
+
+    private fun executeJsonRequest(
+        urlString: String,
+        method: String,
+        bearerToken: String,
+        jsonBody: String?
     ): HttpResponse {
-        val connection = (
-                URL(urlString).openConnection() as HttpURLConnection
-                )
+        val connection =
+            URL(urlString).openConnection() as HttpURLConnection
 
         try {
-            connection.requestMethod = "GET"
+            connection.requestMethod = method
             connection.connectTimeout = 5_000
-            connection.readTimeout = 10_000
-            connection.setRequestProperty("Accept", "application/json")
+            connection.readTimeout = 20_000
+            connection.setRequestProperty(
+                "Accept",
+                "application/json"
+            )
             connection.setRequestProperty(
                 "Authorization",
                 "Bearer $bearerToken"
             )
 
+            if (jsonBody != null) {
+                connection.doOutput = true
+                connection.setRequestProperty(
+                    "Content-Type",
+                    "application/json; charset=UTF-8"
+                )
+
+                connection.outputStream.use { output ->
+                    output.write(
+                        jsonBody.toByteArray(
+                            StandardCharsets.UTF_8
+                        )
+                    )
+                }
+            }
+
             val responseCode = connection.responseCode
-            val responseBody = readResponseBody(connection, responseCode)
+            val responseBody = readResponseBody(
+                connection,
+                responseCode
+            )
 
             return HttpResponse(
                 code = responseCode,
@@ -229,18 +507,22 @@ class DueRetailApiClient(
         connection: HttpURLConnection,
         responseCode: Int
     ): String {
-        val stream: InputStream? = if (responseCode in 200..299) {
-            connection.inputStream
-        } else {
-            connection.errorStream
-        }
+        val stream: InputStream? =
+            if (responseCode in 200..299) {
+                connection.inputStream
+            } else {
+                connection.errorStream
+            }
 
         if (stream == null) {
             return ""
         }
 
         return BufferedReader(
-            InputStreamReader(stream, StandardCharsets.UTF_8)
+            InputStreamReader(
+                stream,
+                StandardCharsets.UTF_8
+            )
         ).use { reader ->
             reader.readText()
         }
@@ -252,12 +534,10 @@ class DueRetailApiClient(
             StandardCharsets.UTF_8.name()
         )
 
-    private fun parseSearchResponse(jsonText: String): DueRetailProductSummary? {
-        val root = JSONObject(jsonText)
-
-        check(root.optInt("result_code", -1) == 0) {
-            root.optString("error_message", "Errore API sconosciuto")
-        }
+    private fun parseSearchResponse(
+        jsonText: String
+    ): DueRetailProductSummary? {
+        val root = parseSuccessfulRoot(jsonText)
 
         val data = root.optJSONArray("data") ?: JSONArray()
 
@@ -274,9 +554,12 @@ class DueRetailApiClient(
             vatRate = item.optDouble("AliquotaIva", 0.0),
             year = item.optString("StagioneAnno"),
             season = item.optString("StagionePeriodicita"),
-            minimumStock = item.optDouble("ScortaMinima", -1.0),
-            maximumStock = item.optDouble("ScortaMassima", -1.0),
-            reorderLot = item.optDouble("LottoRiordino", -1.0)
+            minimumStock =
+                item.optDouble("ScortaMinima", -1.0),
+            maximumStock =
+                item.optDouble("ScortaMassima", -1.0),
+            reorderLot =
+                item.optDouble("LottoRiordino", -1.0)
         )
     }
 
@@ -284,12 +567,7 @@ class DueRetailApiClient(
         jsonText: String,
         requestedBarcode: String
     ): DueRetailProductDetail {
-        val root = JSONObject(jsonText)
-
-        check(root.optInt("result_code", -1) == 0) {
-            root.optString("error_message", "Errore API sconosciuto")
-        }
-
+        val root = parseSuccessfulRoot(jsonText)
         val item = root.getJSONObject("data")
 
         val barcode = findBarcode(
@@ -302,7 +580,9 @@ class DueRetailApiClient(
         )
 
         val stockEntry = firstObject(
-            item.optJSONArray("DTOGiacenze_SommatePerMagazzinoProdotto")
+            item.optJSONArray(
+                "DTOGiacenze_SommatePerMagazzinoProdotto"
+            )
         )
 
         return DueRetailProductDetail(
@@ -310,16 +590,30 @@ class DueRetailApiClient(
             articleCode = item.optString("Codice"),
             description = item.optString("Descrizione"),
             barcode = barcode,
-            vatRate = item.optDouble("AliquotaIva", 0.0),
-            year = item.optString("StagioneAnno"),
-            season = item.optString("StagionePeriodicita"),
-            publicPrice = publicPriceEntry?.optDoubleOrNull("Prezzo"),
-            taxablePrice = publicPriceEntry?.optDoubleOrNull("Imponibile"),
-            stock = stockEntry?.optDoubleOrNull("QtaGiacenza"),
-            availableStock = stockEntry?.optDoubleOrNull("QtaDisponibile"),
-            minimumStock = item.optDouble("ScortaMinima", -1.0),
-            maximumStock = item.optDouble("ScortaMassima", -1.0),
-            reorderLot = item.optDouble("LottoRiordino", -1.0),
+            vatRate =
+                item.optDouble("AliquotaIva", 0.0),
+            year =
+                item.optString("StagioneAnno"),
+            season =
+                item.optString("StagionePeriodicita"),
+            publicPrice =
+                publicPriceEntry
+                    ?.optDoubleOrNull("Prezzo"),
+            taxablePrice =
+                publicPriceEntry
+                    ?.optDoubleOrNull("Imponibile"),
+            stock =
+                stockEntry
+                    ?.optDoubleOrNull("QtaGiacenza"),
+            availableStock =
+                stockEntry
+                    ?.optDoubleOrNull("QtaDisponibile"),
+            minimumStock =
+                item.optDouble("ScortaMinima", -1.0),
+            maximumStock =
+                item.optDouble("ScortaMassima", -1.0),
+            reorderLot =
+                item.optDouble("LottoRiordino", -1.0),
             rawJson = jsonText
         )
     }
@@ -333,7 +627,9 @@ class DueRetailApiClient(
         }
 
         for (index in 0 until barcodes.length()) {
-            val item = barcodes.optJSONObject(index) ?: continue
+            val item =
+                barcodes.optJSONObject(index) ?: continue
+
             val barcode = item.optString("Barcode")
 
             if (barcode == requestedBarcode) {
@@ -347,17 +643,27 @@ class DueRetailApiClient(
             ?: requestedBarcode
     }
 
-    private fun findPublicPrice(prices: JSONArray?): JSONObject? {
+    private fun findPublicPrice(
+        prices: JSONArray?
+    ): JSONObject? {
         if (prices == null) {
             return null
         }
 
         for (index in 0 until prices.length()) {
-            val item = prices.optJSONObject(index) ?: continue
-            val list = item.optJSONObject("Listino")
-            val description = list?.optString("Descrizione").orEmpty()
+            val item =
+                prices.optJSONObject(index) ?: continue
 
-            if (description.equals("3-AL PUBBLICO", ignoreCase = true)) {
+            val list = item.optJSONObject("Listino")
+            val description =
+                list?.optString("Descrizione").orEmpty()
+
+            if (
+                description.equals(
+                    "3-AL PUBBLICO",
+                    ignoreCase = true
+                )
+            ) {
                 return item
             }
         }
@@ -365,14 +671,18 @@ class DueRetailApiClient(
         return null
     }
 
-    private fun firstObject(array: JSONArray?): JSONObject? =
+    private fun firstObject(
+        array: JSONArray?
+    ): JSONObject? =
         if (array != null && array.length() > 0) {
             array.optJSONObject(0)
         } else {
             null
         }
 
-    private fun JSONObject.optDoubleOrNull(name: String): Double? =
+    private fun JSONObject.optDoubleOrNull(
+        name: String
+    ): Double? =
         if (has(name) && !isNull(name)) {
             optDouble(name)
         } else {
@@ -384,3 +694,11 @@ class DueRetailApiClient(
         val body: String
     )
 }
+
+data class DueRetailStockSettings(
+    val articleId: Long,
+    val articleCode: String,
+    val minimumStock: Double,
+    val maximumStock: Double,
+    val reorderLot: Double
+)
