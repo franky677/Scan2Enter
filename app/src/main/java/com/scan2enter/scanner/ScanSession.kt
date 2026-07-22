@@ -11,6 +11,7 @@ import com.scan2enter.data.ScanStorage
 import com.scan2enter.feedback.ScanFeedbackManager
 import com.scan2enter.model.ProductInfoStore
 import com.scan2enter.overlay.OverlayService
+import com.scan2enter.reorder.ReorderStore
 import com.scan2enter.repository.ProductRepository
 import java.util.UUID
 
@@ -173,6 +174,8 @@ class ScanSession(
 
                             ProductInfoStore.current = productInfo
                             ProductInfoStore.addToHistory(productInfo)
+
+                            ReorderStore.add(productInfo)
 
                             context.startService(
                                 Intent(
