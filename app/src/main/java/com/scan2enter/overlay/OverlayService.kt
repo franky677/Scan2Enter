@@ -31,6 +31,7 @@ import com.scan2enter.R
 import com.scan2enter.feedback.ScanFeedbackManager
 import com.scan2enter.model.ProductInfo
 import com.scan2enter.model.ProductInfoStore
+import com.scan2enter.repository.ProductRepositoryProvider
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
@@ -86,6 +87,10 @@ class OverlayService : Service() {
 
     private lateinit var layoutParams: WindowManager.LayoutParams
     private lateinit var scanOverlay: ScanOverlay
+
+    private val productRepository by lazy {
+        ProductRepositoryProvider.get(applicationContext)
+    }
 
     private var startX = 0
     private var startY = 0
@@ -1048,21 +1053,81 @@ class OverlayService : Service() {
         dialogView.findViewById<View>(R.id.cancelStockEditButton)
             .setOnClickListener { removeStockEditPopup() }
 
-        dialogView.findViewById<View>(R.id.saveStockEditButton)
-            .setOnClickListener {
-                android.util.Log.d(
-                    "OverlayService",
-                    "TEST MODIFICA SCORTE minimo=${minimumEdit.text} lotto=${reorderEdit.text}"
-                )
+        val saveButton = dialogView.findViewById<View>(R.id.saveStockEditButton)
 
-                Toast.makeText(
+        saveButton.setOnClickListener {
+            val minimumStock = minimumEdit.text?.toString()?.trim()?.replace(',', '.')?.toDoubleOrNull()
+            val reorderLot = reorderEdit.text?.toString()?.trim()?.replace(',', '.')?.toDoubleOrNull()
+
+            when {
+                product.articleId <= 0L -> Toast.makeText(
                     this,
-                    "Finestra verificata. Salvataggio API non ancora collegato.",
+                    "ID articolo non disponibile. Ripetere la scansione.",
                     Toast.LENGTH_LONG
                 ).show()
 
-                removeStockEditPopup()
+                minimumStock == null || minimumStock < 0.0 -> {
+                    minimumEdit.error = "Inserire un valore valido"
+                    minimumEdit.requestFocus()
+                }
+
+                reorderLot == null || reorderLot < 0.0 -> {
+                    reorderEdit.error = "Inserire un valore valido"
+                    reorderEdit.requestFocus()
+                }
+
+                else -> {
+                    saveButton.isEnabled = false
+                    minimumEdit.isEnabled = false
+                    reorderEdit.isEnabled = false
+
+                    android.util.Log.d(
+                        "OverlayService",
+                        "SALVATAGGIO SCORTE START articleId=${product.articleId} minimo=$minimumStock lotto=$reorderLot"
+                    )
+
+                    Thread {
+                        productRepository.updateStockSettings(
+                            articleId = product.articleId,
+                            minimumStock = minimumStock,
+                            reorderLot = reorderLot
+                        ).onSuccess { updated ->
+                            popupHandler.post {
+                                val current = ProductInfoStore.current ?: product
+                                val updatedProduct = current.copy(
+                                    minimumStock = updated.minimumStock.formatStockQuantity(),
+                                    maximumStock = updated.maximumStock.takeIf { it >= 0.0 }?.formatStockQuantity() ?: "",
+                                    reorderLot = updated.reorderLot.formatStockQuantity()
+                                )
+
+                                ProductInfoStore.current = updatedProduct
+                                ProductInfoStore.updateHistoryItem(updatedProduct)
+                                updateProductInfoPopup(updatedProduct, true, false)
+
+                                Toast.makeText(this, "Scorte aggiornate", Toast.LENGTH_SHORT).show()
+                                android.util.Log.d(
+                                    "OverlayService",
+                                    "SALVATAGGIO SCORTE OK articleId=${updated.articleId} minimo=${updated.minimumStock} lotto=${updated.reorderLot}"
+                                )
+                                removeStockEditPopup()
+                            }
+                        }.onFailure { error ->
+                            popupHandler.post {
+                                saveButton.isEnabled = true
+                                minimumEdit.isEnabled = true
+                                reorderEdit.isEnabled = true
+                                Toast.makeText(
+                                    this,
+                                    "Errore salvataggio scorte: ${error.message ?: "errore sconosciuto"}",
+                                    Toast.LENGTH_LONG
+                                ).show()
+                                android.util.Log.e("OverlayService", "SALVATAGGIO SCORTE FALLITO", error)
+                            }
+                        }
+                    }.start()
+                }
             }
+        }
 
         val horizontalMargin = (24 * density).toInt()
         val dialogWidth = min(

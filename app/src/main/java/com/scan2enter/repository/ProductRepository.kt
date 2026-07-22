@@ -13,6 +13,7 @@ class ProductRepository(
         return api.getProductByBarcode(barcode)
             .map { product ->
                 ProductInfo(
+                    articleId = product.id,
                     articleCode = product.articleCode,
                     description = product.description,
                     barcode = product.barcode,

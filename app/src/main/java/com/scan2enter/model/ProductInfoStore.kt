@@ -91,6 +91,18 @@ object ProductInfoStore {
             history.toList()
         }
 
+    fun updateHistoryItem(product: ProductInfo) {
+        synchronized(historyLock) {
+            val items = history.toMutableList()
+            val index = items.indexOfFirst { representsSameProduct(it, product) }
+            if (index < 0) return
+            items[index] = product
+            history.clear()
+            items.forEach(history::addLast)
+            saveHistoryLocked()
+        }
+    }
+
     /**
      * Cancella sia la cronologia in RAM
      * sia quella salvata sul dispositivo.
@@ -127,6 +139,7 @@ object ProductInfoStore {
 
                 val product =
                     ProductInfo(
+                        articleId = item.optLong("articleId", 0L),
                         articleCode =
                             item.optString("articleCode"),
                         description =
@@ -144,7 +157,11 @@ object ProductInfoStore {
                         year =
                             item.optString("year"),
                         stock =
-                            item.optString("stock")
+                            item.optString("stock"),
+                        availableStock = item.optString("availableStock"),
+                        minimumStock = item.optString("minimumStock"),
+                        maximumStock = item.optString("maximumStock"),
+                        reorderLot = item.optString("reorderLot")
                     )
 
                 if (isValidHistoryItem(product)) {
@@ -169,6 +186,7 @@ object ProductInfoStore {
         history.forEach { product ->
             array.put(
                 JSONObject().apply {
+                    put("articleId", product.articleId)
                     put(
                         "articleCode",
                         product.articleCode
@@ -205,6 +223,10 @@ object ProductInfoStore {
                         "stock",
                         product.stock
                     )
+                    put("availableStock", product.availableStock)
+                    put("minimumStock", product.minimumStock)
+                    put("maximumStock", product.maximumStock)
+                    put("reorderLot", product.reorderLot)
                 }
             )
         }

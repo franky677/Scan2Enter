@@ -7,6 +7,11 @@ package com.scan2enter.model
 data class ProductInfo(
 
     /**
+     * Identificativo interno dell'articolo nelle API Due Retail.
+     */
+    val articleId: Long = 0L,
+
+    /**
      * Codice articolo.
      */
     val articleCode: String = "",
