@@ -16,12 +16,15 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.ViewOutlineProvider
 import android.view.WindowManager
+import android.widget.Button
+import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import android.widget.Toast
 import com.scan2enter.BuildFlags
 import com.scan2enter.MainActivity
 import com.scan2enter.R
@@ -96,6 +99,7 @@ class OverlayService : Service() {
 
     private var productInfoPopup: View? = null
     private var productInfoPopupParams: WindowManager.LayoutParams? = null
+    private var stockEditPopup: View? = null
 
     private var priceValueText: TextView? = null
     private var articleCodeValueText: TextView? = null
@@ -110,6 +114,9 @@ class OverlayService : Service() {
     private var stockStatusContainer: LinearLayout? = null
     private var stockStatusText: TextView? = null
     private var reorderText: TextView? = null
+    private var availableStockValueText: TextView? = null
+    private var minimumStockValueText: TextView? = null
+    private var reorderLotValueText: TextView? = null
 
     private var historyPopup: View? = null
     private var scanErrorPopup: View? = null
@@ -772,6 +779,15 @@ class OverlayService : Service() {
             playStockSound = workflowCompleted && !manualOpen
         )
 
+        /*
+         * Durante la lettura progressiva il popup lascia passare i tocchi
+         * necessari al servizio Accessibility. Appena il prodotto è completo,
+         * la finestra diventa interattiva e torna opaca al 100%.
+         */
+        setProductInfoTouchThrough(
+            enabled = !workflowCompleted && !manualOpen
+        )
+
         popupHandler.removeCallbacks(dismissPopupRunnable)
         reopenScannerAfterPopup = workflowCompleted && !manualOpen
 
@@ -851,13 +867,28 @@ class OverlayService : Service() {
         reorderText =
             popupView.findViewById(R.id.productReorderText)
 
-        // Il popup resta non interattivo durante il workflow Accessibility.
+        availableStockValueText =
+            popupView.findViewById(R.id.productAvailableStockText)
+
+        minimumStockValueText =
+            popupView.findViewById(R.id.productMinimumStockText)
+
+        reorderLotValueText =
+            popupView.findViewById(R.id.productReorderLotValueText)
+
+        // Il pulsante resta nascosto: la chiusura automatica è già gestita.
         popupView.findViewById<TextView>(R.id.closeProductInfoButton)
             .visibility = View.GONE
 
+        popupView.findViewById<View>(R.id.productStockCard)
+            .setOnClickListener {
+                showStockEditPopup()
+            }
+
         val horizontalMargin = (24 * density).toInt()
-        val verticalMargin = (42 * density).toInt()
-        val bottomBreathingRoom = (14 * density).toInt()
+        val topMargin = (42 * density).toInt()
+        val bottomMargin = (8 * density).toInt()
+        val bottomBreathingRoom = (22 * density).toInt()
         val shadowOffset = (5 * density).toInt()
 
         val popupWidth = min(
@@ -865,7 +896,8 @@ class OverlayService : Service() {
             screenWidth - horizontalMargin * 2
         )
 
-        val popupMaxHeight = screenHeight - verticalMargin * 2
+        // Più spazio verso il basso: circa mezzo centimetro utile in più.
+        val popupMaxHeight = screenHeight - topMargin - bottomMargin
 
         /*
          * La card bianca resta completamente opaca.
@@ -926,7 +958,7 @@ class OverlayService : Service() {
             cardHeight
         ).apply {
             gravity = Gravity.TOP or Gravity.START
-            topMargin = shadowOffset
+            this.topMargin = shadowOffset
         }
 
         val whiteCardParams = FrameLayout.LayoutParams(
@@ -943,7 +975,8 @@ class OverlayService : Service() {
             popupWidth,
             cardHeight + shadowOffset
         ).apply {
-            gravity = Gravity.CENTER
+            gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+            this.topMargin = topMargin
         }
 
         overlayRoot.addView(cardContainer, containerParams)
@@ -964,6 +997,158 @@ class OverlayService : Service() {
         productInfoPopup = overlayRoot
         productInfoPopupParams = popupParams
         windowManager.addView(overlayRoot, popupParams)
+    }
+
+
+    private fun showStockEditPopup() {
+        if (stockEditPopup != null) return
+
+        popupHandler.removeCallbacks(dismissPopupRunnable)
+
+        val product = ProductInfoStore.current ?: return
+        val density = resources.displayMetrics.density
+        val screenWidth = resources.displayMetrics.widthPixels
+
+        val overlayRoot = FrameLayout(this).apply {
+            setBackgroundColor(Color.BLACK)
+            alpha = 1.0f
+        }
+
+        val dialogView = LayoutInflater.from(this)
+            .inflate(R.layout.stock_edit_dialog, overlayRoot, false)
+
+        dialogView.findViewById<TextView>(R.id.stockEditArticleText).text =
+            listOf(product.articleCode, product.description)
+                .filter { it.isNotBlank() }
+                .joinToString(" · ")
+
+        val minimumEdit =
+            dialogView.findViewById<EditText>(R.id.minimumStockEditText)
+        val reorderEdit =
+            dialogView.findViewById<EditText>(R.id.reorderLotEditText)
+
+        minimumEdit.setText(product.minimumStock.ifBlank { "0" })
+        reorderEdit.setText(product.reorderLot.ifBlank { "0" })
+
+        bindQuantityButtons(
+            minusButton = dialogView.findViewById(R.id.minimumStockMinusButton),
+            plusButton = dialogView.findViewById(R.id.minimumStockPlusButton),
+            editText = minimumEdit
+        )
+
+        bindQuantityButtons(
+            minusButton = dialogView.findViewById(R.id.reorderLotMinusButton),
+            plusButton = dialogView.findViewById(R.id.reorderLotPlusButton),
+            editText = reorderEdit
+        )
+
+        dialogView.findViewById<View>(R.id.closeStockEditButton)
+            .setOnClickListener { removeStockEditPopup() }
+
+        dialogView.findViewById<View>(R.id.cancelStockEditButton)
+            .setOnClickListener { removeStockEditPopup() }
+
+        dialogView.findViewById<View>(R.id.saveStockEditButton)
+            .setOnClickListener {
+                android.util.Log.d(
+                    "OverlayService",
+                    "TEST MODIFICA SCORTE minimo=${minimumEdit.text} lotto=${reorderEdit.text}"
+                )
+
+                Toast.makeText(
+                    this,
+                    "Finestra verificata. Salvataggio API non ancora collegato.",
+                    Toast.LENGTH_LONG
+                ).show()
+
+                removeStockEditPopup()
+            }
+
+        val horizontalMargin = (24 * density).toInt()
+        val dialogWidth = min(
+            (390 * density).toInt(),
+            screenWidth - horizontalMargin * 2
+        )
+
+        dialogView.background = GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            setColor(Color.WHITE)
+            cornerRadius = 22 * density
+        }
+        dialogView.clipToOutline = true
+        dialogView.outlineProvider = ViewOutlineProvider.BACKGROUND
+        dialogView.elevation = 16 * density
+
+        val dialogParams = FrameLayout.LayoutParams(
+            dialogWidth,
+            FrameLayout.LayoutParams.WRAP_CONTENT
+        ).apply {
+            gravity = Gravity.CENTER
+        }
+        overlayRoot.addView(dialogView, dialogParams)
+
+        val windowParams = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            PixelFormat.OPAQUE
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+            alpha = 1.0f
+        }
+
+        stockEditPopup = overlayRoot
+        windowManager.addView(overlayRoot, windowParams)
+    }
+
+    private fun bindQuantityButtons(
+        minusButton: Button,
+        plusButton: Button,
+        editText: EditText
+    ) {
+        minusButton.setOnClickListener {
+            changeQuantity(editText, -1.0)
+        }
+        plusButton.setOnClickListener {
+            changeQuantity(editText, 1.0)
+        }
+    }
+
+    private fun changeQuantity(
+        editText: EditText,
+        delta: Double
+    ) {
+        val current = editText.text
+            ?.toString()
+            ?.replace(',', '.')
+            ?.toDoubleOrNull()
+            ?: 0.0
+
+        val updated = max(0.0, current + delta)
+        editText.setText(
+            if (updated == updated.toInt().toDouble()) {
+                updated.toInt().toString()
+            } else {
+                updated.toString()
+            }
+        )
+        editText.setSelection(editText.text.length)
+    }
+
+    private fun removeStockEditPopup() {
+        val popup = stockEditPopup ?: return
+        try {
+            windowManager.removeView(popup)
+        } catch (_: Exception) {
+        }
+        stockEditPopup = null
+
+        popupHandler.removeCallbacks(dismissPopupRunnable)
+        popupHandler.postDelayed(
+            dismissPopupRunnable,
+            COMPLETED_POPUP_DURATION_MS
+        )
     }
 
     /**
@@ -1029,6 +1214,9 @@ class OverlayService : Service() {
         fun valueOrLoading(value: String): String =
             value.trim().takeIf { it.isNotEmpty() } ?: "lettura…"
 
+        fun valueOrEmpty(value: String): String =
+            value.trim().takeIf { it.isNotEmpty() && it != "-1" } ?: ""
+
         if (product == null) {
             priceValueText?.text = "—"
             articleCodeValueText?.text = "—"
@@ -1043,6 +1231,9 @@ class OverlayService : Service() {
             stockStatusContainer?.visibility = View.GONE
             stockStatusText?.text = ""
             reorderText?.text = ""
+            availableStockValueText?.text = ""
+            minimumStockValueText?.text = ""
+            reorderLotValueText?.text = ""
             return
         }
 
@@ -1057,6 +1248,9 @@ class OverlayService : Service() {
         seasonValueText?.text = valueOrLoading(product.season)
         yearValueText?.text = valueOrLoading(product.year)
         stockValueText?.text = valueOrLoading(product.stock)
+        availableStockValueText?.text = valueOrEmpty(product.availableStock)
+        minimumStockValueText?.text = valueOrEmpty(product.minimumStock)
+        reorderLotValueText?.text = valueOrEmpty(product.reorderLot)
 
         val stockSoundStatus = updateStockStatus(product)
 
@@ -1187,6 +1381,14 @@ class OverlayService : Service() {
     }
 
     private fun removeProductInfoPopup() {
+        stockEditPopup?.let {
+            try {
+                windowManager.removeView(it)
+            } catch (_: Exception) {
+            }
+            stockEditPopup = null
+        }
+
         val popup = productInfoPopup ?: return
 
         try {
@@ -1209,6 +1411,9 @@ class OverlayService : Service() {
         stockStatusContainer = null
         stockStatusText = null
         reorderText = null
+        availableStockValueText = null
+        minimumStockValueText = null
+        reorderLotValueText = null
     }
 
     /**
