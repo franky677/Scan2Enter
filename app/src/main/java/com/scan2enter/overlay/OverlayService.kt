@@ -33,6 +33,7 @@ import com.scan2enter.feedback.ScanFeedbackManager
 import com.scan2enter.model.ProductInfo
 import com.scan2enter.model.ProductInfoStore
 import com.scan2enter.repository.ProductRepositoryProvider
+import com.scan2enter.reorder.ReorderStore
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
@@ -93,6 +94,7 @@ class OverlayService : Service() {
 
     private lateinit var infoArea: ImageButton
     private lateinit var scannerArea: ImageButton
+    private lateinit var reorderBadgeText: TextView
 
     private lateinit var layoutParams: WindowManager.LayoutParams
     private lateinit var scanOverlay: ScanOverlay
@@ -108,6 +110,12 @@ class OverlayService : Service() {
     private var touchStartY = 0f
 
     private var isDragging = false
+
+    private val reorderStoreListener: (Int) -> Unit = { count ->
+        popupHandler.post {
+            updateReorderBadge(count)
+        }
+    }
 
     private val popupHandler = Handler(Looper.getMainLooper())
 
@@ -302,6 +310,10 @@ class OverlayService : Service() {
 
         infoArea = dockView.findViewById(R.id.infoArea)
         scannerArea = dockView.findViewById(R.id.scannerArea)
+        reorderBadgeText = dockView.findViewById(R.id.reorderBadgeText)
+
+        ReorderStore.addSizeListener(reorderStoreListener)
+        updateReorderBadge(ReorderStore.size())
 
         val density = resources.displayMetrics.density
         val dockWidth = (80 * density).toInt()
@@ -423,6 +435,26 @@ class OverlayService : Service() {
         dockView.setOnTouchListener(dockTouchListener)
         infoArea.setOnTouchListener(dockTouchListener)
         scannerArea.setOnTouchListener(dockTouchListener)
+    }
+
+    /**
+     * Aggiorna il badge numerico sovrapposto allo scatolone.
+     */
+    private fun updateReorderBadge(count: Int) {
+        if (!::reorderBadgeText.isInitialized) return
+
+        if (count <= 0) {
+            reorderBadgeText.visibility = View.GONE
+            reorderBadgeText.text = ""
+        } else {
+            reorderBadgeText.visibility = View.VISIBLE
+            reorderBadgeText.text = if (count > 99) "99+" else count.toString()
+        }
+
+        android.util.Log.d(
+            "OverlayService",
+            "BADGE RIORDINO AGGIORNATO count=$count"
+        )
     }
 
     /**
@@ -1943,6 +1975,7 @@ class OverlayService : Service() {
         removeProductInfoPopup()
         removeScanErrorPopup()
         removeHistoryPopup()
+        ReorderStore.removeSizeListener(reorderStoreListener)
 
         try {
             scanOverlay.hide()

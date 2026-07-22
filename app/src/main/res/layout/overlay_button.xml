@@ -10,26 +10,43 @@
     android:padding="4dp"
     android:gravity="center">
 
-    <!-- Area INFO -->
-
-    <ImageButton
-        android:id="@+id/infoArea"
-
+    <FrameLayout
+        android:id="@+id/infoContainer"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
-        android:layout_marginBottom="4dp"
-        android:background="?android:attr/selectableItemBackgroundBorderless"
-        android:contentDescription="Info Assistant"
-        android:padding="10dp"
-        android:scaleType="centerInside"
-        android:src="@drawable/ic_box"/>
+        android:layout_marginBottom="4dp">
 
-    <!-- Area SCANNER -->
+        <ImageButton
+            android:id="@+id/infoArea"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="?android:attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Lista riordino"
+            android:padding="10dp"
+            android:scaleType="centerInside"
+            android:src="@drawable/ic_box"/>
+
+        <TextView
+            android:id="@+id/reorderBadgeText"
+            android:layout_width="28dp"
+            android:layout_height="28dp"
+            android:layout_gravity="top|end"
+            android:layout_marginTop="2dp"
+            android:layout_marginEnd="2dp"
+            android:background="@drawable/bg_reorder_badge"
+            android:gravity="center"
+            android:includeFontPadding="false"
+            android:maxLines="1"
+            android:textColor="@android:color/white"
+            android:textSize="12sp"
+            android:textStyle="bold"
+            android:visibility="gone"/>
+
+    </FrameLayout>
 
     <ImageButton
         android:id="@+id/scannerArea"
-
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
