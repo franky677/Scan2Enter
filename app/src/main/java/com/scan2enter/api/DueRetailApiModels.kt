@@ -27,5 +27,9 @@ data class DueRetailProductDetail(
     val minimumStock: Double,
     val maximumStock: Double,
     val reorderLot: Double,
+    val supplierId: Long,
+    val supplierName: String,
+    val supplierArticleCode: String,
+    val coverImagePath: String,
     val rawJson: String
 )

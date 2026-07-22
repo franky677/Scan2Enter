@@ -585,6 +585,26 @@ class DueRetailApiClient(
             )
         )
 
+        val defaultSupplier =
+            item.optJSONObject("DTOFornitorePredefinito")
+
+        val supplierId =
+            defaultSupplier?.optLong("Id", 0L) ?: 0L
+
+        val supplierName =
+            findSupplierName(defaultSupplier)
+
+        val supplierArticleCode =
+            item.optString("CodiceArticoloFornitore")
+
+        val coverImagePath =
+            item.optString("ImmagineCopertina")
+
+        Log.d(TAG, "FORNITORE ID = $supplierId")
+        Log.d(TAG, "FORNITORE = $supplierName")
+        Log.d(TAG, "CODICE ARTICOLO FORNITORE = $supplierArticleCode")
+        Log.d(TAG, "IMMAGINE COPERTINA = $coverImagePath")
+
         return DueRetailProductDetail(
             id = item.getLong("Id"),
             articleCode = item.optString("Codice"),
@@ -614,8 +634,27 @@ class DueRetailApiClient(
                 item.optDouble("ScortaMassima", -1.0),
             reorderLot =
                 item.optDouble("LottoRiordino", -1.0),
+            supplierId = supplierId,
+            supplierName = supplierName,
+            supplierArticleCode = supplierArticleCode,
+            coverImagePath = coverImagePath,
             rawJson = jsonText
         )
+    }
+
+    private fun findSupplierName(
+        supplier: JSONObject?
+    ): String {
+        if (supplier == null) {
+            return ""
+        }
+
+        return sequenceOf(
+            supplier.optString("RagioneSociale"),
+            supplier.optString("RagioneSociale1"),
+            supplier.optString("Descrizione"),
+            supplier.optString("Nome")
+        ).firstOrNull { it.isNotBlank() }.orEmpty()
     }
 
     private fun findBarcode(

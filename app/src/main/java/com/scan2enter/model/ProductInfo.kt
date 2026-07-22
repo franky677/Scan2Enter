@@ -74,5 +74,25 @@ data class ProductInfo(
     /**
      * Lotto di riordino.
      */
-    val reorderLot: String = ""
+    val reorderLot: String = "",
+
+    /**
+     * Identificativo del fornitore predefinito.
+     */
+    val supplierId: Long = 0L,
+
+    /**
+     * Ragione sociale del fornitore predefinito.
+     */
+    val supplierName: String = "",
+
+    /**
+     * Codice articolo usato dal fornitore.
+     */
+    val supplierArticleCode: String = "",
+
+    /**
+     * Percorso dell'immagine di copertina restituito dalle API.
+     */
+    val coverImagePath: String = ""
 )

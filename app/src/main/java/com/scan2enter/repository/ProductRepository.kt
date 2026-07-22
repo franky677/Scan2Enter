@@ -53,7 +53,12 @@ class ProductRepository(
                     reorderLot = product.reorderLot
                         .takeIf { it >= 0.0 }
                         ?.formatQuantity()
-                        ?: ""
+                        ?: "",
+
+                    supplierId = product.supplierId,
+                    supplierName = product.supplierName,
+                    supplierArticleCode = product.supplierArticleCode,
+                    coverImagePath = product.coverImagePath
                 )
             }
     }
