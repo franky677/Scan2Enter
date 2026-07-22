@@ -4,14 +4,13 @@ import android.content.Context
 import android.content.Intent
 import android.os.Handler
 import android.os.Looper
+import android.provider.Settings
 import android.util.Log
 import com.scan2enter.api.DueRetailApiClient
-import com.scan2enter.api.DueRetailApiControlledPutProbe
 import com.scan2enter.data.ScanStorage
 import com.scan2enter.feedback.ScanFeedbackManager
 import com.scan2enter.model.ProductInfoStore
 import com.scan2enter.overlay.OverlayService
-import com.scan2enter.reorder.ReorderStore
 import com.scan2enter.repository.ProductRepository
 import java.util.UUID
 
@@ -34,12 +33,6 @@ class ScanSession(
         private const val MODE_INFO = "INFO"
         private const val MODE_FAST_PACKAGE = "COLLO_VELOCE"
         private const val MODE_LABELS = "ETICHETTE"
-
-        /*
-         * TEST TEMPORANEI:
-         * lasciare true solo durante l'esplorazione degli endpoint.
-         */
-        private const val ENABLE_API_CONTROLLED_PUT_PROBE = true
     }
 
     private val persistentClientId: String by lazy {
@@ -56,14 +49,6 @@ class ScanSession(
 
     private val productRepository by lazy {
         ProductRepository(apiClient)
-    }
-
-    private val apiControlledPutProbe by lazy {
-        DueRetailApiControlledPutProbe(
-            username = API_USERNAME,
-            password = API_PASSWORD,
-            clientId = persistentClientId
-        )
     }
 
     @Volatile
@@ -175,7 +160,6 @@ class ScanSession(
                             ProductInfoStore.current = productInfo
                             ProductInfoStore.addToHistory(productInfo)
 
-                            ReorderStore.add(productInfo)
 
                             context.startService(
                                 Intent(
@@ -205,24 +189,6 @@ class ScanSession(
                                 "PRODUCT INFO API SALVATO NELLO STORE " +
                                         "E NELLA CRONOLOGIA"
                             )
-
-                            if (ENABLE_API_CONTROLLED_PUT_PROBE) {
-                                Log.d(
-                                    TAG,
-                                    "AVVIO CONTROLLED PUT PROBE " +
-                                            "articleId=${apiProduct.id}"
-                                )
-
-                                apiControlledPutProbe
-                                    .testMinimumStockUpdate(apiProduct.id)
-                                    .onFailure { probeError ->
-                                        Log.e(
-                                            TAG,
-                                            "CONTROLLED PUT PROBE ERROR",
-                                            probeError
-                                        )
-                                    }
-                            }
                         }
                         .onFailure { error ->
                             handleApiError(error)
@@ -237,40 +203,61 @@ class ScanSession(
     private fun getOrCreatePersistentClientId(): String {
         val appContext = context.applicationContext
 
+        val androidId = Settings.Secure.getString(
+            appContext.contentResolver,
+            Settings.Secure.ANDROID_ID
+        )?.trim().orEmpty()
+
+        check(androidId.isNotBlank()) {
+            "ANDROID_ID non disponibile"
+        }
+
+        /*
+         * ClientId deterministico:
+         * a parità di dispositivo, utente Android, applicationId e firma APK
+         * viene prodotto sempre lo stesso UUID, anche dopo reinstallazione.
+         */
+        val stableClientId = UUID.nameUUIDFromBytes(
+            "${appContext.packageName}:$androidId"
+                .toByteArray(Charsets.UTF_8)
+        ).toString()
+
         val preferences = appContext.getSharedPreferences(
             API_PREFS_NAME,
             Context.MODE_PRIVATE
         )
 
-        val savedClientId = preferences
+        val previouslySavedClientId = preferences
             .getString(API_CLIENT_ID_KEY, null)
             ?.trim()
             .orEmpty()
 
-        if (savedClientId.isNotBlank()) {
-            Log.d(
+        if (
+            previouslySavedClientId.isNotBlank() &&
+            previouslySavedClientId != stableClientId
+        ) {
+            Log.w(
                 TAG,
-                "CLIENT ID PERSISTENTE RIUTILIZZATO = $savedClientId"
+                "CLIENT ID MIGRATO " +
+                        "da=$previouslySavedClientId " +
+                        "a=$stableClientId"
             )
-            return savedClientId
         }
 
-        val newClientId = UUID.randomUUID().toString()
-
         val saved = preferences.edit()
-            .putString(API_CLIENT_ID_KEY, newClientId)
+            .putString(API_CLIENT_ID_KEY, stableClientId)
             .commit()
 
         check(saved) {
-            "Impossibile salvare il clientId persistente"
+            "Impossibile salvare il clientId stabile"
         }
 
         Log.d(
             TAG,
-            "NUOVO CLIENT ID PERSISTENTE CREATO = $newClientId"
+            "CLIENT ID STABILE DISPOSITIVO = $stableClientId"
         )
 
-        return newClientId
+        return stableClientId
     }
 
     private fun handleApiError(error: Throwable) {

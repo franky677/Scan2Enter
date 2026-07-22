@@ -7,6 +7,8 @@ import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.drawable.GradientDrawable
+import android.media.AudioManager
+import android.media.ToneGenerator
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
@@ -33,6 +35,7 @@ import com.scan2enter.feedback.ScanFeedbackManager
 import com.scan2enter.model.ProductInfo
 import com.scan2enter.model.ProductInfoStore
 import com.scan2enter.repository.ProductRepositoryProvider
+import com.scan2enter.reorder.ReorderItem
 import com.scan2enter.reorder.ReorderStore
 import kotlin.math.abs
 import kotlin.math.max
@@ -111,13 +114,14 @@ class OverlayService : Service() {
 
     private var isDragging = false
 
+    private val popupHandler = Handler(Looper.getMainLooper())
+
     private val reorderStoreListener: (Int) -> Unit = { count ->
         popupHandler.post {
             updateReorderBadge(count)
+            refreshReorderListPopup()
         }
     }
-
-    private val popupHandler = Handler(Looper.getMainLooper())
 
     private var productInfoPopup: View? = null
     private var productInfoPopupParams: WindowManager.LayoutParams? = null
@@ -148,7 +152,17 @@ class OverlayService : Service() {
     private var popupTimerPausedByUser = false
 
     private var historyPopup: View? = null
+    private var reorderListPopup: View? = null
+    private var reorderConfirmationPopup: View? = null
     private var scanErrorPopup: View? = null
+
+    private enum class ReorderPopupMode {
+        REORDER,
+        HISTORY
+    }
+
+    private var reorderPopupMode = ReorderPopupMode.REORDER
+    private var urgentStockTone: ToneGenerator? = null
 
     private val dismissScanErrorRunnable = Runnable {
         removeScanErrorPopup()
@@ -303,6 +317,17 @@ class OverlayService : Service() {
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
         scanOverlay = ScanOverlay(this)
 
+        urgentStockTone = try {
+            ToneGenerator(AudioManager.STREAM_MUSIC, 100)
+        } catch (error: Exception) {
+            android.util.Log.e(
+                "OverlayService",
+                "IMPOSSIBILE INIZIALIZZARE IL SUONO RIORDINO",
+                error
+            )
+            null
+        }
+
         ScanFeedbackManager.initialize(applicationContext)
 
         dockView = LayoutInflater.from(this)
@@ -346,7 +371,7 @@ class OverlayService : Service() {
         infoArea.setOnClickListener {
             if (isDragging) return@setOnClickListener
 
-            showHistoryPopup()
+            showReorderListPopup()
         }
 
         scannerArea.setOnClickListener {
@@ -454,6 +479,925 @@ class OverlayService : Service() {
         android.util.Log.d(
             "OverlayService",
             "BADGE RIORDINO AGGIORNATO count=$count"
+        )
+    }
+
+    /**
+     * Apre la lista di riordino raggruppata per fornitore.
+     */
+    private fun showReorderListPopup() {
+        if (reorderListPopup != null) return
+
+        removeProductInfoPopup()
+        removeHistoryPopup()
+        reorderPopupMode = ReorderPopupMode.REORDER
+
+        val density = resources.displayMetrics.density
+        val screenWidth = resources.displayMetrics.widthPixels
+        val screenHeight = resources.displayMetrics.heightPixels
+
+        val overlayRoot = FrameLayout(this).apply {
+            setBackgroundColor(Color.BLACK)
+            isClickable = true
+            isFocusable = true
+        }
+
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(
+                (18 * density).toInt(),
+                (16 * density).toInt(),
+                (18 * density).toInt(),
+                (16 * density).toInt()
+            )
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                setColor(Color.WHITE)
+                cornerRadius = 22 * density
+            }
+            elevation = 14 * density
+        }
+
+        val header = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+
+        val title = TextView(this).apply {
+            text = "Lista di riordino"
+            textSize = 24f
+            setTextColor(Color.BLACK)
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+        }
+
+        val closeButton = TextView(this).apply {
+            text = "✕"
+            textSize = 28f
+            gravity = Gravity.CENTER
+            setTextColor(Color.BLACK)
+            setPadding(
+                (12 * density).toInt(),
+                (4 * density).toInt(),
+                (4 * density).toInt(),
+                (4 * density).toInt()
+            )
+            isClickable = true
+            setOnClickListener { removeReorderListPopup() }
+        }
+
+        header.addView(
+            title,
+            LinearLayout.LayoutParams(
+                0,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                1f
+            )
+        )
+        header.addView(closeButton)
+
+        card.addView(header)
+
+        val subtitle = TextView(this).apply {
+            id = View.generateViewId()
+            tag = "reorderSubtitle"
+            textSize = 14f
+            setTextColor(Color.DKGRAY)
+            setPadding(
+                0,
+                (4 * density).toInt(),
+                0,
+                (10 * density).toInt()
+            )
+        }
+        card.addView(subtitle)
+
+        val tabs = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+        }
+
+        val reorderTab = Button(this).apply {
+            tag = "reorderTabButton"
+            text = "RIORDINO"
+            textSize = 14f
+            setOnClickListener {
+                reorderPopupMode = ReorderPopupMode.REORDER
+                refreshReorderListPopup()
+            }
+        }
+
+        val historyTab = Button(this).apply {
+            tag = "historyTabButton"
+            text = "CRONOLOGIA"
+            textSize = 14f
+            setOnClickListener {
+                reorderPopupMode = ReorderPopupMode.HISTORY
+                refreshReorderListPopup()
+            }
+        }
+
+        tabs.addView(
+            reorderTab,
+            LinearLayout.LayoutParams(
+                0,
+                (44 * density).toInt(),
+                1f
+            )
+        )
+        tabs.addView(
+            historyTab,
+            LinearLayout.LayoutParams(
+                0,
+                (44 * density).toInt(),
+                1f
+            ).apply {
+                marginStart = (8 * density).toInt()
+            }
+        )
+
+        card.addView(
+            tabs,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                bottomMargin = (10 * density).toInt()
+            }
+        )
+
+        val scrollView = ScrollView(this).apply {
+            tag = "reorderScroll"
+            isFillViewport = true
+        }
+
+        val listContainer = LinearLayout(this).apply {
+            tag = "reorderListContainer"
+            orientation = LinearLayout.VERTICAL
+        }
+
+        scrollView.addView(
+            listContainer,
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT
+            )
+        )
+
+        card.addView(
+            scrollView,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                0,
+                1f
+            )
+        )
+
+        val clearButton = Button(this).apply {
+            tag = "reorderClearButton"
+            text = "SVUOTA LISTA"
+            textSize = 15f
+            setTextColor(Color.WHITE)
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                setColor(Color.rgb(183, 28, 28))
+                cornerRadius = 14 * density
+            }
+            setOnClickListener {
+                showReorderConfirmation(
+                    title = "Svuotare la lista?",
+                    message = "Verranno rimossi tutti gli articoli dalla lista di riordino.",
+                    confirmText = "SÌ, SVUOTA"
+                ) {
+                    ReorderStore.clear()
+                }
+            }
+        }
+
+        card.addView(
+            clearButton,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                (48 * density).toInt()
+            ).apply {
+                topMargin = (10 * density).toInt()
+            }
+        )
+
+        val horizontalMargin = (16 * density).toInt()
+        val verticalMargin = (28 * density).toInt()
+
+        val cardWidth = min(
+            (440 * density).toInt(),
+            screenWidth - horizontalMargin * 2
+        )
+
+        val cardHeight = min(
+            (760 * density).toInt(),
+            screenHeight - verticalMargin * 2
+        )
+
+        overlayRoot.addView(
+            card,
+            FrameLayout.LayoutParams(
+                cardWidth,
+                cardHeight
+            ).apply {
+                gravity = Gravity.CENTER
+            }
+        )
+
+        val popupParams = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            PixelFormat.OPAQUE
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+            alpha = 1.0f
+        }
+
+        reorderListPopup = overlayRoot
+        windowManager.addView(overlayRoot, popupParams)
+        refreshReorderListPopup()
+
+        android.util.Log.d(
+            "OverlayService",
+            "LISTA RIORDINO APERTA elementi=${ReorderStore.size()}"
+        )
+    }
+
+    /**
+     * Ricostruisce il contenuto della lista mentre il popup è aperto.
+     */
+    private fun refreshReorderListPopup() {
+        val popup = reorderListPopup ?: return
+
+        val subtitle = findViewByTag<TextView>(popup, "reorderSubtitle")
+        val listContainer =
+            findViewByTag<LinearLayout>(popup, "reorderListContainer")
+                ?: return
+        val clearButton = findViewByTag<Button>(popup, "reorderClearButton")
+        val reorderTab = findViewByTag<Button>(popup, "reorderTabButton")
+        val historyTab = findViewByTag<Button>(popup, "historyTabButton")
+
+        styleReorderTab(
+            button = reorderTab,
+            selected = reorderPopupMode == ReorderPopupMode.REORDER
+        )
+        styleReorderTab(
+            button = historyTab,
+            selected = reorderPopupMode == ReorderPopupMode.HISTORY
+        )
+
+        listContainer.removeAllViews()
+
+        if (reorderPopupMode == ReorderPopupMode.HISTORY) {
+            val history = ProductInfoStore.getHistory().take(20)
+
+            subtitle?.text = when (history.size) {
+                0 -> "Nessun articolo letto"
+                1 -> "Ultimo articolo letto"
+                else -> "Ultimi ${history.size} articoli letti"
+            }
+
+            clearButton?.visibility = View.GONE
+
+            if (history.isEmpty()) {
+                addEmptyListMessage(
+                    container = listContainer,
+                    message = "Gli ultimi articoli letti compariranno qui."
+                )
+                return
+            }
+
+            history.forEachIndexed { index, product ->
+                listContainer.addView(
+                    createReorderHistoryItemView(
+                        product = product,
+                        position = index + 1
+                    ),
+                    LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT
+                    ).apply {
+                        bottomMargin =
+                            (8 * resources.displayMetrics.density).toInt()
+                    }
+                )
+            }
+            return
+        }
+
+        val items = ReorderStore.getAll()
+        val groupedItems = ReorderStore.getBySupplier()
+
+        subtitle?.text = when {
+            items.isEmpty() -> "Nessun articolo presente"
+            ReorderStore.supplierCount() == 1 ->
+                "${items.size} articoli · 1 fornitore"
+            else ->
+                "${items.size} articoli · ${ReorderStore.supplierCount()} fornitori"
+        }
+
+        clearButton?.visibility = View.VISIBLE
+        clearButton?.isEnabled = items.isNotEmpty()
+        clearButton?.alpha = if (items.isEmpty()) 0.4f else 1.0f
+
+        if (items.isEmpty()) {
+            addEmptyListMessage(
+                container = listContainer,
+                message = "Gli articoli aggiunti durante le scansioni compariranno qui."
+            )
+            return
+        }
+
+        groupedItems.forEach { (_, supplierItems) ->
+            val supplierName = supplierItems
+                .firstOrNull()
+                ?.supplierName
+                ?.trim()
+                .orEmpty()
+                .ifEmpty { "Fornitore non indicato" }
+
+            listContainer.addView(
+                createSupplierHeaderView(
+                    supplierName = supplierName,
+                    itemCount = supplierItems.size
+                )
+            )
+
+            supplierItems.forEach { item ->
+                listContainer.addView(
+                    createReorderItemView(item),
+                    LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT
+                    ).apply {
+                        bottomMargin =
+                            (8 * resources.displayMetrics.density).toInt()
+                    }
+                )
+            }
+        }
+    }
+
+    private fun styleReorderTab(
+        button: Button?,
+        selected: Boolean
+    ) {
+        button ?: return
+        val density = resources.displayMetrics.density
+
+        button.setTextColor(
+            if (selected) Color.WHITE else Color.BLACK
+        )
+        button.background = GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            setColor(
+                if (selected) {
+                    Color.rgb(35, 75, 55)
+                } else {
+                    Color.rgb(230, 230, 230)
+                }
+            )
+            cornerRadius = 12 * density
+        }
+    }
+
+    private fun addEmptyListMessage(
+        container: LinearLayout,
+        message: String
+    ) {
+        val density = resources.displayMetrics.density
+
+        container.addView(
+            TextView(this).apply {
+                text = message
+                textSize = 17f
+                setTextColor(Color.DKGRAY)
+                gravity = Gravity.CENTER
+                setPadding(
+                    (8 * density).toInt(),
+                    (48 * density).toInt(),
+                    (8 * density).toInt(),
+                    (48 * density).toInt()
+                )
+            }
+        )
+    }
+
+    private fun createSupplierHeaderView(
+        supplierName: String,
+        itemCount: Int
+    ): View {
+        val density = resources.displayMetrics.density
+
+        return TextView(this).apply {
+            text = "$supplierName  ·  $itemCount"
+            textSize = 18f
+            setTextColor(Color.WHITE)
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            setPadding(
+                (12 * density).toInt(),
+                (9 * density).toInt(),
+                (12 * density).toInt(),
+                (9 * density).toInt()
+            )
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                setColor(Color.rgb(35, 75, 55))
+                cornerRadius = 12 * density
+            }
+        }
+    }
+
+    private fun createReorderItemView(item: ReorderItem): View {
+        val density = resources.displayMetrics.density
+
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            isClickable = true
+            isFocusable = true
+            setOnClickListener {
+                openReorderItem(item)
+            }
+            setPadding(
+                (12 * density).toInt(),
+                (10 * density).toInt(),
+                (8 * density).toInt(),
+                (10 * density).toInt()
+            )
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                setColor(Color.rgb(245, 245, 245))
+                cornerRadius = 12 * density
+                setStroke(
+                    (1 * density).toInt().coerceAtLeast(1),
+                    Color.LTGRAY
+                )
+            }
+        }
+
+        val textContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+
+        val description = item.description
+            .trim()
+            .ifEmpty { "Articolo senza descrizione" }
+
+        textContainer.addView(
+            TextView(this).apply {
+                text = description
+                textSize = 16f
+                setTextColor(Color.BLACK)
+                setTypeface(typeface, android.graphics.Typeface.BOLD)
+            }
+        )
+
+        val codes = buildString {
+            if (item.articleCode.isNotBlank()) {
+                append("Codice: ${item.articleCode.trim()}")
+            }
+            if (item.supplierArticleCode.isNotBlank()) {
+                if (isNotEmpty()) append("\n")
+                append("Cod. fornitore: ${item.supplierArticleCode.trim()}")
+            }
+            if (item.barcode.isNotBlank()) {
+                if (isNotEmpty()) append("\n")
+                append("EAN: ${item.barcode.trim()}")
+            }
+        }
+
+        if (codes.isNotEmpty()) {
+            textContainer.addView(
+                TextView(this).apply {
+                    text = codes
+                    textSize = 13f
+                    setTextColor(Color.DKGRAY)
+                    setPadding(0, (4 * density).toInt(), 0, 0)
+                }
+            )
+        }
+
+        val quantityToOrder = calculateQuantityToOrder(item)
+
+        val stockLine = buildString {
+            append("Giacenza: ${item.stock.formatNullableQuantity()}")
+            append("   •   Minima: ${item.minimumStock.formatNullableQuantity()}")
+            append("\nDa ordinare: ${quantityToOrder.formatNullableQuantity()}")
+        }
+
+        textContainer.addView(
+            TextView(this).apply {
+                text = stockLine
+                textSize = 14f
+                setTextColor(Color.rgb(120, 30, 20))
+                setTypeface(typeface, android.graphics.Typeface.BOLD)
+                setPadding(0, (6 * density).toInt(), 0, 0)
+            }
+        )
+
+        val removeButton = TextView(this).apply {
+            text = "✕"
+            textSize = 25f
+            gravity = Gravity.CENTER
+            setTextColor(Color.WHITE)
+            isClickable = true
+            contentDescription = "Rimuovi articolo"
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(Color.rgb(198, 40, 40))
+            }
+            setOnClickListener { view ->
+                view.parent?.requestDisallowInterceptTouchEvent(true)
+                showReorderConfirmation(
+                    title = "Rimuovere l'articolo?",
+                    message = buildString {
+                        append(item.description.ifBlank { item.articleCode })
+                        if (item.articleCode.isNotBlank()) {
+                            append("\nCodice: ${item.articleCode}")
+                        }
+                    },
+                    confirmText = "SÌ, RIMUOVI"
+                ) {
+                    ReorderStore.remove(item.articleId)
+                }
+            }
+        }
+
+        root.addView(
+            textContainer,
+            LinearLayout.LayoutParams(
+                0,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                1f
+            )
+        )
+
+        root.addView(
+            removeButton,
+            LinearLayout.LayoutParams(
+                (42 * density).toInt(),
+                (42 * density).toInt()
+            ).apply {
+                marginStart = (10 * density).toInt()
+            }
+        )
+
+        return root
+    }
+
+    private fun calculateQuantityToOrder(
+        item: ReorderItem
+    ): Double? {
+        val stock = item.stock ?: return null
+        val minimumStock = item.minimumStock ?: return null
+        val availableStock = item.availableStock ?: return null
+        val reorderLot = item.reorderLot
+
+        /*
+         * Convenzione gestionale:
+         * minima 0 + massima 0 + lotto 0 = articolo escluso.
+         * ReorderItem non conserva la massima, quindi qui l'esclusione
+         * viene riconosciuta dai due valori operativi disponibili.
+         */
+        if (
+            minimumStock == 0.0 &&
+            (reorderLot == null || reorderLot == 0.0)
+        ) {
+            return 0.0
+        }
+
+        if (stock > minimumStock && availableStock > 0.0) {
+            return 0.0
+        }
+
+        if (item.quantityToOrder > 0.0) {
+            return item.quantityToOrder
+        }
+
+        if (reorderLot != null && reorderLot > 0.0) {
+            return reorderLot
+        }
+
+        return max(0.0, minimumStock - stock)
+    }
+
+    private fun openReorderItem(item: ReorderItem) {
+        if (item.barcode.isBlank()) {
+            Toast.makeText(
+                this,
+                "Barcode non disponibile",
+                Toast.LENGTH_SHORT
+            ).show()
+            return
+        }
+
+        Toast.makeText(
+            this,
+            "Apro ${item.articleCode.ifBlank { item.barcode }}",
+            Toast.LENGTH_SHORT
+        ).show()
+
+        Thread {
+            val result = productRepository.getProduct(item.barcode)
+
+            popupHandler.post {
+                result.onSuccess { product ->
+                    ProductInfoStore.current = product
+                    ProductInfoStore.updateHistoryItem(product)
+                    removeReorderListPopup()
+
+                    showOrUpdateProductInfoPopup(
+                        workflowCompleted = true,
+                        manualOpen = true
+                    )
+
+                    android.util.Log.d(
+                        "OverlayService",
+                        "ARTICOLO RIORDINO APERTO EAN=${item.barcode}"
+                    )
+                }.onFailure { error ->
+                    Toast.makeText(
+                        this,
+                        "Impossibile aprire l'articolo",
+                        Toast.LENGTH_SHORT
+                    ).show()
+
+                    android.util.Log.e(
+                        "OverlayService",
+                        "ERRORE APERTURA ARTICOLO RIORDINO EAN=${item.barcode}",
+                        error
+                    )
+                }
+            }
+        }.start()
+    }
+
+    private fun createReorderHistoryItemView(
+        product: ProductInfo,
+        position: Int
+    ): View {
+        val density = resources.displayMetrics.density
+
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            isClickable = true
+            isFocusable = true
+
+            setOnClickListener {
+                ProductInfoStore.current = product
+                removeReorderListPopup()
+
+                showOrUpdateProductInfoPopup(
+                    workflowCompleted = true,
+                    manualOpen = true
+                )
+            }
+
+            setPadding(
+                (14 * density).toInt(),
+                (12 * density).toInt(),
+                (14 * density).toInt(),
+                (12 * density).toInt()
+            )
+
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                setColor(Color.rgb(245, 245, 245))
+                cornerRadius = 14 * density
+                setStroke(
+                    (1 * density).toInt().coerceAtLeast(1),
+                    Color.LTGRAY
+                )
+            }
+
+            addView(
+                TextView(this@OverlayService).apply {
+                    text = "$position. ${
+                        product.description.trim()
+                            .ifEmpty { "Articolo senza descrizione" }
+                    }"
+                    textSize = 17f
+                    setTextColor(Color.BLACK)
+                    setTypeface(
+                        typeface,
+                        android.graphics.Typeface.BOLD
+                    )
+                }
+            )
+
+            addView(
+                TextView(this@OverlayService).apply {
+                    text = buildString {
+                        if (product.articleCode.isNotBlank()) {
+                            append("Codice: ${product.articleCode.trim()}")
+                        }
+                        if (product.barcode.isNotBlank()) {
+                            if (isNotEmpty()) append("   •   ")
+                            append("EAN: ${product.barcode.trim()}")
+                        }
+                        if (product.stock.isNotBlank()) {
+                            append("\nGiacenza: ${product.stock.trim()}")
+                        }
+                    }.ifEmpty { "Dati aggiuntivi non disponibili" }
+
+                    textSize = 14f
+                    setTextColor(Color.DKGRAY)
+                    setPadding(
+                        0,
+                        (6 * density).toInt(),
+                        0,
+                        0
+                    )
+                }
+            )
+        }
+    }
+
+    private fun showReorderConfirmation(
+        title: String,
+        message: String,
+        confirmText: String,
+        onConfirm: () -> Unit
+    ) {
+        removeReorderConfirmation()
+
+        val density = resources.displayMetrics.density
+        val screenWidth = resources.displayMetrics.widthPixels
+
+        val root = FrameLayout(this).apply {
+            setBackgroundColor(Color.argb(190, 0, 0, 0))
+            isClickable = true
+            isFocusable = true
+        }
+
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(
+                (22 * density).toInt(),
+                (20 * density).toInt(),
+                (22 * density).toInt(),
+                (18 * density).toInt()
+            )
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                setColor(Color.WHITE)
+                cornerRadius = 20 * density
+            }
+        }
+
+        card.addView(
+            TextView(this).apply {
+                text = title
+                textSize = 22f
+                setTextColor(Color.BLACK)
+                setTypeface(
+                    typeface,
+                    android.graphics.Typeface.BOLD
+                )
+            }
+        )
+
+        card.addView(
+            TextView(this).apply {
+                text = message
+                textSize = 16f
+                setTextColor(Color.DKGRAY)
+                setPadding(
+                    0,
+                    (10 * density).toInt(),
+                    0,
+                    (18 * density).toInt()
+                )
+            }
+        )
+
+        val buttons = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.END
+        }
+
+        val noButton = Button(this).apply {
+            text = "NO"
+            setOnClickListener {
+                removeReorderConfirmation()
+            }
+        }
+
+        val yesButton = Button(this).apply {
+            text = confirmText
+            setTextColor(Color.WHITE)
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                setColor(Color.rgb(183, 28, 28))
+                cornerRadius = 12 * density
+            }
+            setOnClickListener {
+                removeReorderConfirmation()
+                onConfirm()
+            }
+        }
+
+        buttons.addView(
+            noButton,
+            LinearLayout.LayoutParams(
+                0,
+                (48 * density).toInt(),
+                1f
+            )
+        )
+        buttons.addView(
+            yesButton,
+            LinearLayout.LayoutParams(
+                0,
+                (48 * density).toInt(),
+                1f
+            ).apply {
+                marginStart = (10 * density).toInt()
+            }
+        )
+
+        card.addView(buttons)
+
+        root.addView(
+            card,
+            FrameLayout.LayoutParams(
+                min(
+                    (390 * density).toInt(),
+                    screenWidth - (32 * density).toInt()
+                ),
+                FrameLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                gravity = Gravity.CENTER
+            }
+        )
+
+        val params = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            PixelFormat.TRANSLUCENT
+        )
+
+        reorderConfirmationPopup = root
+        windowManager.addView(root, params)
+    }
+
+    private fun removeReorderConfirmation() {
+        val popup = reorderConfirmationPopup ?: return
+
+        try {
+            windowManager.removeView(popup)
+        } catch (_: Exception) {
+        }
+
+        reorderConfirmationPopup = null
+    }
+
+    private fun Double?.formatNullableQuantity(): String =
+        this?.formatStockQuantity() ?: "—"
+
+    @Suppress("UNCHECKED_CAST")
+    private fun <T : View> findViewByTag(
+        root: View,
+        wantedTag: String
+    ): T? {
+        if (root.tag == wantedTag) {
+            return root as? T
+        }
+
+        if (root is android.view.ViewGroup) {
+            for (index in 0 until root.childCount) {
+                val found = findViewByTag<T>(
+                    root.getChildAt(index),
+                    wantedTag
+                )
+                if (found != null) return found
+            }
+        }
+
+        return null
+    }
+
+    private fun removeReorderListPopup() {
+        removeReorderConfirmation()
+        val popup = reorderListPopup ?: return
+
+        try {
+            windowManager.removeView(popup)
+        } catch (_: Exception) {
+        }
+
+        reorderListPopup = null
+
+        android.util.Log.d(
+            "OverlayService",
+            "LISTA RIORDINO CHIUSA"
         )
     }
 
@@ -1138,13 +2082,14 @@ class OverlayService : Service() {
 
                     android.util.Log.d(
                         "OverlayService",
-                        "SALVATAGGIO SCORTE START articleId=${product.articleId} minimo=$minimumStock lotto=$reorderLot"
+                        "SALVATAGGIO SCORTE START articleId=${product.articleId} minimo=$minimumStock massimo=0 lotto=$reorderLot"
                     )
 
                     Thread {
                         productRepository.updateStockSettings(
                             articleId = product.articleId,
                             minimumStock = minimumStock,
+                            maximumStock = 0.0,
                             reorderLot = reorderLot
                         ).onSuccess { updated ->
                             popupHandler.post {
@@ -1162,7 +2107,7 @@ class OverlayService : Service() {
                                 Toast.makeText(this, "Scorte aggiornate", Toast.LENGTH_SHORT).show()
                                 android.util.Log.d(
                                     "OverlayService",
-                                    "SALVATAGGIO SCORTE OK articleId=${updated.articleId} minimo=${updated.minimumStock} lotto=${updated.reorderLot}"
+                                    "SALVATAGGIO SCORTE OK articleId=${updated.articleId} minimo=${updated.minimumStock} massimo=${updated.maximumStock} lotto=${updated.reorderLot}"
                                 )
                                 removeStockEditPopup()
                             }
@@ -1422,14 +2367,29 @@ class OverlayService : Service() {
     ): Long {
         val stock = product?.stock?.toNumericValue()
         val minimumStock = product?.minimumStock?.toNumericValue()
+        val maximumStock = product?.maximumStock?.toNumericValue()
+        val availableStock = product?.availableStock?.toNumericValue()
+        val reorderLot = product?.reorderLot?.toNumericValue()
 
         return when {
-            stock == null || minimumStock == null ->
+            stock == null ||
+                    minimumStock == null ||
+                    availableStock == null ->
                 manualPopupDurationSeconds * 1000L
 
-            stock > minimumStock -> AUTO_REGULAR_DURATION_MS
-            stock == minimumStock -> AUTO_WARNING_DURATION_MS
-            else -> AUTO_REORDER_DURATION_MS
+            minimumStock == 0.0 &&
+                    maximumStock == 0.0 &&
+                    reorderLot == 0.0 ->
+                manualPopupDurationSeconds * 1000L
+
+            stock <= 0.0 || availableStock <= 0.0 ->
+                AUTO_REORDER_DURATION_MS
+
+            stock <= minimumStock ->
+                AUTO_WARNING_DURATION_MS
+
+            else ->
+                AUTO_REGULAR_DURATION_MS
         }
     }
 
@@ -1714,16 +2674,55 @@ class OverlayService : Service() {
     ): StockSoundStatus? {
         val stock = product.stock.toNumericValue()
         val minimumStock = product.minimumStock.toNumericValue()
+        val maximumStock = product.maximumStock.toNumericValue()
+        val availableStock = product.availableStock.toNumericValue()
         val reorderLot = product.reorderLot.toNumericValue()
 
         val container = stockStatusContainer ?: return null
         val statusText = stockStatusText ?: return null
         val orderText = reorderText ?: return null
 
-        if (stock == null || minimumStock == null) {
+        /*
+         * Un articolo con uno dei valori necessari nullo non viene
+         * classificato e non genera alcun suono di stato.
+         */
+        if (
+            stock == null ||
+            minimumStock == null ||
+            availableStock == null
+        ) {
             container.visibility = View.GONE
             statusText.text = ""
             orderText.text = ""
+            return null
+        }
+
+        /*
+         * Minima 0 + massima 0 + lotto 0 identifica un articolo
+         * volontariamente escluso dal riordino automatico.
+         * La fascia resta visibile come conferma, ma non viene restituito
+         * alcuno stato sonoro.
+         */
+        if (
+            minimumStock == 0.0 &&
+            maximumStock == 0.0 &&
+            reorderLot == 0.0
+        ) {
+            container.visibility = View.VISIBLE
+
+            val density = resources.displayMetrics.density
+            container.background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = 16 * density
+                setColor(Color.rgb(230, 230, 230))
+            }
+
+            statusText.text =
+                "✓ Articolo escluso dal riordino automatico"
+            statusText.setTextColor(Color.BLACK)
+            orderText.visibility = View.GONE
+            orderText.text = ""
+
             return null
         }
 
@@ -1736,18 +2735,27 @@ class OverlayService : Service() {
         }
 
         val soundStatus = when {
-            stock > minimumStock -> {
-                background.setColor(Color.rgb(0, 200, 83))
-                statusText.text = "SCORTA REGOLARE"
-                statusText.setTextColor(Color.BLACK)
-                orderText.visibility = View.GONE
-                orderText.text = ""
-                StockSoundStatus.REGULAR
+            stock <= 0.0 || availableStock <= 0.0 -> {
+                background.setColor(Color.rgb(213, 0, 0))
+                statusText.text = "DA RIORDINARE"
+                statusText.setTextColor(Color.WHITE)
+
+                if (reorderLot != null && reorderLot > 0.0) {
+                    orderText.visibility = View.VISIBLE
+                    orderText.text =
+                        "ORDINA ${reorderLot.formatStockQuantity()} PEZZI"
+                    orderText.setTextColor(Color.WHITE)
+                } else {
+                    orderText.visibility = View.GONE
+                    orderText.text = ""
+                }
+
+                StockSoundStatus.REORDER
             }
 
-            stock == minimumStock -> {
+            stock <= minimumStock -> {
                 background.setColor(Color.rgb(255, 214, 0))
-                statusText.text = "ATTENZIONE - AL LIMITE"
+                statusText.text = "SOTTO SCORTA"
                 statusText.setTextColor(Color.BLACK)
 
                 if (reorderLot != null && reorderLot > 0.0) {
@@ -1764,21 +2772,12 @@ class OverlayService : Service() {
             }
 
             else -> {
-                background.setColor(Color.rgb(213, 0, 0))
-                statusText.text = "DA RIORDINARE"
-                statusText.setTextColor(Color.WHITE)
-
-                if (reorderLot != null && reorderLot > 0.0) {
-                    orderText.visibility = View.VISIBLE
-                    orderText.text =
-                        "ORDINA ${reorderLot.formatStockQuantity()} PEZZI"
-                    orderText.setTextColor(Color.WHITE)
-                } else {
-                    orderText.visibility = View.GONE
-                    orderText.text = ""
-                }
-
-                StockSoundStatus.REORDER
+                background.setColor(Color.rgb(0, 200, 83))
+                statusText.text = "SCORTA REGOLARE"
+                statusText.setTextColor(Color.BLACK)
+                orderText.visibility = View.GONE
+                orderText.text = ""
+                StockSoundStatus.REGULAR
             }
         }
 
@@ -1802,9 +2801,15 @@ class OverlayService : Service() {
                 ScanFeedbackManager.playSuccess(applicationContext)
             }
 
-            StockSoundStatus.WARNING,
-            StockSoundStatus.REORDER -> {
+            StockSoundStatus.WARNING -> {
                 ScanFeedbackManager.playWarning(applicationContext)
+            }
+
+            StockSoundStatus.REORDER -> {
+                urgentStockTone?.startTone(
+                    ToneGenerator.TONE_CDMA_ALERT_CALL_GUARD,
+                    650
+                )
             }
         }
 
@@ -1975,7 +2980,12 @@ class OverlayService : Service() {
         removeProductInfoPopup()
         removeScanErrorPopup()
         removeHistoryPopup()
+        removeReorderListPopup()
+        removeReorderConfirmation()
         ReorderStore.removeSizeListener(reorderStoreListener)
+
+        urgentStockTone?.release()
+        urgentStockTone = null
 
         try {
             scanOverlay.hide()

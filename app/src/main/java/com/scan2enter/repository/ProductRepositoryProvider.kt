@@ -1,6 +1,7 @@
 package com.scan2enter.repository
 
 import android.content.Context
+import android.provider.Settings
 import android.util.Log
 import com.scan2enter.api.DueRetailApiClient
 import java.util.UUID
@@ -37,17 +38,55 @@ object ProductRepositoryProvider {
     }
 
     private fun getOrCreatePersistentClientId(context: Context): String {
-        val preferences = context.getSharedPreferences(API_PREFS_NAME, Context.MODE_PRIVATE)
-        val savedClientId = preferences.getString(API_CLIENT_ID_KEY, null)?.trim().orEmpty()
-        if (savedClientId.isNotBlank()) {
-            Log.d(TAG, "CLIENT ID PERSISTENTE RIUTILIZZATO = $savedClientId")
-            return savedClientId
+        val androidId = Settings.Secure.getString(
+            context.contentResolver,
+            Settings.Secure.ANDROID_ID
+        )?.trim().orEmpty()
+
+        check(androidId.isNotBlank()) {
+            "ANDROID_ID non disponibile"
         }
-        val newClientId = UUID.randomUUID().toString()
-        check(preferences.edit().putString(API_CLIENT_ID_KEY, newClientId).commit()) {
-            "Impossibile salvare il clientId persistente"
+
+        val stableClientId = UUID.nameUUIDFromBytes(
+            "${context.packageName}:$androidId"
+                .toByteArray(Charsets.UTF_8)
+        ).toString()
+
+        val preferences = context.getSharedPreferences(
+            API_PREFS_NAME,
+            Context.MODE_PRIVATE
+        )
+
+        val previouslySavedClientId = preferences
+            .getString(API_CLIENT_ID_KEY, null)
+            ?.trim()
+            .orEmpty()
+
+        if (
+            previouslySavedClientId.isNotBlank() &&
+            previouslySavedClientId != stableClientId
+        ) {
+            Log.w(
+                TAG,
+                "CLIENT ID MIGRATO " +
+                        "da=$previouslySavedClientId " +
+                        "a=$stableClientId"
+            )
         }
-        Log.d(TAG, "NUOVO CLIENT ID PERSISTENTE CREATO = $newClientId")
-        return newClientId
+
+        check(
+            preferences.edit()
+                .putString(API_CLIENT_ID_KEY, stableClientId)
+                .commit()
+        ) {
+            "Impossibile salvare il clientId stabile"
+        }
+
+        Log.d(
+            TAG,
+            "CLIENT ID STABILE DISPOSITIVO = $stableClientId"
+        )
+
+        return stableClientId
     }
 }
