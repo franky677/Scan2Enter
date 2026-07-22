@@ -23,6 +23,7 @@ import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
+import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.Toast
 import com.scan2enter.BuildFlags
@@ -70,9 +71,17 @@ class OverlayService : Service() {
             "com.scan2enter.extra.WORKFLOW_COMPLETED"
 
         private const val CLICK_THRESHOLD = 12f
-        private const val COMPLETED_POPUP_DURATION_MS = 4000L
-        private const val MANUAL_POPUP_DURATION_MS = 6000L
+        private const val DEFAULT_POPUP_DURATION_SECONDS = 4
+        private const val MIN_POPUP_DURATION_SECONDS = 1
+        private const val MAX_POPUP_DURATION_SECONDS = 10
+        private const val AUTO_REGULAR_DURATION_MS = 1000L
+        private const val AUTO_WARNING_DURATION_MS = 3000L
+        private const val AUTO_REORDER_DURATION_MS = 8000L
         private const val SCAN_ERROR_DURATION_MS = 2200L
+
+        private const val POPUP_PREFS = "product_popup_preferences"
+        private const val POPUP_MODE_AUTO_KEY = "popup_mode_auto"
+        private const val POPUP_MANUAL_SECONDS_KEY = "popup_manual_seconds"
 
         private const val WORKFLOW_PREFS = "scan_workflow"
         private const val WORKFLOW_MODE_KEY = "mode"
@@ -122,6 +131,13 @@ class OverlayService : Service() {
     private var availableStockValueText: TextView? = null
     private var minimumStockValueText: TextView? = null
     private var reorderLotValueText: TextView? = null
+    private var popupDurationSeekBar: SeekBar? = null
+    private var popupDurationModeButton: TextView? = null
+    private var popupDurationValueText: TextView? = null
+
+    private var isPopupDurationAuto = false
+    private var manualPopupDurationSeconds = DEFAULT_POPUP_DURATION_SECONDS
+    private var popupTimerPausedByUser = false
 
     private var historyPopup: View? = null
     private var scanErrorPopup: View? = null
@@ -274,6 +290,7 @@ class OverlayService : Service() {
         super.onCreate()
 
         ProductInfoStore.initialize(applicationContext)
+        loadPopupDurationPreferences()
 
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
         scanOverlay = ScanOverlay(this)
@@ -797,14 +814,7 @@ class OverlayService : Service() {
         reopenScannerAfterPopup = workflowCompleted && !manualOpen
 
         if (workflowCompleted || manualOpen) {
-            popupHandler.postDelayed(
-                dismissPopupRunnable,
-                if (manualOpen) {
-                    MANUAL_POPUP_DURATION_MS
-                } else {
-                    COMPLETED_POPUP_DURATION_MS
-                }
-            )
+            scheduleProductPopupDismiss(product)
         }
 
         android.util.Log.d(
@@ -881,6 +891,17 @@ class OverlayService : Service() {
         reorderLotValueText =
             popupView.findViewById(R.id.productReorderLotValueText)
 
+        popupDurationSeekBar =
+            popupView.findViewById(R.id.popupDurationSeekBar)
+
+        popupDurationModeButton =
+            popupView.findViewById(R.id.popupDurationModeButton)
+
+        popupDurationValueText =
+            popupView.findViewById(R.id.popupDurationValueText)
+
+        configurePopupDurationControls()
+
         // Il pulsante resta nascosto: la chiusura automatica è già gestita.
         popupView.findViewById<TextView>(R.id.closeProductInfoButton)
             .visibility = View.GONE
@@ -890,14 +911,16 @@ class OverlayService : Service() {
                 showStockEditPopup()
             }
 
-        val horizontalMargin = (24 * density).toInt()
+        // Margini ridotti per lasciare spazio al comando verticale senza
+        // comprimere eccessivamente i dati principali del prodotto.
+        val horizontalMargin = (6 * density).toInt()
         val topMargin = (42 * density).toInt()
         val bottomMargin = (8 * density).toInt()
         val bottomBreathingRoom = (22 * density).toInt()
         val shadowOffset = (5 * density).toInt()
 
         val popupWidth = min(
-            (390 * density).toInt(),
+            (430 * density).toInt(),
             screenWidth - horizontalMargin * 2
         )
 
@@ -1210,10 +1233,172 @@ class OverlayService : Service() {
         stockEditPopup = null
 
         popupHandler.removeCallbacks(dismissPopupRunnable)
-        popupHandler.postDelayed(
-            dismissPopupRunnable,
-            COMPLETED_POPUP_DURATION_MS
+        scheduleProductPopupDismiss(ProductInfoStore.current)
+    }
+
+    private fun loadPopupDurationPreferences() {
+        val preferences = applicationContext.getSharedPreferences(
+            POPUP_PREFS,
+            Context.MODE_PRIVATE
         )
+
+        isPopupDurationAuto = preferences.getBoolean(
+            POPUP_MODE_AUTO_KEY,
+            false
+        )
+
+        manualPopupDurationSeconds = preferences.getInt(
+            POPUP_MANUAL_SECONDS_KEY,
+            DEFAULT_POPUP_DURATION_SECONDS
+        ).coerceIn(
+            MIN_POPUP_DURATION_SECONDS,
+            MAX_POPUP_DURATION_SECONDS
+        )
+    }
+
+    private fun savePopupDurationPreferences() {
+        applicationContext.getSharedPreferences(
+            POPUP_PREFS,
+            Context.MODE_PRIVATE
+        ).edit()
+            .putBoolean(POPUP_MODE_AUTO_KEY, isPopupDurationAuto)
+            .putInt(POPUP_MANUAL_SECONDS_KEY, manualPopupDurationSeconds)
+            .apply()
+    }
+
+    private fun configurePopupDurationControls() {
+        val seekBar = popupDurationSeekBar ?: return
+        val modeButton = popupDurationModeButton ?: return
+
+        seekBar.max = MAX_POPUP_DURATION_SECONDS - MIN_POPUP_DURATION_SECONDS
+        seekBar.progress = manualPopupDurationSeconds - MIN_POPUP_DURATION_SECONDS
+
+        seekBar.setOnSeekBarChangeListener(
+            object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(
+                    seekBar: SeekBar?,
+                    progress: Int,
+                    fromUser: Boolean
+                ) {
+                    manualPopupDurationSeconds = (
+                            progress + MIN_POPUP_DURATION_SECONDS
+                            ).coerceIn(
+                            MIN_POPUP_DURATION_SECONDS,
+                            MAX_POPUP_DURATION_SECONDS
+                        )
+
+                    updatePopupDurationControlState()
+
+                    if (fromUser) {
+                        savePopupDurationPreferences()
+                    }
+                }
+
+                override fun onStartTrackingTouch(seekBar: SeekBar?) {
+                    popupTimerPausedByUser = true
+                    popupHandler.removeCallbacks(dismissPopupRunnable)
+                }
+
+                override fun onStopTrackingTouch(seekBar: SeekBar?) {
+                    popupTimerPausedByUser = false
+                    savePopupDurationPreferences()
+                    scheduleProductPopupDismiss(ProductInfoStore.current)
+                }
+            }
+        )
+
+        modeButton.setOnClickListener {
+            isPopupDurationAuto = !isPopupDurationAuto
+            savePopupDurationPreferences()
+            updatePopupDurationControlState()
+
+            popupHandler.removeCallbacks(dismissPopupRunnable)
+            scheduleProductPopupDismiss(ProductInfoStore.current)
+
+            android.util.Log.d(
+                "OverlayService",
+                "MODALITA DURATA POPUP = ${if (isPopupDurationAuto) "AUTO" else "MANUALE"}"
+            )
+        }
+
+        updatePopupDurationControlState()
+    }
+
+    private fun updatePopupDurationControlState() {
+        val seekBar = popupDurationSeekBar
+        val modeButton = popupDurationModeButton
+        val valueText = popupDurationValueText
+
+        seekBar?.isEnabled = !isPopupDurationAuto
+        seekBar?.alpha = if (isPopupDurationAuto) 0.35f else 1.0f
+
+        modeButton?.text = if (isPopupDurationAuto) {
+            "AUTO"
+        } else {
+            "MANUALE"
+        }
+
+        valueText?.text = if (isPopupDurationAuto) {
+            val seconds = resolveAutomaticPopupDurationMs(
+                ProductInfoStore.current
+            ) / 1000L
+            "$seconds s"
+        } else {
+            "$manualPopupDurationSeconds s"
+        }
+
+        modeButton?.background = GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = 12 * resources.displayMetrics.density
+            setColor(
+                if (isPopupDurationAuto) {
+                    Color.rgb(0, 105, 62)
+                } else {
+                    Color.rgb(230, 235, 232)
+                }
+            )
+        }
+        modeButton?.setTextColor(
+            if (isPopupDurationAuto) Color.WHITE else Color.rgb(23, 32, 25)
+        )
+    }
+
+    private fun scheduleProductPopupDismiss(product: ProductInfo?) {
+        if (productInfoPopup == null || popupTimerPausedByUser) {
+            return
+        }
+
+        popupHandler.removeCallbacks(dismissPopupRunnable)
+
+        val durationMs = if (isPopupDurationAuto) {
+            resolveAutomaticPopupDurationMs(product)
+        } else {
+            manualPopupDurationSeconds * 1000L
+        }
+
+        popupDurationValueText?.text = "${durationMs / 1000L} s"
+        popupHandler.postDelayed(dismissPopupRunnable, durationMs)
+
+        android.util.Log.d(
+            "OverlayService",
+            "DURATA POPUP mode=${if (isPopupDurationAuto) "AUTO" else "MANUALE"} ms=$durationMs"
+        )
+    }
+
+    private fun resolveAutomaticPopupDurationMs(
+        product: ProductInfo?
+    ): Long {
+        val stock = product?.stock?.toNumericValue()
+        val minimumStock = product?.minimumStock?.toNumericValue()
+
+        return when {
+            stock == null || minimumStock == null ->
+                manualPopupDurationSeconds * 1000L
+
+            stock > minimumStock -> AUTO_REGULAR_DURATION_MS
+            stock == minimumStock -> AUTO_WARNING_DURATION_MS
+            else -> AUTO_REORDER_DURATION_MS
+        }
     }
 
     /**
@@ -1479,6 +1664,10 @@ class OverlayService : Service() {
         availableStockValueText = null
         minimumStockValueText = null
         reorderLotValueText = null
+        popupDurationSeekBar = null
+        popupDurationModeButton = null
+        popupDurationValueText = null
+        popupTimerPausedByUser = false
     }
 
     /**
