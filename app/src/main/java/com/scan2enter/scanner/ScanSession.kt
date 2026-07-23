@@ -12,8 +12,9 @@ import com.scan2enter.feedback.ScanFeedbackManager
 import com.scan2enter.model.ProductInfoStore
 import com.scan2enter.overlay.OverlayService
 import com.scan2enter.repository.ProductRepository
-import java.util.UUID
 import com.scan2enter.reorder.ReorderStore
+import java.util.UUID
+
 class ScanSession(
     private val context: Context
 ) {
@@ -159,7 +160,9 @@ class ScanSession(
 
                             ProductInfoStore.current = productInfo
                             ProductInfoStore.addToHistory(productInfo)
+
                             ReorderStore.add(productInfo)
+
 
                             context.startService(
                                 Intent(
@@ -344,4 +347,6 @@ class ScanSession(
                     "mode=$scanMode barcode=$barcode"
         )
     }
+
+
 }

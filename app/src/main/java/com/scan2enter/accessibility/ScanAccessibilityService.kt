@@ -51,35 +51,40 @@ class ScanAccessibilityService : AccessibilityService() {
     private val productInfoReader = ProductInfoReader()
     private var currentProductInfo: ProductInfo? = null
 
-    private val prepareScannerReceiver = object : BroadcastReceiver() {
+    private val overlayCommandReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
-            if (intent?.action != OverlayService.ACTION_PREPARE_SCANNER) {
-                return
+            when (intent?.action) {
+                OverlayService.ACTION_PREPARE_SCANNER -> {
+                    Log.d(TAG, "RICHIESTA PREPARAZIONE SCANNER")
+                    prepareAndOpenScanner()
+                }
+
+                OverlayService.ACTION_REQUEST_CURRENT_ARTICLE -> {
+                    Log.d(TAG, "RICHIESTA LETTURA ARTICOLO APERTO")
+                    readCurrentArticleBarcode()
+                }
             }
-
-            Log.d(TAG, "RICHIESTA PREPARAZIONE SCANNER")
-
-            prepareAndOpenScanner()
         }
     }
     override fun onServiceConnected() {
 
         Log.d(TAG, "Accessibility connessa")
 
-        val filter = IntentFilter(
-            OverlayService.ACTION_PREPARE_SCANNER
-        )
+        val filter = IntentFilter().apply {
+            addAction(OverlayService.ACTION_PREPARE_SCANNER)
+            addAction(OverlayService.ACTION_REQUEST_CURRENT_ARTICLE)
+        }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             registerReceiver(
-                prepareScannerReceiver,
+                overlayCommandReceiver,
                 filter,
                 Context.RECEIVER_NOT_EXPORTED
             )
         } else {
             @Suppress("DEPRECATION")
             registerReceiver(
-                prepareScannerReceiver,
+                overlayCommandReceiver,
                 filter
             )
         }
@@ -87,7 +92,7 @@ class ScanAccessibilityService : AccessibilityService() {
 
     override fun onDestroy() {
         try {
-            unregisterReceiver(prepareScannerReceiver)
+            unregisterReceiver(overlayCommandReceiver)
         } catch (_: IllegalArgumentException) {
         }
 
@@ -179,6 +184,113 @@ class ScanAccessibilityService : AccessibilityService() {
 
         }, INSERT_DELAY)
 
+    }
+
+    private fun readCurrentArticleBarcode(
+        attempt: Int = 0
+    ) {
+        val root = rootInActiveWindow
+
+        if (root?.packageName?.toString() != DUE_PACKAGE) {
+            sendCurrentArticleError(
+                "Apri prima una scheda articolo"
+            )
+            return
+        }
+
+        val title = root
+            .findAccessibilityNodeInfosByViewId(
+                "it.duebit.due:id/code_textview"
+            )
+            .firstOrNull()
+            ?.text
+            ?.toString()
+            ?.trim()
+            .orEmpty()
+
+        if (!title.equals("Informazioni articolo", ignoreCase = true)) {
+            sendCurrentArticleError(
+                "Apri prima una scheda articolo"
+            )
+            return
+        }
+
+        val barcode = root
+            .findAccessibilityNodeInfosByViewId(
+                "it.duebit.due:id/barcode_textview"
+            )
+            .asSequence()
+            .mapNotNull { node ->
+                node.text
+                    ?.toString()
+                    ?.filter(Char::isDigit)
+                    ?.takeIf { it.length in 8..14 }
+            }
+            .firstOrNull()
+
+        if (barcode != null) {
+            startService(
+                Intent(this, OverlayService::class.java).apply {
+                    action = OverlayService.ACTION_OPEN_CURRENT_ARTICLE
+                    putExtra(
+                        OverlayService.EXTRA_CURRENT_ARTICLE_BARCODE,
+                        barcode
+                    )
+                }
+            )
+
+            Log.d(
+                TAG,
+                "BARCODE ARTICOLO APERTO = $barcode"
+            )
+            return
+        }
+
+        if (attempt >= 3) {
+            sendCurrentArticleError(
+                "Barcode articolo non trovato"
+            )
+            return
+        }
+
+        val recycler = root
+            .findAccessibilityNodeInfosByViewId(
+                "it.duebit.due:id/recycler_view"
+            )
+            .firstOrNull { it.isScrollable }
+            ?: root.findAccessibilityNodeInfosByViewId(
+                "it.duebit.due:id/recycler_view"
+            ).firstOrNull()
+
+        val scrolled = recycler?.performAction(
+            AccessibilityNodeInfo.ACTION_SCROLL_FORWARD
+        ) == true
+
+        Log.d(
+            TAG,
+            "RICERCA BARCODE attempt=$attempt scroll=$scrolled"
+        )
+
+        handler.postDelayed({
+            readCurrentArticleBarcode(attempt + 1)
+        }, 300)
+    }
+
+    private fun sendCurrentArticleError(message: String) {
+        startService(
+            Intent(this, OverlayService::class.java).apply {
+                action = OverlayService.ACTION_SHOW_SCAN_ERROR
+                putExtra(
+                    OverlayService.EXTRA_SCAN_ERROR_MESSAGE,
+                    message
+                )
+            }
+        )
+
+        Log.d(
+            TAG,
+            "ARTICOLO APERTO NON DISPONIBILE: $message"
+        )
     }
 
     /**

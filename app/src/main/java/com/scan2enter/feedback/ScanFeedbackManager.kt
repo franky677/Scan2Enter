@@ -116,6 +116,11 @@ object ScanFeedbackManager {
         return volume
     }
 
+    fun isEnabled(context: Context): Boolean {
+        initialize(context)
+        return enabled
+    }
+
     fun release() {
         synchronized(lock) {
             soundPool?.release()

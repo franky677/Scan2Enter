@@ -16,6 +16,7 @@ import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewGroup
 import android.view.ViewOutlineProvider
 import android.view.WindowManager
 import android.widget.Button
@@ -59,6 +60,12 @@ class OverlayService : Service() {
         const val ACTION_PREPARE_SCANNER =
             "com.scan2enter.action.PREPARE_SCANNER"
 
+        const val ACTION_REQUEST_CURRENT_ARTICLE =
+            "com.scan2enter.action.REQUEST_CURRENT_ARTICLE"
+
+        const val ACTION_OPEN_CURRENT_ARTICLE =
+            "com.scan2enter.action.OPEN_CURRENT_ARTICLE"
+
         const val ACTION_OPEN_SCANNER =
             "com.scan2enter.action.OPEN_SCANNER"
 
@@ -71,16 +78,20 @@ class OverlayService : Service() {
         const val EXTRA_SCAN_ERROR_MESSAGE =
             "com.scan2enter.extra.SCAN_ERROR_MESSAGE"
 
+        const val EXTRA_CURRENT_ARTICLE_BARCODE =
+            "com.scan2enter.extra.CURRENT_ARTICLE_BARCODE"
+
         const val EXTRA_WORKFLOW_COMPLETED =
             "com.scan2enter.extra.WORKFLOW_COMPLETED"
 
         private const val CLICK_THRESHOLD = 12f
+        private const val LONG_PRESS_DURATION_MS = 800L
         private const val DEFAULT_POPUP_DURATION_SECONDS = 4
         private const val MIN_POPUP_DURATION_SECONDS = 1
         private const val MAX_POPUP_DURATION_SECONDS = 10
-        private const val AUTO_REGULAR_DURATION_MS = 1000L
-        private const val AUTO_WARNING_DURATION_MS = 3000L
-        private const val AUTO_REORDER_DURATION_MS = 8000L
+        private const val AUTO_REGULAR_DURATION_MS = 4000L
+        private const val AUTO_WARNING_DURATION_MS = 4000L
+        private const val AUTO_REORDER_DURATION_MS = 4000L
         private const val SCAN_ERROR_DURATION_MS = 2200L
 
         private const val POPUP_PREFS = "product_popup_preferences"
@@ -113,8 +124,33 @@ class OverlayService : Service() {
     private var touchStartY = 0f
 
     private var isDragging = false
+    private var scannerLongPressTriggered = false
+    private var currentArticleLoading = false
 
     private val popupHandler = Handler(Looper.getMainLooper())
+
+    private val scannerLongPressRunnable = Runnable {
+        if (!isDragging && ::scannerArea.isInitialized) {
+            scannerLongPressTriggered = true
+
+            sendBroadcast(
+                Intent(ACTION_REQUEST_CURRENT_ARTICLE).apply {
+                    setPackage(packageName)
+                }
+            )
+
+            Toast.makeText(
+                this,
+                "Lettura articolo aperto…",
+                Toast.LENGTH_SHORT
+            ).show()
+
+            android.util.Log.d(
+                "OverlayService",
+                "PRESSIONE LUNGA - RICHIESTA ARTICOLO APERTO"
+            )
+        }
+    }
 
     private val reorderStoreListener: (Int) -> Unit = { count ->
         popupHandler.post {
@@ -280,9 +316,74 @@ class OverlayService : Service() {
             ACTION_OPEN_RAPID_SCANNER -> {
                 openRapidScanner()
             }
+
+            ACTION_OPEN_CURRENT_ARTICLE -> {
+                val barcode = intent.getStringExtra(
+                    EXTRA_CURRENT_ARTICLE_BARCODE
+                ).orEmpty()
+
+                openCurrentArticleFromApi(barcode)
+            }
         }
 
         return START_STICKY
+    }
+
+    private fun openCurrentArticleFromApi(rawBarcode: String) {
+        val barcode = rawBarcode
+            .trim()
+            .filter(Char::isDigit)
+
+        if (barcode.length !in 8..14) {
+            showScanErrorPopup(
+                "Barcode articolo non valido"
+            )
+            return
+        }
+
+        if (currentArticleLoading) {
+            android.util.Log.d(
+                "OverlayService",
+                "ARTICOLO APERTO - RICHIESTA GIÀ IN CORSO"
+            )
+            return
+        }
+
+        currentArticleLoading = true
+
+        Thread {
+            val result = productRepository.getProduct(barcode)
+
+            popupHandler.post {
+                currentArticleLoading = false
+
+                result.onSuccess { product ->
+                    ProductInfoStore.current = product
+                    ProductInfoStore.addToHistory(product)
+                    ReorderStore.add(product)
+
+                    showOrUpdateProductInfoPopup(
+                        workflowCompleted = true,
+                        manualOpen = true
+                    )
+
+                    android.util.Log.d(
+                        "OverlayService",
+                        "ARTICOLO APERTO CARICATO VIA API EAN=$barcode"
+                    )
+                }.onFailure { error ->
+                    showScanErrorPopup(
+                        "Impossibile caricare l'articolo"
+                    )
+
+                    android.util.Log.e(
+                        "OverlayService",
+                        "ERRORE ARTICOLO APERTO EAN=$barcode",
+                        error
+                    )
+                }
+            }
+        }.start()
     }
 
     private fun loadCurrentScanMode(): String {
@@ -408,6 +509,17 @@ class OverlayService : Service() {
                     touchStartX = event.rawX
                     touchStartY = event.rawY
                     isDragging = false
+                    scannerLongPressTriggered = false
+
+                    popupHandler.removeCallbacks(scannerLongPressRunnable)
+
+                    if (touchedView === scannerArea) {
+                        popupHandler.postDelayed(
+                            scannerLongPressRunnable,
+                            LONG_PRESS_DURATION_MS
+                        )
+                    }
+
                     true
                 }
 
@@ -420,6 +532,7 @@ class OverlayService : Service() {
                                 abs(dy.toFloat()) > CLICK_THRESHOLD)
                     ) {
                         isDragging = true
+                        popupHandler.removeCallbacks(scannerLongPressRunnable)
                     }
 
                     if (isDragging) {
@@ -437,18 +550,23 @@ class OverlayService : Service() {
                 }
 
                 MotionEvent.ACTION_UP -> {
+                    popupHandler.removeCallbacks(scannerLongPressRunnable)
+
                     if (isDragging) {
                         snapToEdge()
-                    } else {
+                    } else if (!scannerLongPressTriggered) {
                         touchedView.performClick()
                     }
 
                     isDragging = false
+                    scannerLongPressTriggered = false
                     true
                 }
 
                 MotionEvent.ACTION_CANCEL -> {
+                    popupHandler.removeCallbacks(scannerLongPressRunnable)
                     isDragging = false
+                    scannerLongPressTriggered = false
                     saveCurrentPosition()
                     true
                 }
@@ -1876,7 +1994,7 @@ class OverlayService : Service() {
         popupDurationValueText =
             popupView.findViewById(R.id.popupDurationValueText)
 
-        configurePopupDurationControls()
+        configureFixedDurationAndSoundControls()
 
         // Il pulsante resta nascosto: la chiusura automatica è già gestita.
         popupView.findViewById<TextView>(R.id.closeProductInfoButton)
@@ -2201,6 +2319,115 @@ class OverlayService : Service() {
         editText.setSelection(editText.text.length)
     }
 
+    /**
+     * La durata del popup è ora fissa a 4 secondi.
+     *
+     * Il vecchio blocco Auto/Manuale viene rimosso completamente e lo stesso
+     * spazio viene riutilizzato per il solo comando dei suoni stock.
+     */
+    private fun configureFixedDurationAndSoundControls() {
+        val modeButton = popupDurationModeButton ?: return
+        val controlsContainer = modeButton.parent as? ViewGroup ?: return
+        val density = resources.displayMetrics.density
+
+        controlsContainer.removeAllViews()
+
+        val toggle = TextView(this).apply {
+            gravity = Gravity.CENTER
+            textSize = 14f
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            isClickable = true
+            isFocusable = true
+            minHeight = (44 * density).toInt()
+
+            setPadding(
+                (12 * density).toInt(),
+                (9 * density).toInt(),
+                (12 * density).toInt(),
+                (9 * density).toInt()
+            )
+
+            fun refresh() {
+                val enabled =
+                    ScanFeedbackManager.isEnabled(applicationContext)
+
+                text = if (enabled) {
+                    "🔊 SUONI STOCK: ON"
+                } else {
+                    "🔇 SUONI STOCK: OFF"
+                }
+
+                setTextColor(
+                    if (enabled) {
+                        Color.WHITE
+                    } else {
+                        Color.rgb(30, 35, 32)
+                    }
+                )
+
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.RECTANGLE
+                    cornerRadius = 12 * density
+                    setColor(
+                        if (enabled) {
+                            Color.rgb(0, 105, 62)
+                        } else {
+                            Color.rgb(225, 228, 226)
+                        }
+                    )
+                }
+            }
+
+            setOnClickListener {
+                val newValue =
+                    !ScanFeedbackManager.isEnabled(applicationContext)
+
+                ScanFeedbackManager.setEnabled(
+                    applicationContext,
+                    newValue
+                )
+
+                refresh()
+
+                Toast.makeText(
+                    this@OverlayService,
+                    if (newValue) {
+                        "Suoni stock attivati"
+                    } else {
+                        "Suoni stock disattivati"
+                    },
+                    Toast.LENGTH_SHORT
+                ).show()
+
+                /*
+                 * Dopo il tocco riparte il conteggio dei 4 secondi,
+                 * così il pulsante non scompare mentre viene premuto.
+                 */
+                popupHandler.removeCallbacks(dismissPopupRunnable)
+                scheduleProductPopupDismiss(ProductInfoStore.current)
+            }
+
+            refresh()
+        }
+
+        controlsContainer.addView(
+            toggle,
+            ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+        )
+
+        popupDurationSeekBar = null
+        popupDurationModeButton = null
+        popupDurationValueText = null
+
+        android.util.Log.d(
+            "OverlayService",
+            "CONTROLLO DURATA RIMOSSO - PULSANTE SUONI STOCK AGGIUNTO"
+        )
+    }
+
     private fun removeStockEditPopup() {
         val popup = stockEditPopup ?: return
         try {
@@ -2219,18 +2446,12 @@ class OverlayService : Service() {
             Context.MODE_PRIVATE
         )
 
-        isPopupDurationAuto = preferences.getBoolean(
-            POPUP_MODE_AUTO_KEY,
-            false
-        )
-
-        manualPopupDurationSeconds = preferences.getInt(
-            POPUP_MANUAL_SECONDS_KEY,
-            DEFAULT_POPUP_DURATION_SECONDS
-        ).coerceIn(
-            MIN_POPUP_DURATION_SECONDS,
-            MAX_POPUP_DURATION_SECONDS
-        )
+        /*
+         * Durata negozio fissa: il popup si chiude sempre dopo 4 secondi,
+         * indipendentemente dallo stato stock.
+         */
+        isPopupDurationAuto = false
+        manualPopupDurationSeconds = DEFAULT_POPUP_DURATION_SECONDS
     }
 
     private fun savePopupDurationPreferences() {
@@ -2347,11 +2568,7 @@ class OverlayService : Service() {
 
         popupHandler.removeCallbacks(dismissPopupRunnable)
 
-        val durationMs = if (isPopupDurationAuto) {
-            resolveAutomaticPopupDurationMs(product)
-        } else {
-            manualPopupDurationSeconds * 1000L
-        }
+        val durationMs = DEFAULT_POPUP_DURATION_SECONDS * 1000L
 
         popupDurationValueText?.text = "${durationMs / 1000L} s"
         popupHandler.postDelayed(dismissPopupRunnable, durationMs)
@@ -2365,32 +2582,7 @@ class OverlayService : Service() {
     private fun resolveAutomaticPopupDurationMs(
         product: ProductInfo?
     ): Long {
-        val stock = product?.stock?.toNumericValue()
-        val minimumStock = product?.minimumStock?.toNumericValue()
-        val maximumStock = product?.maximumStock?.toNumericValue()
-        val availableStock = product?.availableStock?.toNumericValue()
-        val reorderLot = product?.reorderLot?.toNumericValue()
-
-        return when {
-            stock == null ||
-                    minimumStock == null ||
-                    availableStock == null ->
-                manualPopupDurationSeconds * 1000L
-
-            minimumStock == 0.0 &&
-                    maximumStock == 0.0 &&
-                    reorderLot == 0.0 ->
-                manualPopupDurationSeconds * 1000L
-
-            stock <= 0.0 || availableStock <= 0.0 ->
-                AUTO_REORDER_DURATION_MS
-
-            stock <= minimumStock ->
-                AUTO_WARNING_DURATION_MS
-
-            else ->
-                AUTO_REGULAR_DURATION_MS
-        }
+        return DEFAULT_POPUP_DURATION_SECONDS * 1000L
     }
 
     /**
@@ -2796,6 +2988,14 @@ class OverlayService : Service() {
         product: ProductInfo,
         status: StockSoundStatus
     ) {
+        if (!ScanFeedbackManager.isEnabled(applicationContext)) {
+            android.util.Log.d(
+                "OverlayService",
+                "SUONO STOCK DISATTIVATO status=$status EAN=${product.barcode}"
+            )
+            return
+        }
+
         when (status) {
             StockSoundStatus.REGULAR -> {
                 ScanFeedbackManager.playSuccess(applicationContext)
@@ -2975,6 +3175,7 @@ class OverlayService : Service() {
     }
 
     override fun onDestroy() {
+        popupHandler.removeCallbacks(scannerLongPressRunnable)
         popupHandler.removeCallbacks(dismissPopupRunnable)
         popupHandler.removeCallbacks(dismissScanErrorRunnable)
         removeProductInfoPopup()
