@@ -570,6 +570,9 @@ class DueRetailApiClient(
         val root = parseSuccessfulRoot(jsonText)
         val item = root.getJSONObject("data")
 
+
+
+
         val barcode = findBarcode(
             item.optJSONArray("DTOBarcodes"),
             requestedBarcode

@@ -236,6 +236,18 @@ class ScanAccessibilityService : AccessibilityService() {
                         OverlayService.EXTRA_CURRENT_ARTICLE_BARCODE,
                         barcode
                     )
+                    putExtra(
+                        OverlayService.EXTRA_CURRENT_ARTICLE_YEAR,
+                        productInfoReader.readYear(root).orEmpty()
+                    )
+                    putExtra(
+                        OverlayService.EXTRA_CURRENT_ARTICLE_SEASON,
+                        productInfoReader.readSeason(root).orEmpty()
+                    )
+                    putExtra(
+                        OverlayService.EXTRA_CURRENT_ARTICLE_LOCATION,
+                        productInfoReader.readLocation(root).orEmpty()
+                    )
                 }
             )
 
@@ -1158,15 +1170,18 @@ class ScanAccessibilityService : AccessibilityService() {
                 val barcode = productInfoReader.readBarcode(root2)
                 val year = productInfoReader.readYear(root2)
                 val season = productInfoReader.readSeason(root2)
+                val location = productInfoReader.readLocation(root2)
 
                 Log.d(TAG, "READ BARCODE = $barcode")
                 Log.d(TAG, "READ YEAR = $year")
                 Log.d(TAG, "READ SEASON = $season")
+                Log.d(TAG, "READ LOCATION = $location")
 
                 currentProductInfo = currentProductInfo?.copy(
                     barcode = barcode ?: currentProductInfo?.barcode.orEmpty(),
                     year = year ?: currentProductInfo?.year.orEmpty(),
-                    season = season ?: currentProductInfo?.season.orEmpty()
+                    season = season ?: currentProductInfo?.season.orEmpty(),
+                    location = location ?: currentProductInfo?.location.orEmpty()
                 )
 
                 publishProductInfo(
@@ -1233,6 +1248,9 @@ class ScanAccessibilityService : AccessibilityService() {
                             },
                             season = info.season.ifBlank {
                                 previous?.season.orEmpty()
+                            },
+                            location = info.location.ifBlank {
+                                previous?.location.orEmpty()
                             },
                             taxablePrice = previous?.taxablePrice.orEmpty(),
                             vatRate = previous?.vatRate.orEmpty(),

@@ -202,6 +202,18 @@ class ProductInfoReader {
         )
     }
 
+    fun readLocation(
+        root: AccessibilityNodeInfo?
+    ): String? {
+
+        val value = findValueByKey(
+            root,
+            "Ubicazione"
+        )?.trim() ?: return null
+
+        return value.takeUnless { it == "-" }.orEmpty()
+    }
+
     fun readLocations(
         root: AccessibilityNodeInfo?
     ): List<String> {
@@ -563,6 +575,7 @@ class ProductInfoReader {
         Log.d(TAG, "READ BARCODE = ${readBarcode(root)}")
         Log.d(TAG, "READ YEAR = ${readYear(root)}")
         Log.d(TAG, "READ SEASON = ${readSeason(root)}")
+        Log.d(TAG, "READ LOCATION = ${readLocation(root)}")
 
         return ProductInfo(
             description = readDescription(root).orEmpty(),
@@ -570,6 +583,7 @@ class ProductInfoReader {
             barcode = readBarcode(root).orEmpty(),
             season = readSeason(root).orEmpty(),
             year = readYear(root).orEmpty(),
+            location = readLocation(root).orEmpty(),
             publicPrice = readPrice(root).orEmpty(),
             stock = readStock(root).orEmpty()
         )

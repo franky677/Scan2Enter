@@ -28,6 +28,7 @@ class ScanOverlay(
          * così il mirino coincide meglio con la direzione reale di ripresa.
          */
         private const val SCANNER_TOP_MARGIN_DP = 72
+        private const val RAPID_SCAN_TIMEOUT_MS = 3_000L
     }
 
     private val windowManager =
@@ -93,7 +94,7 @@ class ScanOverlay(
         handler.postDelayed(
             timeoutRunnable,
             if (rapidRescan) {
-                2_000L
+                RAPID_SCAN_TIMEOUT_MS
             } else {
                 ScanConfig.SCAN_TIMEOUT
             }

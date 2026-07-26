@@ -1,0 +1,57 @@
+﻿[
+    {
+        "ScortaMinima":  null,
+        "ScortaMassima":  null,
+        "LottoRiordino":  null,
+        "NonOrdinabileAFornitore":  null,
+        "idVariante1":  -1,
+        "IdVariante2":  -1,
+        "idVariante3":  -1,
+        "IdArticolo":  139,
+        "IdMagazzino":  0
+    },
+    {
+        "ScortaMinima":  null,
+        "ScortaMassima":  null,
+        "LottoRiordino":  null,
+        "NonOrdinabileAFornitore":  null,
+        "idVariante1":  -1,
+        "IdVariante2":  -1,
+        "idVariante3":  -1,
+        "IdArticolo":  140,
+        "IdMagazzino":  0
+    },
+    {
+        "ScortaMinima":  null,
+        "ScortaMassima":  null,
+        "LottoRiordino":  500,
+        "NonOrdinabileAFornitore":  null,
+        "idVariante1":  -1,
+        "IdVariante2":  -1,
+        "idVariante3":  -1,
+        "IdArticolo":  141,
+        "IdMagazzino":  0
+    },
+    {
+        "ScortaMinima":  null,
+        "ScortaMassima":  null,
+        "LottoRiordino":  null,
+        "NonOrdinabileAFornitore":  null,
+        "idVariante1":  -1,
+        "IdVariante2":  -1,
+        "idVariante3":  -1,
+        "IdArticolo":  142,
+        "IdMagazzino":  0
+    },
+    {
+        "ScortaMinima":  null,
+        "ScortaMassima":  null,
+        "LottoRiordino":  null,
+        "NonOrdinabileAFornitore":  null,
+        "idVariante1":  -1,
+        "IdVariante2":  -1,
+        "idVariante3":  -1,
+        "IdArticolo":  143,
+        "IdMagazzino":  0
+    }
+]

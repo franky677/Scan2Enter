@@ -2,62 +2,47 @@ package com.scan2enter.repository
 
 import com.scan2enter.api.DueRetailApiClient
 import com.scan2enter.api.DueRetailStockSettings
+import com.scan2enter.api.GatewayApiClient
 import com.scan2enter.model.ProductInfo
-import java.util.Locale
 
+/**
+ * Le letture articolo passano dal Gateway.
+ *
+ * Le scritture delle scorte restano temporaneamente sulla WebAPI Due Retail,
+ * finché il Gateway non avrà il relativo endpoint di aggiornamento.
+ */
 class ProductRepository(
-    private val api: DueRetailApiClient
+    private val gatewayApi: GatewayApiClient,
+    private val dueRetailWriteApi: DueRetailApiClient
 ) {
 
     fun getProduct(barcode: String): Result<ProductInfo> {
-        return api.getProductByBarcode(barcode)
+        return gatewayApi.getProductByBarcode(barcode)
             .map { product ->
                 ProductInfo(
-                    articleId = product.id,
+                    articleId = product.articleId,
                     articleCode = product.articleCode,
                     description = product.description,
                     barcode = product.barcode,
 
-                    taxablePrice = product.taxablePrice
-                        ?.formatPrice()
-                        ?: "",
-
-                    vatRate = product.vatRate
-                        .formatVat(),
-
-                    publicPrice = product.publicPrice
-                        ?.formatPrice()
-                        ?: "",
+                    taxablePrice = product.taxablePrice,
+                    vatRate = product.vatRate,
+                    publicPrice = product.publicPrice,
 
                     season = product.season,
                     year = product.year,
+                    location = product.location,
 
-                    stock = product.stock
-                        ?.formatQuantity()
-                        ?: "",
-
-                    availableStock = product.availableStock
-                        ?.formatQuantity()
-                        ?: "",
-
-                    minimumStock = product.minimumStock
-                        .takeIf { it >= 0.0 }
-                        ?.formatQuantity()
-                        ?: "",
-
-                    maximumStock = product.maximumStock
-                        .takeIf { it >= 0.0 }
-                        ?.formatQuantity()
-                        ?: "",
-
-                    reorderLot = product.reorderLot
-                        .takeIf { it >= 0.0 }
-                        ?.formatQuantity()
-                        ?: "",
+                    stock = product.stock,
+                    availableStock = product.availableStock,
+                    minimumStock = product.minimumStock,
+                    maximumStock = product.maximumStock,
+                    reorderLot = product.reorderLot,
 
                     supplierId = product.supplierId,
                     supplierName = product.supplierName,
-                    supplierArticleCode = product.supplierArticleCode,
+                    supplierArticleCode =
+                        product.supplierArticleCode,
                     coverImagePath = product.coverImagePath
                 )
             }
@@ -66,6 +51,7 @@ class ProductRepository(
     /**
      * Aggiorna uno o più parametri di riordino.
      *
+     * Questa operazione usa ancora temporaneamente la WebAPI Due Retail.
      * I campi null restano invariati.
      */
     fun updateStockSettings(
@@ -74,28 +60,11 @@ class ProductRepository(
         maximumStock: Double? = null,
         reorderLot: Double? = null
     ): Result<DueRetailStockSettings> {
-        return api.updateStockSettings(
+        return dueRetailWriteApi.updateStockSettings(
             articleId = articleId,
             minimumStock = minimumStock,
             maximumStock = maximumStock,
             reorderLot = reorderLot
         )
     }
-
-    private fun Double.formatVat(): String =
-        if (this == this.toInt().toDouble()) {
-            this.toInt().toString()
-        } else {
-            String.format(Locale.US, "%.2f", this)
-        }
-
-    private fun Double.formatPrice(): String =
-        String.format(Locale.US, "%.2f", this)
-
-    private fun Double.formatQuantity(): String =
-        if (this == this.toInt().toDouble()) {
-            this.toInt().toString()
-        } else {
-            String.format(Locale.US, "%.2f", this)
-        }
 }

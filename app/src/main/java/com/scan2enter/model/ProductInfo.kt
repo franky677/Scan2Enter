@@ -52,6 +52,11 @@ data class ProductInfo(
     val year: String = "",
 
     /**
+     * Ubicazione articolo.
+     */
+    val location: String = "",
+
+    /**
      * Giacenza.
      */
     val stock: String = "",

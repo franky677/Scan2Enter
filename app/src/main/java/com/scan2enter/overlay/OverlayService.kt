@@ -81,6 +81,15 @@ class OverlayService : Service() {
         const val EXTRA_CURRENT_ARTICLE_BARCODE =
             "com.scan2enter.extra.CURRENT_ARTICLE_BARCODE"
 
+        const val EXTRA_CURRENT_ARTICLE_YEAR =
+            "com.scan2enter.extra.CURRENT_ARTICLE_YEAR"
+
+        const val EXTRA_CURRENT_ARTICLE_SEASON =
+            "com.scan2enter.extra.CURRENT_ARTICLE_SEASON"
+
+        const val EXTRA_CURRENT_ARTICLE_LOCATION =
+            "com.scan2enter.extra.CURRENT_ARTICLE_LOCATION"
+
         const val EXTRA_WORKFLOW_COMPLETED =
             "com.scan2enter.extra.WORKFLOW_COMPLETED"
 
@@ -92,7 +101,7 @@ class OverlayService : Service() {
         private const val AUTO_REGULAR_DURATION_MS = 4000L
         private const val AUTO_WARNING_DURATION_MS = 4000L
         private const val AUTO_REORDER_DURATION_MS = 4000L
-        private const val SCAN_ERROR_DURATION_MS = 2200L
+        private const val SCAN_ERROR_DURATION_MS = 800L
 
         private const val POPUP_PREFS = "product_popup_preferences"
         private const val POPUP_MODE_AUTO_KEY = "popup_mode_auto"
@@ -170,6 +179,7 @@ class OverlayService : Service() {
     private var descriptionValueText: TextView? = null
     private var yearValueText: TextView? = null
     private var seasonValueText: TextView? = null
+    private var locationValueText: TextView? = null
     private var taxablePriceValueText: TextView? = null
     private var vatRateValueText: TextView? = null
     private var stockValueText: TextView? = null
@@ -202,6 +212,15 @@ class OverlayService : Service() {
 
     private val dismissScanErrorRunnable = Runnable {
         removeScanErrorPopup()
+
+        if (loadCurrentScanMode() == MODE_INFO) {
+            android.util.Log.d(
+                "OverlayService",
+                "ERRORE LETTURA - RIAPRO AUTOMATICAMENTE LO SCANNER"
+            )
+
+            openRapidScanner()
+        }
     }
 
     private enum class StockSoundStatus {
@@ -322,14 +341,24 @@ class OverlayService : Service() {
                     EXTRA_CURRENT_ARTICLE_BARCODE
                 ).orEmpty()
 
-                openCurrentArticleFromApi(barcode)
+                openCurrentArticleFromApi(
+                    rawBarcode = barcode,
+                    uiYear = intent.getStringExtra(EXTRA_CURRENT_ARTICLE_YEAR).orEmpty(),
+                    uiSeason = intent.getStringExtra(EXTRA_CURRENT_ARTICLE_SEASON).orEmpty(),
+                    uiLocation = intent.getStringExtra(EXTRA_CURRENT_ARTICLE_LOCATION).orEmpty()
+                )
             }
         }
 
         return START_STICKY
     }
 
-    private fun openCurrentArticleFromApi(rawBarcode: String) {
+    private fun openCurrentArticleFromApi(
+        rawBarcode: String,
+        uiYear: String,
+        uiSeason: String,
+        uiLocation: String
+    ) {
         val barcode = rawBarcode
             .trim()
             .filter(Char::isDigit)
@@ -358,9 +387,15 @@ class OverlayService : Service() {
                 currentArticleLoading = false
 
                 result.onSuccess { product ->
-                    ProductInfoStore.current = product
-                    ProductInfoStore.addToHistory(product)
-                    ReorderStore.add(product)
+                    val enrichedProduct = product.copy(
+                        year = uiYear.ifBlank { product.year },
+                        season = uiSeason.ifBlank { product.season },
+                        location = uiLocation.ifBlank { product.location }
+                    )
+
+                    ProductInfoStore.current = enrichedProduct
+                    ProductInfoStore.addToHistory(enrichedProduct)
+                    ReorderStore.add(enrichedProduct)
 
                     showOrUpdateProductInfoPopup(
                         workflowCompleted = true,
@@ -413,6 +448,7 @@ class OverlayService : Service() {
         super.onCreate()
 
         ProductInfoStore.initialize(applicationContext)
+        ReorderStore.initialize(applicationContext)
         loadPopupDurationPreferences()
 
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
@@ -1964,6 +2000,9 @@ class OverlayService : Service() {
         yearValueText =
             popupView.findViewById(R.id.productYearText)
 
+        locationValueText =
+            popupView.findViewById(R.id.productLocationText)
+
         stockValueText =
             popupView.findViewById(R.id.productStockText)
 
@@ -2220,6 +2259,11 @@ class OverlayService : Service() {
 
                                 ProductInfoStore.current = updatedProduct
                                 ProductInfoStore.updateHistoryItem(updatedProduct)
+
+                                // Ricalcola subito la presenza e la quantità
+                                // dell'articolo nella lista di riordino.
+                                ReorderStore.add(updatedProduct)
+
                                 updateProductInfoPopup(updatedProduct, true, false)
 
                                 Toast.makeText(this, "Scorte aggiornate", Toast.LENGTH_SHORT).show()
@@ -2659,6 +2703,7 @@ class OverlayService : Service() {
             descriptionValueText?.text = "Nessun articolo letto"
             yearValueText?.text = "—"
             seasonValueText?.text = "—"
+            locationValueText?.text = "—"
             taxablePriceValueText?.text = "—"
             vatRateValueText?.text = "—"
             stockValueText?.text = "—"
@@ -2681,6 +2726,7 @@ class OverlayService : Service() {
         vatRateValueText?.text = valueOrLoading(product.vatRate)
         seasonValueText?.text = valueOrLoading(product.season)
         yearValueText?.text = valueOrLoading(product.year)
+        locationValueText?.text = product.location.trim().ifEmpty { "Non assegnata" }
         stockValueText?.text = valueOrLoading(product.stock)
         availableStockValueText?.text = valueOrEmpty(product.availableStock)
         minimumStockValueText?.text = valueOrEmpty(product.minimumStock)
@@ -2839,6 +2885,7 @@ class OverlayService : Service() {
         descriptionValueText = null
         yearValueText = null
         seasonValueText = null
+        locationValueText = null
         taxablePriceValueText = null
         vatRateValueText = null
         stockValueText = null
