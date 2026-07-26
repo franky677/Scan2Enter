@@ -30,6 +30,7 @@ import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.Toast
 import com.scan2enter.BuildFlags
+import com.scan2enter.api.GatewayApiClient
 import com.scan2enter.MainActivity
 import com.scan2enter.R
 import com.scan2enter.feedback.ScanFeedbackManager
@@ -125,6 +126,12 @@ class OverlayService : Service() {
     private val productRepository by lazy {
         ProductRepositoryProvider.get(applicationContext)
     }
+
+    private val gatewayApiClient by lazy {
+        GatewayApiClient()
+    }
+
+    private var reorderListLoading = false
 
     private var startX = 0
     private var startY = 0
@@ -509,6 +516,7 @@ class OverlayService : Service() {
             if (isDragging) return@setOnClickListener
 
             showReorderListPopup()
+            synchronizeReorderListFromGateway()
         }
 
         scannerArea.setOnClickListener {
@@ -634,6 +642,67 @@ class OverlayService : Service() {
             "OverlayService",
             "BADGE RIORDINO AGGIORNATO count=$count"
         )
+    }
+
+    /**
+     * Aggiorna la cache locale con la lista completa restituita dal Gateway.
+     *
+     * Il popup viene aperto subito usando l'ultima cache disponibile; quando
+     * la richiesta termina, listener e badge vengono aggiornati automaticamente.
+     * Se il Gateway non è raggiungibile, la lista salvata resta intatta.
+     */
+    private fun synchronizeReorderListFromGateway() {
+        if (reorderListLoading) {
+            android.util.Log.d(
+                "OverlayService",
+                "SINCRONIZZAZIONE RIORDINO GIÀ IN CORSO"
+            )
+            return
+        }
+
+        reorderListLoading = true
+
+        Toast.makeText(
+            this,
+            "Aggiornamento lista di riordino…",
+            Toast.LENGTH_SHORT
+        ).show()
+
+        Thread {
+            val result = gatewayApiClient.getReorderList()
+
+            popupHandler.post {
+                reorderListLoading = false
+
+                result.onSuccess { serverItems ->
+                    ReorderStore.replaceAll(serverItems)
+                    refreshReorderListPopup()
+
+                    Toast.makeText(
+                        this,
+                        "Lista aggiornata: ${serverItems.size} articoli",
+                        Toast.LENGTH_SHORT
+                    ).show()
+
+                    android.util.Log.d(
+                        "OverlayService",
+                        "LISTA RIORDINO SINCRONIZZATA elementi=${serverItems.size}"
+                    )
+                }.onFailure { error ->
+                    Toast.makeText(
+                        this,
+                        "Gateway non raggiungibile: uso l'ultima lista salvata",
+                        Toast.LENGTH_LONG
+                    ).show()
+
+                    android.util.Log.e(
+                        "OverlayService",
+                        "ERRORE SINCRONIZZAZIONE LISTA RIORDINO",
+                        error
+                    )
+                }
+            }
+        }.start()
     }
 
     /**
@@ -2249,28 +2318,45 @@ class OverlayService : Service() {
                             maximumStock = 0.0,
                             reorderLot = reorderLot
                         ).onSuccess { updated ->
-                            popupHandler.post {
-                                val current = ProductInfoStore.current ?: product
-                                val updatedProduct = current.copy(
-                                    minimumStock = updated.minimumStock.formatStockQuantity(),
-                                    maximumStock = updated.maximumStock.takeIf { it >= 0.0 }?.formatStockQuantity() ?: "",
-                                    reorderLot = updated.reorderLot.formatStockQuantity()
-                                )
+                            val current = ProductInfoStore.current ?: product
+                            val updatedProduct = current.copy(
+                                minimumStock = updated.minimumStock.formatStockQuantity(),
+                                maximumStock = updated.maximumStock
+                                    .takeIf { it >= 0.0 }
+                                    ?.formatStockQuantity()
+                                    ?: "",
+                                reorderLot = updated.reorderLot.formatStockQuantity()
+                            )
 
+                            /*
+                             * ReorderStore.add() salva l'intera lista di riordino.
+                             * La lista contiene migliaia di articoli, quindi questa
+                             * operazione deve restare nel thread di lavoro e non nel
+                             * thread grafico.
+                             */
+                            ReorderStore.add(updatedProduct)
+
+                            popupHandler.post {
                                 ProductInfoStore.current = updatedProduct
                                 ProductInfoStore.updateHistoryItem(updatedProduct)
 
-                                // Ricalcola subito la presenza e la quantità
-                                // dell'articolo nella lista di riordino.
-                                ReorderStore.add(updatedProduct)
+                                updateProductInfoPopup(
+                                    updatedProduct,
+                                    true,
+                                    false
+                                )
 
-                                updateProductInfoPopup(updatedProduct, true, false)
+                                Toast.makeText(
+                                    this,
+                                    "Scorte aggiornate",
+                                    Toast.LENGTH_SHORT
+                                ).show()
 
-                                Toast.makeText(this, "Scorte aggiornate", Toast.LENGTH_SHORT).show()
                                 android.util.Log.d(
                                     "OverlayService",
                                     "SALVATAGGIO SCORTE OK articleId=${updated.articleId} minimo=${updated.minimumStock} massimo=${updated.maximumStock} lotto=${updated.reorderLot}"
                                 )
+
                                 removeStockEditPopup()
                             }
                         }.onFailure { error ->

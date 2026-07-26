@@ -65,6 +65,45 @@ object ReorderStore {
     }
 
     /**
+     * Sostituisce la cache locale con la lista completa ricevuta dal Gateway.
+     *
+     * Le righe non valide e quelle con quantità da ordinare pari a zero
+     * vengono ignorate. In caso di errore di rete questo metodo non viene
+     * chiamato, quindi resta disponibile l'ultima lista salvata sul telefono.
+     */
+    @Synchronized
+    fun replaceAll(newItems: List<ReorderItem>) {
+        val replacement = linkedMapOf<Long, ReorderItem>()
+
+        newItems.forEach { item ->
+            if (item.articleId <= 0L) return@forEach
+            if (item.quantityToOrder <= 0.0) return@forEach
+
+            replacement[item.articleId] = item
+        }
+
+        if (items == replacement) {
+            Log.d(
+                TAG,
+                "REORDER STORE GIÀ AGGIORNATO elementi=${items.size}"
+            )
+            return
+        }
+
+        items.clear()
+        items.putAll(replacement)
+        saveToDisk()
+
+        Log.d(
+            TAG,
+            "REORDER STORE SOSTITUITO DAL GATEWAY " +
+                    "elementi=${items.size} fornitori=${supplierCount()}"
+        )
+
+        notifySizeChanged()
+    }
+
+    /**
      * Sincronizza l'articolo con la lista di riordino.
      *
      * La chiamata mantiene il nome add() per non modificare ScanSession, ma
