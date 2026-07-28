@@ -38,7 +38,9 @@ import com.scan2enter.R
 import com.scan2enter.feedback.ScanFeedbackManager
 import com.scan2enter.model.ProductInfo
 import com.scan2enter.model.ProductInfoStore
+import com.scan2enter.overlay.popup.LocationManagementPopup
 import com.scan2enter.overlay.popup.ProductInfoPopup
+import com.scan2enter.overlay.popup.StockSettingsPopup
 import com.scan2enter.repository.ProductRepositoryProvider
 import com.scan2enter.reorder.ReorderItem
 import com.scan2enter.reorder.ReorderStore
@@ -97,7 +99,7 @@ class OverlayService : Service() {
         const val EXTRA_WORKFLOW_COMPLETED =
             "com.scan2enter.extra.WORKFLOW_COMPLETED"
 
-        private const val CLICK_THRESHOLD = 12f
+        private const val DOCK_DRAG_THRESHOLD_DP = 28f
         private const val LONG_PRESS_DURATION_MS = 800L
         private const val DEFAULT_POPUP_DURATION_SECONDS = 4
         private const val MIN_POPUP_DURATION_SECONDS = 1
@@ -141,6 +143,20 @@ class OverlayService : Service() {
         )
     }
 
+    private val stockSettingsPopupController by lazy {
+        StockSettingsPopup(
+            context = this,
+            windowManager = windowManager
+        )
+    }
+
+    private val locationManagementPopupController by lazy {
+        LocationManagementPopup(
+            context = this,
+            windowManager = windowManager
+        )
+    }
+
     private var reorderListLoading = false
 
     private var startX = 0
@@ -151,6 +167,7 @@ class OverlayService : Service() {
 
     private var isDragging = false
     private var scannerLongPressTriggered = false
+    private var dockLockedByLongPress = false
     private var currentArticleLoading = false
 
     private val popupHandler = Handler(Looper.getMainLooper())
@@ -158,6 +175,7 @@ class OverlayService : Service() {
     private val scannerLongPressRunnable = Runnable {
         if (!isDragging && ::scannerArea.isInitialized) {
             scannerLongPressTriggered = true
+            dockLockedByLongPress = true
 
             sendBroadcast(
                 Intent(ACTION_REQUEST_CURRENT_ARTICLE).apply {
@@ -187,7 +205,6 @@ class OverlayService : Service() {
 
     private var productInfoPopup: View? = null
     private var productInfoPopupParams: WindowManager.LayoutParams? = null
-    private var stockEditPopup: View? = null
 
     private var priceValueText: TextView? = null
     private var articleCodeValueText: TextView? = null
@@ -558,6 +575,7 @@ class OverlayService : Service() {
                     touchStartY = event.rawY
                     isDragging = false
                     scannerLongPressTriggered = false
+                    dockLockedByLongPress = false
 
                     popupHandler.removeCallbacks(scannerLongPressRunnable)
 
@@ -572,12 +590,18 @@ class OverlayService : Service() {
                 }
 
                 MotionEvent.ACTION_MOVE -> {
+                    if (dockLockedByLongPress || scannerLongPressTriggered) {
+                        return@OnTouchListener true
+                    }
+
                     val dx = (event.rawX - touchStartX).toInt()
                     val dy = (event.rawY - touchStartY).toInt()
+                    val dragThresholdPx =
+                        DOCK_DRAG_THRESHOLD_DP * resources.displayMetrics.density
 
                     if (!isDragging &&
-                        (abs(dx.toFloat()) > CLICK_THRESHOLD ||
-                                abs(dy.toFloat()) > CLICK_THRESHOLD)
+                        (abs(dx.toFloat()) > dragThresholdPx ||
+                                abs(dy.toFloat()) > dragThresholdPx)
                     ) {
                         isDragging = true
                         popupHandler.removeCallbacks(scannerLongPressRunnable)
@@ -602,12 +626,13 @@ class OverlayService : Service() {
 
                     if (isDragging) {
                         snapToEdge()
-                    } else if (!scannerLongPressTriggered) {
+                    } else if (!scannerLongPressTriggered && !dockLockedByLongPress) {
                         touchedView.performClick()
                     }
 
                     isDragging = false
                     scannerLongPressTriggered = false
+                    dockLockedByLongPress = false
                     true
                 }
 
@@ -615,6 +640,7 @@ class OverlayService : Service() {
                     popupHandler.removeCallbacks(scannerLongPressRunnable)
                     isDragging = false
                     scannerLongPressTriggered = false
+                    dockLockedByLongPress = false
                     saveCurrentPosition()
                     true
                 }
@@ -2204,7 +2230,24 @@ class OverlayService : Service() {
 
     private fun createProductInfoPopup() {
         val bindings = productInfoPopupController.create(
-            onStockClick = ::showStockEditPopup
+            onStockClick = ::showStockEditPopup,
+            onLocationClick = ::showLocationManagementPopup,
+            onTouchStarted = {
+                popupTimerPausedByUser = true
+                popupHandler.removeCallbacks(dismissPopupRunnable)
+                android.util.Log.d(
+                    "OverlayService",
+                    "TIMER POPUP IN PAUSA - DITO APPOGGIATO"
+                )
+            },
+            onTouchFinished = {
+                popupTimerPausedByUser = false
+                scheduleProductPopupDismiss(ProductInfoStore.current)
+                android.util.Log.d(
+                    "OverlayService",
+                    "TIMER POPUP RIPARTITO - DITO SOLLEVATO"
+                )
+            }
         )
 
         productInfoPopup = bindings.root
@@ -2233,233 +2276,245 @@ class OverlayService : Service() {
     }
 
 
+    private fun showLocationManagementPopup() {
+        if (locationManagementPopupController.isShowing()) return
+
+        val product = ProductInfoStore.current ?: return
+
+        if (product.articleId <= 0L) {
+            Toast.makeText(
+                this,
+                "ID articolo non disponibile",
+                Toast.LENGTH_LONG
+            ).show()
+            return
+        }
+
+        popupHandler.removeCallbacks(dismissPopupRunnable)
+        popupTimerPausedByUser = true
+
+        Thread {
+            productRepository.getLocations()
+                .onSuccess { availableLocations ->
+                    popupHandler.post {
+                        locationManagementPopupController.show(
+                            product = ProductInfoStore.current ?: product,
+                            availableLocations = availableLocations,
+                            onToggle = { location, currentlyAssigned, complete ->
+                                Thread {
+                                    val writeResult = if (currentlyAssigned) {
+                                        productRepository.removeLocation(
+                                            articleId = product.articleId,
+                                            locationId = location.id
+                                        )
+                                    } else {
+                                        productRepository.addLocation(
+                                            articleId = product.articleId,
+                                            locationId = location.id
+                                        )
+                                    }
+
+                                    val refreshedResult = writeResult.fold(
+                                        onSuccess = {
+                                            productRepository.getProductLocations(
+                                                product.articleId
+                                            )
+                                        },
+                                        onFailure = { Result.failure(it) }
+                                    )
+
+                                    popupHandler.post {
+                                        refreshedResult.onSuccess { refreshed ->
+                                            val current = ProductInfoStore.current ?: product
+                                            val updatedProduct = current.copy(
+                                                location = refreshed
+                                                    .joinToString(" · ") { it.name.trim() },
+                                                locations = refreshed
+                                            )
+
+                                            ProductInfoStore.current = updatedProduct
+                                            ProductInfoStore.updateHistoryItem(updatedProduct)
+                                            updateProductInfoPopup(
+                                                updatedProduct,
+                                                true,
+                                                false
+                                            )
+
+                                            android.util.Log.d(
+                                                "OverlayService",
+                                                "UBICAZIONI AGGIORNATE articleId=${product.articleId} " +
+                                                        "count=${refreshed.size}"
+                                            )
+                                        }.onFailure { error ->
+                                            android.util.Log.e(
+                                                "OverlayService",
+                                                "AGGIORNAMENTO UBICAZIONE FALLITO " +
+                                                        "articleId=${product.articleId} " +
+                                                        "locationId=${location.id}",
+                                                error
+                                            )
+                                        }
+
+                                        complete(refreshedResult)
+                                    }
+                                }.start()
+                            },
+                            onClose = {
+                                popupTimerPausedByUser = false
+                                scheduleProductPopupDismiss(ProductInfoStore.current)
+                            }
+                        )
+
+                        android.util.Log.d(
+                            "OverlayService",
+                            "GESTIONE UBICAZIONI APERTA articleId=${product.articleId} " +
+                                    "disponibili=${availableLocations.size}"
+                        )
+                    }
+                }
+                .onFailure { error ->
+                    popupHandler.post {
+                        popupTimerPausedByUser = false
+                        scheduleProductPopupDismiss(ProductInfoStore.current)
+
+                        Toast.makeText(
+                            this,
+                            "Impossibile caricare le ubicazioni",
+                            Toast.LENGTH_LONG
+                        ).show()
+
+                        android.util.Log.e(
+                            "OverlayService",
+                            "ERRORE ELENCO UBICAZIONI",
+                            error
+                        )
+                    }
+                }
+        }.start()
+    }
+
+
     private fun showStockEditPopup() {
-        if (stockEditPopup != null) return
+        if (stockSettingsPopupController.isShowing()) return
 
         popupHandler.removeCallbacks(dismissPopupRunnable)
 
         val product = ProductInfoStore.current ?: return
-        val density = resources.displayMetrics.density
-        val screenWidth = resources.displayMetrics.widthPixels
 
-        val overlayRoot = FrameLayout(this).apply {
-            setBackgroundColor(Color.BLACK)
-            alpha = 1.0f
-        }
+        stockSettingsPopupController.show(
+            product = product,
+            onSave = { minimumStock, reorderLot, complete ->
+                /*
+                 * Nel database Due Retail lo stato "escluso dal riordino"
+                 * non è rappresentato da tre zeri reali:
+                 *
+                 * - tabella principale: -1
+                 * - tabella store / vista usata dal PC: NULL
+                 *
+                 * La finestra espone soltanto minimo e lotto; la massima viene
+                 * sempre gestita automaticamente. Quando entrambi i valori
+                 * visibili sono 0, l'intenzione dell'utente è quindi escludere
+                 * completamente l'articolo dal riordino automatico.
+                 */
+                val excludeFromAutomaticReorder =
+                    minimumStock == 0.0 && reorderLot == 0.0
 
-        val dialogView = LayoutInflater.from(this)
-            .inflate(R.layout.stock_edit_dialog, overlayRoot, false)
+                val minimumStockToSave =
+                    if (excludeFromAutomaticReorder) -1.0 else minimumStock
+                val maximumStockToSave =
+                    if (excludeFromAutomaticReorder) -1.0 else 0.0
+                val reorderLotToSave =
+                    if (excludeFromAutomaticReorder) -1.0 else reorderLot
 
-        dialogView.findViewById<TextView>(R.id.stockEditArticleText).text =
-            listOf(product.articleCode, product.description)
-                .filter { it.isNotBlank() }
-                .joinToString(" · ")
+                android.util.Log.d(
+                    "OverlayService",
+                    "SALVATAGGIO SCORTE START articleId=${product.articleId} " +
+                            "minimo=$minimumStockToSave massimo=$maximumStockToSave " +
+                            "lotto=$reorderLotToSave escluso=$excludeFromAutomaticReorder"
+                )
 
-        dialogView.findViewById<TextView>(R.id.stockEditCurrentStockText).text =
-            product.stock.trim().takeIf { it.isNotEmpty() && it != "-1" } ?: "—"
+                Thread {
+                    productRepository.updateStockSettings(
+                        articleId = product.articleId,
+                        minimumStock = minimumStockToSave,
+                        maximumStock = maximumStockToSave,
+                        reorderLot = reorderLotToSave
+                    ).onSuccess { updated ->
+                        val current = ProductInfoStore.current ?: product
+                        val updatedProduct = current.copy(
+                            minimumStock = updated.minimumStock
+                                .takeIf { it >= 0.0 }
+                                ?.formatStockQuantity()
+                                ?: "",
+                            maximumStock = updated.maximumStock
+                                .takeIf { it >= 0.0 }
+                                ?.formatStockQuantity()
+                                ?: "",
+                            reorderLot = updated.reorderLot
+                                .takeIf { it >= 0.0 }
+                                ?.formatStockQuantity()
+                                ?: ""
+                        )
 
-        val minimumEdit =
-            dialogView.findViewById<EditText>(R.id.minimumStockEditText)
-        val reorderEdit =
-            dialogView.findViewById<EditText>(R.id.reorderLotEditText)
+                        /*
+                         * ReorderStore.add() salva l'intera lista di riordino.
+                         * La lista contiene migliaia di articoli, quindi questa
+                         * operazione deve restare nel thread di lavoro e non nel
+                         * thread grafico.
+                         */
+                        ReorderStore.add(updatedProduct)
 
-        minimumEdit.setText(product.minimumStock.ifBlank { "0" })
-        reorderEdit.setText(product.reorderLot.ifBlank { "0" })
+                        popupHandler.post {
+                            ProductInfoStore.current = updatedProduct
+                            ProductInfoStore.updateHistoryItem(updatedProduct)
 
-        bindQuantityButtons(
-            minusButton = dialogView.findViewById(R.id.minimumStockMinusButton),
-            plusButton = dialogView.findViewById(R.id.minimumStockPlusButton),
-            editText = minimumEdit
-        )
-
-        bindQuantityButtons(
-            minusButton = dialogView.findViewById(R.id.reorderLotMinusButton),
-            plusButton = dialogView.findViewById(R.id.reorderLotPlusButton),
-            editText = reorderEdit
-        )
-
-        dialogView.findViewById<View>(R.id.closeStockEditButton)
-            .setOnClickListener { removeStockEditPopup() }
-
-        dialogView.findViewById<View>(R.id.cancelStockEditButton)
-            .setOnClickListener { removeStockEditPopup() }
-
-        val saveButton = dialogView.findViewById<View>(R.id.saveStockEditButton)
-
-        saveButton.setOnClickListener {
-            val minimumStock = minimumEdit.text?.toString()?.trim()?.replace(',', '.')?.toDoubleOrNull()
-            val reorderLot = reorderEdit.text?.toString()?.trim()?.replace(',', '.')?.toDoubleOrNull()
-
-            when {
-                product.articleId <= 0L -> Toast.makeText(
-                    this,
-                    "ID articolo non disponibile. Ripetere la scansione.",
-                    Toast.LENGTH_LONG
-                ).show()
-
-                minimumStock == null || minimumStock < 0.0 -> {
-                    minimumEdit.error = "Inserire un valore valido"
-                    minimumEdit.requestFocus()
-                }
-
-                reorderLot == null || reorderLot < 0.0 -> {
-                    reorderEdit.error = "Inserire un valore valido"
-                    reorderEdit.requestFocus()
-                }
-
-                else -> {
-                    saveButton.isEnabled = false
-                    minimumEdit.isEnabled = false
-                    reorderEdit.isEnabled = false
-
-                    android.util.Log.d(
-                        "OverlayService",
-                        "SALVATAGGIO SCORTE START articleId=${product.articleId} minimo=$minimumStock massimo=0 lotto=$reorderLot"
-                    )
-
-                    Thread {
-                        productRepository.updateStockSettings(
-                            articleId = product.articleId,
-                            minimumStock = minimumStock,
-                            maximumStock = 0.0,
-                            reorderLot = reorderLot
-                        ).onSuccess { updated ->
-                            val current = ProductInfoStore.current ?: product
-                            val updatedProduct = current.copy(
-                                minimumStock = updated.minimumStock.formatStockQuantity(),
-                                maximumStock = updated.maximumStock
-                                    .takeIf { it >= 0.0 }
-                                    ?.formatStockQuantity()
-                                    ?: "",
-                                reorderLot = updated.reorderLot.formatStockQuantity()
+                            updateProductInfoPopup(
+                                updatedProduct,
+                                true,
+                                false
                             )
 
-                            /*
-                             * ReorderStore.add() salva l'intera lista di riordino.
-                             * La lista contiene migliaia di articoli, quindi questa
-                             * operazione deve restare nel thread di lavoro e non nel
-                             * thread grafico.
-                             */
-                            ReorderStore.add(updatedProduct)
+                            complete(Result.success(Unit))
 
-                            popupHandler.post {
-                                ProductInfoStore.current = updatedProduct
-                                ProductInfoStore.updateHistoryItem(updatedProduct)
+                            Toast.makeText(
+                                this,
+                                "Scorte aggiornate",
+                                Toast.LENGTH_SHORT
+                            ).show()
 
-                                updateProductInfoPopup(
-                                    updatedProduct,
-                                    true,
-                                    false
-                                )
+                            android.util.Log.d(
+                                "OverlayService",
+                                "SALVATAGGIO SCORTE OK articleId=${updated.articleId} minimo=${updated.minimumStock} massimo=${updated.maximumStock} lotto=${updated.reorderLot}"
+                            )
 
-                                Toast.makeText(
-                                    this,
-                                    "Scorte aggiornate",
-                                    Toast.LENGTH_SHORT
-                                ).show()
-
-                                android.util.Log.d(
-                                    "OverlayService",
-                                    "SALVATAGGIO SCORTE OK articleId=${updated.articleId} minimo=${updated.minimumStock} massimo=${updated.maximumStock} lotto=${updated.reorderLot}"
-                                )
-
-                                if (reorderListPopup != null) {
-                                    // Chiude popup articolo + modifica scorte,
-                                    // lasciando visibile la lista di riordino.
-                                    removeProductInfoPopup()
-                                    refreshReorderListPopup()
-                                } else {
-                                    removeStockEditPopup()
-                                }
-                            }
-                        }.onFailure { error ->
-                            popupHandler.post {
-                                saveButton.isEnabled = true
-                                minimumEdit.isEnabled = true
-                                reorderEdit.isEnabled = true
-                                Toast.makeText(
-                                    this,
-                                    "Errore salvataggio scorte: ${error.message ?: "errore sconosciuto"}",
-                                    Toast.LENGTH_LONG
-                                ).show()
-                                android.util.Log.e("OverlayService", "SALVATAGGIO SCORTE FALLITO", error)
+                            if (reorderListPopup != null) {
+                                // Chiude popup articolo + modifica scorte,
+                                // lasciando visibile la lista di riordino.
+                                removeProductInfoPopup()
+                                refreshReorderListPopup()
+                            } else {
+                                removeStockEditPopup()
                             }
                         }
-                    }.start()
-                }
-            }
-        }
-
-        val horizontalMargin = (24 * density).toInt()
-        val dialogWidth = min(
-            (390 * density).toInt(),
-            screenWidth - horizontalMargin * 2
+                    }.onFailure { error ->
+                        popupHandler.post {
+                            complete(Result.failure(error))
+                            Toast.makeText(
+                                this,
+                                "Errore salvataggio scorte: ${error.message ?: "errore sconosciuto"}",
+                                Toast.LENGTH_LONG
+                            ).show()
+                            android.util.Log.e(
+                                "OverlayService",
+                                "SALVATAGGIO SCORTE FALLITO",
+                                error
+                            )
+                        }
+                    }
+                }.start()
+            },
+            onClose = ::removeStockEditPopup
         )
-
-        dialogView.background = GradientDrawable().apply {
-            shape = GradientDrawable.RECTANGLE
-            setColor(Color.WHITE)
-            cornerRadius = 22 * density
-        }
-        dialogView.clipToOutline = true
-        dialogView.outlineProvider = ViewOutlineProvider.BACKGROUND
-        dialogView.elevation = 16 * density
-
-        val dialogParams = FrameLayout.LayoutParams(
-            dialogWidth,
-            FrameLayout.LayoutParams.WRAP_CONTENT
-        ).apply {
-            gravity = Gravity.CENTER
-        }
-        overlayRoot.addView(dialogView, dialogParams)
-
-        val windowParams = WindowManager.LayoutParams(
-            WindowManager.LayoutParams.MATCH_PARENT,
-            WindowManager.LayoutParams.MATCH_PARENT,
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
-            PixelFormat.OPAQUE
-        ).apply {
-            gravity = Gravity.TOP or Gravity.START
-            alpha = 1.0f
-        }
-
-        stockEditPopup = overlayRoot
-        windowManager.addView(overlayRoot, windowParams)
-    }
-
-    private fun bindQuantityButtons(
-        minusButton: Button,
-        plusButton: Button,
-        editText: EditText
-    ) {
-        minusButton.setOnClickListener {
-            changeQuantity(editText, -1.0)
-        }
-        plusButton.setOnClickListener {
-            changeQuantity(editText, 1.0)
-        }
-    }
-
-    private fun changeQuantity(
-        editText: EditText,
-        delta: Double
-    ) {
-        val current = editText.text
-            ?.toString()
-            ?.replace(',', '.')
-            ?.toDoubleOrNull()
-            ?: 0.0
-
-        val updated = max(0.0, current + delta)
-        editText.setText(
-            if (updated == updated.toInt().toDouble()) {
-                updated.toInt().toString()
-            } else {
-                updated.toString()
-            }
-        )
-        editText.setSelection(editText.text.length)
     }
 
     /**
@@ -2572,12 +2627,9 @@ class OverlayService : Service() {
     }
 
     private fun removeStockEditPopup() {
-        val popup = stockEditPopup ?: return
-        try {
-            windowManager.removeView(popup)
-        } catch (_: Exception) {
-        }
-        stockEditPopup = null
+        if (!stockSettingsPopupController.isShowing()) return
+
+        stockSettingsPopupController.remove()
 
         popupHandler.removeCallbacks(dismissPopupRunnable)
         scheduleProductPopupDismiss(ProductInfoStore.current)
@@ -2908,14 +2960,8 @@ class OverlayService : Service() {
     }
 
     private fun removeProductInfoPopup() {
-        stockEditPopup?.let {
-            try {
-                windowManager.removeView(it)
-            } catch (_: Exception) {
-            }
-            stockEditPopup = null
-        }
-
+        locationManagementPopupController.remove()
+        stockSettingsPopupController.remove()
         productInfoPopupController.remove()
 
         productInfoPopup = null

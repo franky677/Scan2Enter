@@ -103,7 +103,7 @@ class DueRetailApiClient(
             }
 
             minimumStock?.let {
-                require(it >= 0.0) {
+                require(it >= -1.0) {
                     "Scorta minima non valida: $it"
                 }
             }
@@ -115,7 +115,7 @@ class DueRetailApiClient(
             }
 
             reorderLot?.let {
-                require(it >= 0.0) {
+                require(it >= -1.0) {
                     "Lotto riordino non valido: $it"
                 }
             }

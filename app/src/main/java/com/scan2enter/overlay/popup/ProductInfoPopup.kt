@@ -7,6 +7,7 @@ import android.graphics.PixelFormat
 import android.graphics.drawable.GradientDrawable
 import android.view.Gravity
 import android.view.LayoutInflater
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewOutlineProvider
 import android.view.WindowManager
@@ -65,7 +66,12 @@ class ProductInfoPopup(
 
     fun isShowing(): Boolean = bindings != null
 
-    fun create(onStockClick: () -> Unit): Bindings {
+    fun create(
+        onStockClick: () -> Unit,
+        onLocationClick: () -> Unit,
+        onTouchStarted: () -> Unit,
+        onTouchFinished: () -> Unit
+    ): Bindings {
         bindings?.let { return it }
 
         val density = context.resources.displayMetrics.density
@@ -111,6 +117,13 @@ class ProductInfoPopup(
 
         popupView.findViewById<View>(R.id.productStockCard)
             .setOnClickListener { onStockClick() }
+
+        // L'intera scheda dell'ubicazione è cliccabile, non soltanto il testo.
+        (createdBindings.locationValueText.parent as? View)?.apply {
+            isClickable = true
+            isFocusable = true
+            setOnClickListener { onLocationClick() }
+        }
 
         val horizontalMargin = (6 * density).toInt()
         val topMargin = (42 * density).toInt()
@@ -158,7 +171,17 @@ class ProductInfoPopup(
             popupMaxHeight - shadowOffset
         )
 
-        val cardContainer = FrameLayout(context).apply {
+        val cardContainer = object : FrameLayout(context) {
+            override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+                when (event.actionMasked) {
+                    MotionEvent.ACTION_DOWN -> onTouchStarted()
+                    MotionEvent.ACTION_UP,
+                    MotionEvent.ACTION_CANCEL -> onTouchFinished()
+                }
+
+                return super.dispatchTouchEvent(event)
+            }
+        }.apply {
             clipChildren = false
             clipToPadding = false
         }
@@ -250,8 +273,14 @@ class ProductInfoPopup(
         current.vatRateValueText.text = valueOrLoading(product.vatRate)
         current.seasonValueText.text = valueOrLoading(product.season)
         current.yearValueText.text = valueOrLoading(product.year)
-        current.locationValueText.text =
-            product.location.trim().ifEmpty { "Non assegnata" }
+        current.locationValueText.text = product.locations
+            .map { it.name.trim() }
+            .filter { it.isNotEmpty() }
+            .distinct()
+            .joinToString(" · ")
+            .ifEmpty {
+                product.location.trim().ifEmpty { "Non assegnata" }
+            }
         current.stockValueText.text = valueOrLoading(product.stock)
         current.minimumStockValueText.text = valueOrEmpty(product.minimumStock)
         current.reorderLotValueText.text = valueOrEmpty(product.reorderLot)

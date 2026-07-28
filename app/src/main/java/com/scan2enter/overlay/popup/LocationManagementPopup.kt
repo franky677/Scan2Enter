@@ -4,203 +4,394 @@ import android.content.Context
 import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.Typeface
-import android.os.Build
+import android.graphics.drawable.GradientDrawable
 import android.view.Gravity
-import android.view.LayoutInflater
 import android.view.View
 import android.view.WindowManager
 import android.widget.Button
+import android.widget.EditText
+import android.widget.FrameLayout
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.TextView
-import com.scan2enter.R
+import android.widget.Toast
 import com.scan2enter.api.LocationDto
 import com.scan2enter.model.ProductInfo
+import kotlin.math.min
 
 /**
- * Popup dedicato alla visualizzazione delle ubicazioni assegnate a un articolo.
+ * Gestione completa delle ubicazioni articolo.
  *
- * In questa prima fase il popup:
- * - mostra le ubicazioni già presenti in ProductInfo;
- * - si apre e si chiude autonomamente;
- * - non esegue ancora chiamate GET, POST o DELETE.
+ * Mostra tutte le ubicazioni disponibili, evidenzia quelle già assegnate e
+ * consente di aggiungere/rimuovere l'associazione con un singolo tocco.
+ * La persistenza viene eseguita dal chiamante tramite ProductRepository.
  */
 class LocationManagementPopup(
-    context: Context
+    private val context: Context,
+    private val windowManager: WindowManager
 ) {
 
-    private val appContext = context.applicationContext
-    private val windowManager =
-        appContext.getSystemService(Context.WINDOW_SERVICE) as WindowManager
+    private var overlayRoot: View? = null
+    private var closeCallback: (() -> Unit)? = null
+    private var locationsContainer: LinearLayout? = null
+    private var searchEditText: EditText? = null
 
-    private var popupView: View? = null
+    private var availableLocations: List<LocationDto> = emptyList()
+    private var assignedLocations: List<LocationDto> = emptyList()
+    private var operationInProgress = false
 
-    /**
-     * Mostra il popup per l'articolo indicato.
-     * Se era già aperto, viene prima ricostruito con i dati aggiornati.
-     */
-    fun show(product: ProductInfo) {
-        dismiss()
+    private var toggleCallback: ((
+        location: LocationDto,
+        currentlyAssigned: Boolean,
+        complete: (Result<List<LocationDto>>) -> Unit
+    ) -> Unit)? = null
 
-        val view = LayoutInflater.from(appContext)
-            .inflate(R.layout.location_management_popup, null, false)
+    fun isShowing(): Boolean = overlayRoot != null
 
-        val articleText = view.findViewById<TextView>(
-            R.id.tvLocationManagementArticle
-        )
-        val locationsContainer = view.findViewById<LinearLayout>(
-            R.id.locationsContainer
-        )
-        val noLocationsText = view.findViewById<TextView>(
-            R.id.tvNoLocations
-        )
-        val addButton = view.findViewById<Button>(
-            R.id.btnAddLocation
-        )
-        val closeButton = view.findViewById<Button>(
-            R.id.btnCloseLocationManagement
-        )
-
-        articleText.text = buildArticleLabel(product)
-
-        renderLocations(
-            container = locationsContainer,
-            emptyText = noLocationsText,
-            locations = product.locations
-        )
-
-        // Sarà attivato nel prossimo step, con LocationPickerPopup.
-        addButton.isEnabled = false
-
-        closeButton.setOnClickListener {
-            dismiss()
-        }
-
-        popupView = view
-        windowManager.addView(view, createLayoutParams())
-    }
-
-    /** Chiude il popup, se visibile. */
-    fun dismiss() {
-        val view = popupView ?: return
-
-        runCatching {
-            windowManager.removeViewImmediate(view)
-        }
-
-        popupView = null
-    }
-
-    fun isShowing(): Boolean = popupView != null
-
-    private fun renderLocations(
-        container: LinearLayout,
-        emptyText: TextView,
-        locations: List<LocationDto>
+    fun show(
+        product: ProductInfo,
+        availableLocations: List<LocationDto>,
+        onToggle: (
+            location: LocationDto,
+            currentlyAssigned: Boolean,
+            complete: (Result<List<LocationDto>>) -> Unit
+        ) -> Unit,
+        onClose: () -> Unit
     ) {
-        container.removeAllViews()
+        if (overlayRoot != null) return
 
-        val visibleLocations = locations
-            .filter { it.name.isNotBlank() }
-            .distinctBy { it.id }
+        closeCallback = onClose
+        toggleCallback = onToggle
+        this.availableLocations = availableLocations
+            .filter { it.id > 0 && it.name.isNotBlank() }
+            .distinctBy(LocationDto::id)
             .sortedBy { it.name.lowercase() }
+        assignedLocations = product.locations
+            .filter { it.id > 0 && it.name.isNotBlank() }
+            .distinctBy(LocationDto::id)
 
-        emptyText.visibility = if (visibleLocations.isEmpty()) {
-            View.VISIBLE
-        } else {
-            View.GONE
+        val density = context.resources.displayMetrics.density
+        val screenWidth = context.resources.displayMetrics.widthPixels
+        val screenHeight = context.resources.displayMetrics.heightPixels
+
+        val root = FrameLayout(context).apply {
+            setBackgroundColor(Color.BLACK)
+            isClickable = true
+            isFocusable = true
         }
 
-        visibleLocations.forEach { location ->
-            container.addView(createLocationRow(location))
+        val card = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(
+                (20 * density).toInt(),
+                (18 * density).toInt(),
+                (20 * density).toInt(),
+                (18 * density).toInt()
+            )
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                setColor(Color.WHITE)
+                cornerRadius = 22 * density
+            }
+            elevation = 16 * density
         }
-    }
 
-    private fun createLocationRow(location: LocationDto): View {
-        val row = LinearLayout(appContext).apply {
+        val header = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(14), dp(10), dp(8), dp(10))
-            setBackgroundColor(Color.rgb(42, 42, 42))
-
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply {
-                bottomMargin = dp(8)
-            }
         }
 
-        val locationName = TextView(appContext).apply {
-            text = "📍 ${location.name}"
-            setTextColor(Color.WHITE)
-            textSize = 18f
-            typeface = Typeface.DEFAULT_BOLD
-            gravity = Gravity.CENTER_VERTICAL
-
-            layoutParams = LinearLayout.LayoutParams(
+        header.addView(
+            TextView(context).apply {
+                text = "Ubicazioni articolo"
+                textSize = 23f
+                setTextColor(Color.BLACK)
+                setTypeface(typeface, Typeface.BOLD)
+            },
+            LinearLayout.LayoutParams(
                 0,
                 LinearLayout.LayoutParams.WRAP_CONTENT,
                 1f
             )
+        )
+
+        header.addView(
+            TextView(context).apply {
+                text = "✕"
+                textSize = 28f
+                gravity = Gravity.CENTER
+                setTextColor(Color.BLACK)
+                isClickable = true
+                isFocusable = true
+                setPadding(
+                    (12 * density).toInt(),
+                    (4 * density).toInt(),
+                    (4 * density).toInt(),
+                    (4 * density).toInt()
+                )
+                setOnClickListener { remove() }
+            }
+        )
+
+        card.addView(header)
+
+        card.addView(
+            TextView(context).apply {
+                text = listOf(product.articleCode, product.description)
+                    .map(String::trim)
+                    .filter(String::isNotEmpty)
+                    .joinToString(" · ")
+                    .ifEmpty { "Articolo" }
+                textSize = 14f
+                setTextColor(Color.DKGRAY)
+                setPadding(0, (4 * density).toInt(), 0, (10 * density).toInt())
+            }
+        )
+
+        val search = EditText(context).apply {
+            hint = "Cerca ubicazione"
+            textSize = 16f
+            setSingleLine(true)
+            setPadding(
+                (12 * density).toInt(),
+                (8 * density).toInt(),
+                (12 * density).toInt(),
+                (8 * density).toInt()
+            )
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                setColor(Color.rgb(245, 245, 245))
+                cornerRadius = 12 * density
+                setStroke((1 * density).toInt().coerceAtLeast(1), Color.LTGRAY)
+            }
+            addTextChangedListener(object : android.text.TextWatcher {
+                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                    renderLocations()
+                }
+                override fun afterTextChanged(s: android.text.Editable?) = Unit
+            })
+        }
+        searchEditText = search
+
+        card.addView(
+            search,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                (48 * density).toInt()
+            ).apply {
+                bottomMargin = (10 * density).toInt()
+            }
+        )
+
+        val container = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+        locationsContainer = container
+
+        card.addView(
+            ScrollView(context).apply {
+                isFillViewport = true
+                addView(container)
+            },
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                0,
+                1f
+            )
+        )
+
+        card.addView(
+            TextView(context).apply {
+                text = "Tocca una riga per assegnare o rimuovere l'ubicazione"
+                textSize = 13f
+                gravity = Gravity.CENTER
+                setTextColor(Color.DKGRAY)
+                setPadding(0, (8 * density).toInt(), 0, (6 * density).toInt())
+            }
+        )
+
+        card.addView(
+            Button(context).apply {
+                text = "CHIUDI"
+                textSize = 15f
+                setOnClickListener { remove() }
+            },
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                (48 * density).toInt()
+            )
+        )
+
+        val horizontalMargin = (20 * density).toInt()
+        val verticalMargin = (40 * density).toInt()
+        val cardWidth = min(
+            (410 * density).toInt(),
+            screenWidth - horizontalMargin * 2
+        )
+        val cardHeight = min(
+            (680 * density).toInt(),
+            screenHeight - verticalMargin * 2
+        )
+
+        root.addView(
+            card,
+            FrameLayout.LayoutParams(cardWidth, cardHeight).apply {
+                gravity = Gravity.CENTER
+            }
+        )
+
+        val params = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            PixelFormat.OPAQUE
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+            alpha = 1.0f
         }
 
-        val removePlaceholder = TextView(appContext).apply {
-            text = "✕"
-            setTextColor(Color.GRAY)
-            textSize = 21f
-            gravity = Gravity.CENTER
-            isEnabled = false
-            alpha = 0.45f
-            contentDescription =
-                "Rimozione non ancora disponibile per ${location.name}"
+        overlayRoot = root
+        windowManager.addView(root, params)
+        renderLocations()
+    }
 
-            layoutParams = LinearLayout.LayoutParams(
-                dp(44),
-                dp(44)
+    fun remove() {
+        val popup = overlayRoot ?: return
+
+        try {
+            windowManager.removeView(popup)
+        } catch (_: Exception) {
+        }
+
+        overlayRoot = null
+        locationsContainer = null
+        searchEditText = null
+        availableLocations = emptyList()
+        assignedLocations = emptyList()
+        operationInProgress = false
+        toggleCallback = null
+
+        val callback = closeCallback
+        closeCallback = null
+        callback?.invoke()
+    }
+
+    private fun renderLocations() {
+        val container = locationsContainer ?: return
+        val density = context.resources.displayMetrics.density
+        val query = searchEditText?.text?.toString()?.trim()?.lowercase().orEmpty()
+
+        container.removeAllViews()
+
+        val filtered = availableLocations.filter {
+            query.isEmpty() || it.name.lowercase().contains(query)
+        }
+
+        if (filtered.isEmpty()) {
+            container.addView(
+                TextView(context).apply {
+                    text = if (availableLocations.isEmpty()) {
+                        "Nessuna ubicazione disponibile"
+                    } else {
+                        "Nessuna ubicazione trovata"
+                    }
+                    textSize = 17f
+                    gravity = Gravity.CENTER
+                    setTextColor(Color.DKGRAY)
+                    setPadding(
+                        (8 * density).toInt(),
+                        (36 * density).toInt(),
+                        (8 * density).toInt(),
+                        (36 * density).toInt()
+                    )
+                }
+            )
+            return
+        }
+
+        filtered.forEach { location ->
+            val assigned = assignedLocations.any { it.id == location.id }
+            container.addView(
+                createLocationRow(location, assigned, density),
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    bottomMargin = (8 * density).toInt()
+                }
             )
         }
-
-        row.addView(locationName)
-        row.addView(removePlaceholder)
-
-        return row
     }
 
-    private fun buildArticleLabel(product: ProductInfo): String {
-        val code = product.articleCode.trim()
-        val description = product.description.trim()
+    private fun createLocationRow(
+        location: LocationDto,
+        assigned: Boolean,
+        density: Float
+    ): View {
+        return TextView(context).apply {
+            text = if (assigned) {
+                "✓  ${location.name.trim()}"
+            } else {
+                "○  ${location.name.trim()}"
+            }
+            textSize = 18f
+            setTextColor(if (assigned) Color.rgb(27, 94, 32) else Color.BLACK)
+            setTypeface(typeface, if (assigned) Typeface.BOLD else Typeface.NORMAL)
+            gravity = Gravity.CENTER_VERTICAL
+            isClickable = true
+            isFocusable = true
+            isEnabled = !operationInProgress
+            alpha = if (operationInProgress) 0.55f else 1.0f
+            setPadding(
+                (14 * density).toInt(),
+                (12 * density).toInt(),
+                (14 * density).toInt(),
+                (12 * density).toInt()
+            )
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                setColor(
+                    if (assigned) Color.rgb(232, 245, 233)
+                    else Color.rgb(245, 245, 245)
+                )
+                cornerRadius = 12 * density
+                setStroke(
+                    (1 * density).toInt().coerceAtLeast(1),
+                    if (assigned) Color.rgb(129, 199, 132) else Color.LTGRAY
+                )
+            }
+            setOnClickListener {
+                if (operationInProgress) return@setOnClickListener
 
-        return when {
-            code.isNotEmpty() && description.isNotEmpty() ->
-                "$code · $description"
+                operationInProgress = true
+                renderLocations()
 
-            code.isNotEmpty() -> code
-            description.isNotEmpty() -> description
-            else -> "Articolo"
+                toggleCallback?.invoke(location, assigned) { result ->
+                    operationInProgress = false
+
+                    result.onSuccess { refreshed ->
+                        assignedLocations = refreshed
+                            .filter { it.id > 0 && it.name.isNotBlank() }
+                            .distinctBy(LocationDto::id)
+
+                        Toast.makeText(
+                            context,
+                            if (assigned) "Ubicazione rimossa" else "Ubicazione assegnata",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }.onFailure { error ->
+                        Toast.makeText(
+                            context,
+                            "Errore ubicazione: ${error.message ?: "errore sconosciuto"}",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
+
+                    renderLocations()
+                }
+            }
         }
-    }
-
-    private fun createLayoutParams(): WindowManager.LayoutParams {
-        val overlayType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-        } else {
-            @Suppress("DEPRECATION")
-            WindowManager.LayoutParams.TYPE_PHONE
-        }
-
-        return WindowManager.LayoutParams(
-            dp(360),
-            WindowManager.LayoutParams.WRAP_CONTENT,
-            overlayType,
-            WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
-            PixelFormat.TRANSLUCENT
-        ).apply {
-            gravity = Gravity.CENTER
-        }
-    }
-
-    private fun dp(value: Int): Int {
-        return (value * appContext.resources.displayMetrics.density)
-            .toInt()
     }
 }
