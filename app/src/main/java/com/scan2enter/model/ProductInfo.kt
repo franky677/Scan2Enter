@@ -1,5 +1,7 @@
 package com.scan2enter.model
 
+import com.scan2enter.api.LocationDto
+
 /**
  * Contiene tutte le informazioni lette automaticamente
  * da Due Retail Mobile o dalle API.
@@ -52,9 +54,16 @@ data class ProductInfo(
     val year: String = "",
 
     /**
-     * Ubicazione articolo.
+     * Ubicazione singola restituita dall'endpoint articolo precedente.
+     *
+     * Campo mantenuto temporaneamente per compatibilità con il popup attuale.
      */
     val location: String = "",
+
+    /**
+     * Elenco completo delle ubicazioni assegnate all'articolo.
+     */
+    val locations: List<LocationDto> = emptyList(),
 
     /**
      * Giacenza.

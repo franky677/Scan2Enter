@@ -1,8 +1,10 @@
 package com.scan2enter.repository
 
+import android.util.Log
 import com.scan2enter.api.DueRetailApiClient
 import com.scan2enter.api.DueRetailStockSettings
 import com.scan2enter.api.GatewayApiClient
+import com.scan2enter.api.LocationDto
 import com.scan2enter.model.ProductInfo
 
 /**
@@ -16,36 +18,108 @@ class ProductRepository(
     private val dueRetailWriteApi: DueRetailApiClient
 ) {
 
-    fun getProduct(barcode: String): Result<ProductInfo> {
-        return gatewayApi.getProductByBarcode(barcode)
-            .map { product ->
-                ProductInfo(
-                    articleId = product.articleId,
-                    articleCode = product.articleCode,
-                    description = product.description,
-                    barcode = product.barcode,
+    companion object {
+        private const val TAG = "Scan2Enter"
+    }
 
-                    taxablePrice = product.taxablePrice,
-                    vatRate = product.vatRate,
-                    publicPrice = product.publicPrice,
+    fun getProduct(barcode: String): Result<ProductInfo> = runCatching {
+        val product = gatewayApi
+            .getProductByBarcode(barcode)
+            .getOrThrow()
 
-                    season = product.season,
-                    year = product.year,
-                    location = product.location,
-
-                    stock = product.stock,
-                    availableStock = product.availableStock,
-                    minimumStock = product.minimumStock,
-                    maximumStock = product.maximumStock,
-                    reorderLot = product.reorderLot,
-
-                    supplierId = product.supplierId,
-                    supplierName = product.supplierName,
-                    supplierArticleCode =
-                        product.supplierArticleCode,
-                    coverImagePath = product.coverImagePath
+        /*
+         * Un errore nella lettura delle ubicazioni non deve impedire
+         * la visualizzazione dell'intero articolo.
+         */
+        val locations = gatewayApi
+            .getProductLocations(product.articleId)
+            .getOrElse { error ->
+                Log.e(
+                    TAG,
+                    "ERRORE LETTURA UBICAZIONI " +
+                            "ARTICLE ID=${product.articleId}: " +
+                            error.message,
+                    error
                 )
+
+                emptyList()
             }
+
+        ProductInfo(
+            articleId = product.articleId,
+            articleCode = product.articleCode,
+            description = product.description,
+            barcode = product.barcode,
+
+            taxablePrice = product.taxablePrice,
+            vatRate = product.vatRate,
+            publicPrice = product.publicPrice,
+
+            season = product.season,
+            year = product.year,
+            location = product.location,
+            locations = locations,
+
+            stock = product.stock,
+            availableStock = product.availableStock,
+            minimumStock = product.minimumStock,
+            maximumStock = product.maximumStock,
+            reorderLot = product.reorderLot,
+
+            supplierId = product.supplierId,
+            supplierName = product.supplierName,
+            supplierArticleCode =
+                product.supplierArticleCode,
+            coverImagePath = product.coverImagePath
+        )
+    }
+
+    /**
+     * Restituisce tutte le ubicazioni disponibili.
+     */
+    fun getLocations(): Result<List<LocationDto>> {
+        return gatewayApi.getLocations()
+    }
+
+    /**
+     * Rilegge le ubicazioni attualmente assegnate all'articolo.
+     */
+    fun getProductLocations(
+        articleId: Long
+    ): Result<List<LocationDto>> {
+        return gatewayApi.getProductLocations(articleId)
+    }
+
+    /**
+     * Assegna un'ubicazione all'articolo.
+     *
+     * true = aggiunta effettuata
+     * false = associazione già presente
+     */
+    fun addLocation(
+        articleId: Long,
+        locationId: Int
+    ): Result<Boolean> {
+        return gatewayApi.addLocation(
+            articleId = articleId,
+            locationId = locationId
+        )
+    }
+
+    /**
+     * Rimuove un'ubicazione dall'articolo.
+     *
+     * true = rimozione effettuata
+     * false = associazione non presente
+     */
+    fun removeLocation(
+        articleId: Long,
+        locationId: Int
+    ): Result<Boolean> {
+        return gatewayApi.removeLocation(
+            articleId = articleId,
+            locationId = locationId
+        )
     }
 
     /**

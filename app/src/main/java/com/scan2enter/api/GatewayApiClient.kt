@@ -13,7 +13,7 @@ import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 
 /**
- * Client di sola lettura per Scan2EnterGateway.
+ * Client per Scan2EnterGateway.
  *
  * Non usa credenziali, token o clientId Due Retail.
  */
@@ -64,6 +64,161 @@ class GatewayApiClient(
         }
 
         parseProduct(response.body)
+    }
+
+    /**
+     * Scarica tutte le ubicazioni disponibili.
+     *
+     * GET /api/locations
+     */
+    fun getLocations(): Result<List<LocationDto>> = runCatching {
+        val url = "${baseUrl.trimEnd('/')}/api/locations"
+
+        Log.d(TAG, "GATEWAY GET ALL LOCATIONS")
+        Log.d(TAG, "URL = $url")
+
+        val response = executeGet(url)
+
+        Log.d(TAG, "GATEWAY LOCATIONS RESPONSE HTTP=${response.code}")
+        Log.d(TAG, "BODY=${response.body.take(500)}")
+
+        if (response.code !in 200..299) {
+            error(
+                "Gateway HTTP ${response.code}: ${response.body.take(500)}"
+            )
+        }
+
+        parseLocations(response.body)
+    }
+
+    /**
+     * Scarica le ubicazioni assegnate a un articolo.
+     *
+     * GET /api/product/{articleId}/locations
+     */
+    fun getProductLocations(
+        articleId: Long
+    ): Result<List<LocationDto>> = runCatching {
+        require(articleId > 0L) {
+            "articleId non valido: $articleId"
+        }
+
+        val url =
+            "${baseUrl.trimEnd('/')}/api/product/$articleId/locations"
+
+        Log.d(TAG, "GATEWAY GET PRODUCT LOCATIONS")
+        Log.d(TAG, "ARTICLE ID=$articleId")
+        Log.d(TAG, "URL = $url")
+
+        val response = executeGet(url)
+
+        Log.d(
+            TAG,
+            "GATEWAY PRODUCT LOCATIONS RESPONSE HTTP=${response.code}"
+        )
+        Log.d(TAG, "BODY=${response.body.take(500)}")
+
+        if (response.code !in 200..299) {
+            error(
+                "Gateway HTTP ${response.code}: ${response.body.take(500)}"
+            )
+        }
+
+        parseLocations(response.body)
+    }
+
+    /**
+     * Assegna una ubicazione a un articolo.
+     *
+     * POST /api/product/{articleId}/locations/{locationId}
+     *
+     * Restituisce true quando l'associazione viene creata.
+     * Restituisce false quando era già presente.
+     */
+    fun addLocation(
+        articleId: Long,
+        locationId: Int
+    ): Result<Boolean> = runCatching {
+        require(articleId > 0L) {
+            "articleId non valido: $articleId"
+        }
+        require(locationId >= 0) {
+            "locationId non valido: $locationId"
+        }
+
+        val url =
+            "${baseUrl.trimEnd('/')}/api/product/" +
+                    "$articleId/locations/$locationId"
+
+        Log.d(TAG, "GATEWAY ADD LOCATION")
+        Log.d(TAG, "ARTICLE ID=$articleId LOCATION ID=$locationId")
+        Log.d(TAG, "URL = $url")
+
+        val response = executeWithoutBody(
+            urlString = url,
+            method = "POST"
+        )
+
+        Log.d(TAG, "GATEWAY ADD LOCATION HTTP=${response.code}")
+        Log.d(TAG, "BODY=${response.body.take(500)}")
+
+        if (response.code !in 200..299) {
+            error(
+                "Gateway HTTP ${response.code}: ${response.body.take(500)}"
+            )
+        }
+
+        parseBooleanResult(
+            jsonText = response.body,
+            propertyName = "added"
+        )
+    }
+
+    /**
+     * Rimuove un'ubicazione da un articolo.
+     *
+     * DELETE /api/product/{articleId}/locations/{locationId}
+     *
+     * Restituisce true quando l'associazione viene eliminata.
+     * Restituisce false quando non era presente.
+     */
+    fun removeLocation(
+        articleId: Long,
+        locationId: Int
+    ): Result<Boolean> = runCatching {
+        require(articleId > 0L) {
+            "articleId non valido: $articleId"
+        }
+        require(locationId >= 0) {
+            "locationId non valido: $locationId"
+        }
+
+        val url =
+            "${baseUrl.trimEnd('/')}/api/product/" +
+                    "$articleId/locations/$locationId"
+
+        Log.d(TAG, "GATEWAY REMOVE LOCATION")
+        Log.d(TAG, "ARTICLE ID=$articleId LOCATION ID=$locationId")
+        Log.d(TAG, "URL = $url")
+
+        val response = executeWithoutBody(
+            urlString = url,
+            method = "DELETE"
+        )
+
+        Log.d(TAG, "GATEWAY REMOVE LOCATION HTTP=${response.code}")
+        Log.d(TAG, "BODY=${response.body.take(500)}")
+
+        if (response.code !in 200..299) {
+            error(
+                "Gateway HTTP ${response.code}: ${response.body.take(500)}"
+            )
+        }
+
+        parseBooleanResult(
+            jsonText = response.body,
+            propertyName = "removed"
+        )
     }
 
     /**
@@ -145,6 +300,46 @@ class GatewayApiClient(
         }
     }
 
+    private fun executeWithoutBody(
+        urlString: String,
+        method: String
+    ): HttpResponse {
+        val connection =
+            URL(urlString).openConnection() as HttpURLConnection
+
+        try {
+            connection.requestMethod = method
+            connection.connectTimeout = 10_000
+            connection.readTimeout = 30_000
+            connection.setRequestProperty("Accept", "application/json")
+            connection.setRequestProperty(
+                "Content-Type",
+                "application/json; charset=utf-8"
+            )
+
+            if (method == "POST") {
+                connection.doOutput = true
+                connection.setFixedLengthStreamingMode(0)
+                connection.outputStream.use {
+                    // Endpoint senza body.
+                }
+            }
+
+            val responseCode = connection.responseCode
+            val responseBody = readResponseBody(
+                connection = connection,
+                responseCode = responseCode
+            )
+
+            return HttpResponse(
+                code = responseCode,
+                body = responseBody
+            )
+        } finally {
+            connection.disconnect()
+        }
+    }
+
     private fun parseProduct(jsonText: String): GatewayProductDto {
         check(jsonText.isNotBlank()) {
             "Il Gateway ha restituito una risposta vuota"
@@ -180,6 +375,92 @@ class GatewayApiClient(
                 item.optString("supplierArticleCode"),
             coverImagePath = item.optString("coverImagePath")
         )
+    }
+
+    private fun parseLocations(
+        jsonText: String
+    ): List<LocationDto> {
+        check(jsonText.isNotBlank()) {
+            "Il Gateway ha restituito una risposta ubicazioni vuota"
+        }
+
+        val trimmedJson = jsonText.trim()
+
+        val array = when {
+            trimmedJson.startsWith("[") -> {
+                JSONArray(trimmedJson)
+            }
+
+            trimmedJson.startsWith("{") -> {
+                val root = JSONObject(trimmedJson)
+
+                root.optJSONArray("items")
+                    ?: root.optJSONArray("locations")
+                    ?: error(
+                        "Risposta Gateway non valida: " +
+                                "lista ubicazioni mancante"
+                    )
+            }
+
+            else -> {
+                error(
+                    "Risposta Gateway non valida: JSON non riconosciuto"
+                )
+            }
+        }
+
+        val result = ArrayList<LocationDto>(array.length())
+
+        for (index in 0 until array.length()) {
+            val item = array.optJSONObject(index) ?: continue
+
+            val id = item.optInt("id", -1)
+            val name = item.optString("name", "").trim()
+
+            if (id < 0) {
+                Log.w(
+                    TAG,
+                    "UBICAZIONE IGNORATA: id mancante indice=$index"
+                )
+                continue
+            }
+
+            result.add(
+                LocationDto(
+                    id = id,
+                    name = name
+                )
+            )
+        }
+
+        return result
+    }
+
+    private fun parseBooleanResult(
+        jsonText: String,
+        propertyName: String
+    ): Boolean {
+        val trimmedJson = jsonText.trim()
+
+        if (trimmedJson.equals("true", ignoreCase = true)) {
+            return true
+        }
+
+        if (trimmedJson.equals("false", ignoreCase = true)) {
+            return false
+        }
+
+        check(trimmedJson.isNotBlank()) {
+            "Il Gateway ha restituito una risposta vuota"
+        }
+
+        val item = JSONObject(trimmedJson)
+
+        check(item.has(propertyName)) {
+            "Risposta Gateway non valida: campo $propertyName mancante"
+        }
+
+        return item.optBoolean(propertyName, false)
     }
 
     private fun parseReorderList(
@@ -252,8 +533,6 @@ class GatewayApiClient(
                 )
             )
         }
-
-
 
         return result
     }

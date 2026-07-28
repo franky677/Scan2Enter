@@ -19,12 +19,15 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.ViewOutlineProvider
 import android.view.WindowManager
+import android.widget.BaseAdapter
 import android.widget.Button
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.LinearLayout
+import android.widget.ListView
+import android.widget.PopupMenu
 import android.widget.ScrollView
 import android.widget.SeekBar
 import android.widget.TextView
@@ -36,6 +39,7 @@ import com.scan2enter.R
 import com.scan2enter.feedback.ScanFeedbackManager
 import com.scan2enter.model.ProductInfo
 import com.scan2enter.model.ProductInfoStore
+import com.scan2enter.overlay.popup.ProductInfoPopup
 import com.scan2enter.repository.ProductRepositoryProvider
 import com.scan2enter.reorder.ReorderItem
 import com.scan2enter.reorder.ReorderStore
@@ -131,6 +135,13 @@ class OverlayService : Service() {
         GatewayApiClient()
     }
 
+    private val productInfoPopupController by lazy {
+        ProductInfoPopup(
+            context = this,
+            windowManager = windowManager
+        )
+    }
+
     private var reorderListLoading = false
 
     private var startX = 0
@@ -193,7 +204,6 @@ class OverlayService : Service() {
     private var stockStatusContainer: LinearLayout? = null
     private var stockStatusText: TextView? = null
     private var reorderText: TextView? = null
-    private var availableStockValueText: TextView? = null
     private var minimumStockValueText: TextView? = null
     private var reorderLotValueText: TextView? = null
     private var popupDurationSeekBar: SeekBar? = null
@@ -215,6 +225,7 @@ class OverlayService : Service() {
     }
 
     private var reorderPopupMode = ReorderPopupMode.REORDER
+    private var reorderSupplierFilterKey: String? = null
     private var urgentStockTone: ToneGenerator? = null
 
     private val dismissScanErrorRunnable = Runnable {
@@ -844,30 +855,50 @@ class OverlayService : Service() {
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
             ).apply {
+                bottomMargin = (8 * density).toInt()
+            }
+        )
+
+        val supplierFilterButton = Button(this).apply {
+            tag = "reorderSupplierFilterButton"
+            text = "TUTTI I FORNITORI  ▼"
+            textSize = 14f
+            gravity = Gravity.CENTER
+            setTextColor(Color.rgb(27, 94, 32))
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                setColor(Color.rgb(232, 245, 233))
+                setStroke((1 * density).toInt(), Color.rgb(165, 214, 167))
+                cornerRadius = 12 * density
+            }
+            setOnClickListener { showSupplierFilterMenu(this) }
+        }
+
+        card.addView(
+            supplierFilterButton,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                (44 * density).toInt()
+            ).apply {
                 bottomMargin = (10 * density).toInt()
             }
         )
 
-        val scrollView = ScrollView(this).apply {
-            tag = "reorderScroll"
-            isFillViewport = true
+        /*
+         * Lista virtualizzata: ListView crea soltanto le righe visibili.
+         * La precedente combinazione ScrollView + LinearLayout costruiva
+         * contemporaneamente tutte le schede, causando blocchi con liste lunghe.
+         */
+        val listView = ListView(this).apply {
+            tag = "reorderListView"
+            divider = null
+            dividerHeight = 0
+            clipToPadding = false
+            setPadding(0, 0, 0, (4 * density).toInt())
         }
-
-        val listContainer = LinearLayout(this).apply {
-            tag = "reorderListContainer"
-            orientation = LinearLayout.VERTICAL
-        }
-
-        scrollView.addView(
-            listContainer,
-            FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT,
-                FrameLayout.LayoutParams.WRAP_CONTENT
-            )
-        )
 
         card.addView(
-            scrollView,
+            listView,
             LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 0,
@@ -951,18 +982,20 @@ class OverlayService : Service() {
     }
 
     /**
-     * Ricostruisce il contenuto della lista mentre il popup è aperto.
+     * Aggiorna il contenuto della lista usando una ListView virtualizzata.
+     * Vengono materializzate soltanto le righe visibili sullo schermo.
      */
     private fun refreshReorderListPopup() {
         val popup = reorderListPopup ?: return
 
         val subtitle = findViewByTag<TextView>(popup, "reorderSubtitle")
-        val listContainer =
-            findViewByTag<LinearLayout>(popup, "reorderListContainer")
-                ?: return
+        val listView = findViewByTag<ListView>(popup, "reorderListView")
+            ?: return
         val clearButton = findViewByTag<Button>(popup, "reorderClearButton")
         val reorderTab = findViewByTag<Button>(popup, "reorderTabButton")
         val historyTab = findViewByTag<Button>(popup, "historyTabButton")
+        val supplierFilterButton =
+            findViewByTag<Button>(popup, "reorderSupplierFilterButton")
 
         styleReorderTab(
             button = reorderTab,
@@ -972,8 +1005,6 @@ class OverlayService : Service() {
             button = historyTab,
             selected = reorderPopupMode == ReorderPopupMode.HISTORY
         )
-
-        listContainer.removeAllViews()
 
         if (reorderPopupMode == ReorderPopupMode.HISTORY) {
             val history = ProductInfoStore.getHistory().take(20)
@@ -985,83 +1016,199 @@ class OverlayService : Service() {
             }
 
             clearButton?.visibility = View.GONE
+            supplierFilterButton?.visibility = View.GONE
 
-            if (history.isEmpty()) {
-                addEmptyListMessage(
-                    container = listContainer,
-                    message = "Gli ultimi articoli letti compariranno qui."
-                )
-                return
+            val rows: List<() -> View> = if (history.isEmpty()) {
+                listOf {
+                    createVirtualizedEmptyMessage(
+                        "Gli ultimi articoli letti compariranno qui."
+                    )
+                }
+            } else {
+                history.mapIndexed { index, product ->
+                    { createReorderHistoryItemView(product, index + 1) }
+                }
             }
 
-            history.forEachIndexed { index, product ->
-                listContainer.addView(
-                    createReorderHistoryItemView(
-                        product = product,
-                        position = index + 1
-                    ),
-                    LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.MATCH_PARENT,
-                        LinearLayout.LayoutParams.WRAP_CONTENT
-                    ).apply {
-                        bottomMargin =
-                            (8 * resources.displayMetrics.density).toInt()
-                    }
-                )
-            }
+            listView.adapter = createVirtualizedListAdapter(rows)
             return
         }
 
-        val items = ReorderStore.getAll()
-        val groupedItems = ReorderStore.getBySupplier()
+        val allItems = ReorderStore.getAll()
+            .filter(::shouldShowReorderItem)
+
+        val availableSupplierKeys = allItems
+            .map(::supplierFilterKey)
+            .toSet()
+
+        if (reorderSupplierFilterKey !in availableSupplierKeys) {
+            reorderSupplierFilterKey = null
+        }
+
+        val items = reorderSupplierFilterKey?.let { selectedKey ->
+            allItems.filter { supplierFilterKey(it) == selectedKey }
+        } ?: allItems
+
+        val groupedItems = items.groupBy(::supplierFilterKey)
+        val supplierCount = allItems
+            .map(::supplierFilterKey)
+            .distinct()
+            .size
+
+        supplierFilterButton?.visibility = View.VISIBLE
+        supplierFilterButton?.text = selectedSupplierFilterLabel(allItems)
 
         subtitle?.text = when {
-            items.isEmpty() -> "Nessun articolo presente"
-            ReorderStore.supplierCount() == 1 ->
-                "${items.size} articoli · 1 fornitore"
-            else ->
-                "${items.size} articoli · ${ReorderStore.supplierCount()} fornitori"
+            allItems.isEmpty() -> "Nessun articolo presente"
+            reorderSupplierFilterKey != null ->
+                "${items.size} articoli visualizzati su ${allItems.size}"
+            supplierCount == 1 -> "${allItems.size} articoli · 1 fornitore"
+            else -> "${allItems.size} articoli · $supplierCount fornitori"
         }
 
         clearButton?.visibility = View.VISIBLE
-        clearButton?.isEnabled = items.isNotEmpty()
-        clearButton?.alpha = if (items.isEmpty()) 0.4f else 1.0f
+        clearButton?.isEnabled = allItems.isNotEmpty()
+        clearButton?.alpha = if (allItems.isEmpty()) 0.4f else 1.0f
+
+        val rows = mutableListOf<() -> View>()
 
         if (items.isEmpty()) {
-            addEmptyListMessage(
-                container = listContainer,
-                message = "Gli articoli aggiunti durante le scansioni compariranno qui."
-            )
-            return
-        }
-
-        groupedItems.forEach { (_, supplierItems) ->
-            val supplierName = supplierItems
-                .firstOrNull()
-                ?.supplierName
-                ?.trim()
-                .orEmpty()
-                .ifEmpty { "Fornitore non indicato" }
-
-            listContainer.addView(
-                createSupplierHeaderView(
-                    supplierName = supplierName,
-                    itemCount = supplierItems.size
-                )
-            )
-
-            supplierItems.forEach { item ->
-                listContainer.addView(
-                    createReorderItemView(item),
-                    LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.MATCH_PARENT,
-                        LinearLayout.LayoutParams.WRAP_CONTENT
-                    ).apply {
-                        bottomMargin =
-                            (8 * resources.displayMetrics.density).toInt()
-                    }
+            rows += {
+                createVirtualizedEmptyMessage(
+                    "Gli articoli aggiunti durante le scansioni compariranno qui."
                 )
             }
+        } else {
+            groupedItems.forEach { (_, supplierItems) ->
+                val supplierName = supplierItems
+                    .firstOrNull()
+                    ?.supplierName
+                    ?.trim()
+                    .orEmpty()
+                    .ifEmpty { "Fornitore non indicato" }
+
+                rows += {
+                    createSupplierHeaderView(
+                        supplierName = supplierName,
+                        itemCount = supplierItems.size
+                    )
+                }
+
+                supplierItems.forEach { item ->
+                    rows += { createReorderItemView(item) }
+                }
+            }
+        }
+
+        listView.adapter = createVirtualizedListAdapter(rows)
+    }
+
+    private fun supplierFilterKey(item: ReorderItem): String {
+        val rawId = item.supplierId?.toString()?.trim().orEmpty()
+        return if (rawId.isNotEmpty()) rawId else "__NO_SUPPLIER__"
+    }
+
+    private fun supplierDisplayName(item: ReorderItem): String {
+        return item.supplierName
+            ?.trim()
+            .orEmpty()
+            .ifEmpty { "Fornitore non indicato" }
+    }
+
+    private fun selectedSupplierFilterLabel(items: List<ReorderItem>): String {
+        val selectedKey = reorderSupplierFilterKey
+            ?: return "TUTTI I FORNITORI  ▼"
+
+        val selectedName = items
+            .firstOrNull { supplierFilterKey(it) == selectedKey }
+            ?.let(::supplierDisplayName)
+            ?: "Fornitore"
+
+        return "$selectedName  ▼"
+    }
+
+    private fun showSupplierFilterMenu(anchor: View) {
+        val items = ReorderStore.getAll()
+            .filter(::shouldShowReorderItem)
+
+        val suppliers = items
+            .groupBy(::supplierFilterKey)
+            .map { (key, supplierItems) ->
+                Triple(
+                    key,
+                    supplierDisplayName(supplierItems.first()),
+                    supplierItems.size
+                )
+            }
+            .sortedBy { it.second.lowercase() }
+
+        val popupMenu = PopupMenu(this, anchor)
+        popupMenu.menu.add(0, 0, 0, "Tutti i fornitori (${items.size})")
+
+        suppliers.forEachIndexed { index, (_, name, count) ->
+            popupMenu.menu.add(0, index + 1, index + 1, "$name ($count)")
+        }
+
+        popupMenu.setOnMenuItemClickListener { menuItem ->
+            reorderSupplierFilterKey = if (menuItem.itemId == 0) {
+                null
+            } else {
+                suppliers.getOrNull(menuItem.itemId - 1)?.first
+            }
+
+            refreshReorderListPopup()
+            true
+        }
+
+        popupMenu.show()
+    }
+
+    private fun createVirtualizedListAdapter(
+        rows: List<() -> View>
+    ): BaseAdapter {
+        return object : BaseAdapter() {
+            override fun getCount(): Int = rows.size
+
+            override fun getItem(position: Int): Any = position
+
+            override fun getItemId(position: Int): Long = position.toLong()
+
+            override fun getView(
+                position: Int,
+                convertView: View?,
+                parent: ViewGroup?
+            ): View {
+                val density = resources.displayMetrics.density
+                val row = rows[position]()
+
+                return FrameLayout(this@OverlayService).apply {
+                    setPadding(0, 0, 0, (8 * density).toInt())
+                    addView(
+                        row,
+                        FrameLayout.LayoutParams(
+                            FrameLayout.LayoutParams.MATCH_PARENT,
+                            FrameLayout.LayoutParams.WRAP_CONTENT
+                        )
+                    )
+                }
+            }
+        }
+    }
+
+    private fun createVirtualizedEmptyMessage(message: String): View {
+        val density = resources.displayMetrics.density
+
+        return TextView(this).apply {
+            text = message
+            textSize = 17f
+            setTextColor(Color.DKGRAY)
+            gravity = Gravity.CENTER
+            setPadding(
+                (8 * density).toInt(),
+                (48 * density).toInt(),
+                (8 * density).toInt(),
+                (48 * density).toInt()
+            )
         }
     }
 
@@ -1273,28 +1420,49 @@ class OverlayService : Service() {
         return root
     }
 
+    /**
+     * Applica le regole definitive di visibilità della lista.
+     *
+     * - minima, massima e lotto tutti a 0: articolo escluso;
+     * - minima null e lotto > 0: articolo visibile per decisione manuale;
+     * - negli altri casi mostra soltanto articoli realmente da riordinare.
+     */
+    private fun shouldShowReorderItem(item: ReorderItem): Boolean {
+        val minimumStock = item.minimumStock
+        val maximumStock = item.maximumStock
+        val reorderLot = item.reorderLot
+
+        val explicitlyExcluded =
+            minimumStock == 0.0 &&
+                    maximumStock == 0.0 &&
+                    reorderLot == 0.0
+
+        if (explicitlyExcluded) return false
+
+        if (minimumStock == null && reorderLot != null && reorderLot > 0.0) {
+            return true
+        }
+
+        if (item.quantityToOrder > 0.0) return true
+
+        val stock = item.stock ?: return false
+        val availableStock = item.availableStock ?: return false
+        val minimum = minimumStock ?: return false
+
+        return stock <= minimum || availableStock <= 0.0
+    }
+
     private fun calculateQuantityToOrder(
         item: ReorderItem
     ): Double? {
-        val stock = item.stock ?: return null
-        val minimumStock = item.minimumStock ?: return null
-        val availableStock = item.availableStock ?: return null
         val reorderLot = item.reorderLot
+        val minimumStock = item.minimumStock
 
-        /*
-         * Convenzione gestionale:
-         * minima 0 + massima 0 + lotto 0 = articolo escluso.
-         * ReorderItem non conserva la massima, quindi qui l'esclusione
-         * viene riconosciuta dai due valori operativi disponibili.
-         */
         if (
             minimumStock == 0.0 &&
-            (reorderLot == null || reorderLot == 0.0)
+            item.maximumStock == 0.0 &&
+            reorderLot == 0.0
         ) {
-            return 0.0
-        }
-
-        if (stock > minimumStock && availableStock > 0.0) {
             return 0.0
         }
 
@@ -1302,11 +1470,27 @@ class OverlayService : Service() {
             return item.quantityToOrder
         }
 
+        /*
+         * La minima non impostata, con lotto valorizzato, è il caso
+         * concordato per la decisione manuale: mostriamo direttamente il lotto.
+         */
+        if (minimumStock == null && reorderLot != null && reorderLot > 0.0) {
+            return reorderLot
+        }
+
+        val stock = item.stock ?: return null
+        val availableStock = item.availableStock ?: return null
+        val minimum = minimumStock ?: return null
+
+        if (stock > minimum && availableStock > 0.0) {
+            return 0.0
+        }
+
         if (reorderLot != null && reorderLot > 0.0) {
             return reorderLot
         }
 
-        return max(0.0, minimumStock - stock)
+        return max(0.0, minimum - stock)
     }
 
     private fun openReorderItem(item: ReorderItem) {
@@ -1332,8 +1516,10 @@ class OverlayService : Service() {
                 result.onSuccess { product ->
                     ProductInfoStore.current = product
                     ProductInfoStore.updateHistoryItem(product)
-                    removeReorderListPopup()
 
+                    // La lista resta aperta dietro al popup articolo.
+                    // In questo modo, dopo il salvataggio delle scorte,
+                    // l'utente torna subito alla lista senza doverla riaprire.
                     showOrUpdateProductInfoPopup(
                         workflowCompleted = true,
                         manualOpen = true
@@ -1617,6 +1803,7 @@ class OverlayService : Service() {
         }
 
         reorderListPopup = null
+        reorderSupplierFilterKey = null
 
         android.util.Log.d(
             "OverlayService",
@@ -2023,210 +2210,33 @@ class OverlayService : Service() {
     }
 
     private fun createProductInfoPopup() {
-        val density = resources.displayMetrics.density
-        val screenWidth = resources.displayMetrics.widthPixels
-        val screenHeight = resources.displayMetrics.heightPixels
+        val bindings = productInfoPopupController.create(
+            onStockClick = ::showStockEditPopup
+        )
 
-        /*
-         * La finestra overlay occupa tutto lo schermo.
-         * Il wrapper scuro ricrea la separazione visiva del vecchio dialogo,
-         * mentre la card interna resta completamente bianca e opaca.
-         */
-        val overlayRoot = FrameLayout(this).apply {
-            setBackgroundColor(Color.BLACK)
-            alpha = 1.0f
-            clipChildren = false
-            clipToPadding = false
-        }
-
-        val popupView = LayoutInflater.from(this)
-            .inflate(R.layout.product_info_popup, overlayRoot, false)
-
-        descriptionValueText =
-            popupView.findViewById(R.id.productDescriptionText)
-
-        articleCodeValueText =
-            popupView.findViewById(R.id.productArticleCodeText)
-
-        barcodeValueText =
-            popupView.findViewById(R.id.productBarcodeText)
-
-        barcodeImageView =
-            popupView.findViewById(R.id.productBarcodeImage)
-
-        taxablePriceValueText =
-            popupView.findViewById(R.id.productTaxablePriceText)
-
-        vatRateValueText =
-            popupView.findViewById(R.id.productVatRateText)
-
-        priceValueText =
-            popupView.findViewById(R.id.productPublicPriceText)
-
-        seasonValueText =
-            popupView.findViewById(R.id.productSeasonText)
-
-        yearValueText =
-            popupView.findViewById(R.id.productYearText)
-
-        locationValueText =
-            popupView.findViewById(R.id.productLocationText)
-
-        stockValueText =
-            popupView.findViewById(R.id.productStockText)
-
-        stockStatusContainer =
-            popupView.findViewById(R.id.productStockStatusContainer)
-
-        stockStatusText =
-            popupView.findViewById(R.id.productStockStatusText)
-
-        reorderText =
-            popupView.findViewById(R.id.productReorderText)
-
-        availableStockValueText =
-            popupView.findViewById(R.id.productAvailableStockText)
-
-        minimumStockValueText =
-            popupView.findViewById(R.id.productMinimumStockText)
-
-        reorderLotValueText =
-            popupView.findViewById(R.id.productReorderLotValueText)
-
-        popupDurationSeekBar =
-            popupView.findViewById(R.id.popupDurationSeekBar)
-
-        popupDurationModeButton =
-            popupView.findViewById(R.id.popupDurationModeButton)
-
-        popupDurationValueText =
-            popupView.findViewById(R.id.popupDurationValueText)
+        productInfoPopup = bindings.root
+        productInfoPopupParams = bindings.windowParams
+        priceValueText = bindings.priceValueText
+        articleCodeValueText = bindings.articleCodeValueText
+        barcodeValueText = bindings.barcodeValueText
+        barcodeImageView = bindings.barcodeImageView
+        descriptionValueText = bindings.descriptionValueText
+        yearValueText = bindings.yearValueText
+        seasonValueText = bindings.seasonValueText
+        locationValueText = bindings.locationValueText
+        taxablePriceValueText = bindings.taxablePriceValueText
+        vatRateValueText = bindings.vatRateValueText
+        stockValueText = bindings.stockValueText
+        stockStatusContainer = bindings.stockStatusContainer
+        stockStatusText = bindings.stockStatusText
+        reorderText = bindings.reorderText
+        minimumStockValueText = bindings.minimumStockValueText
+        reorderLotValueText = bindings.reorderLotValueText
+        popupDurationSeekBar = bindings.popupDurationSeekBar
+        popupDurationModeButton = bindings.popupDurationModeButton
+        popupDurationValueText = bindings.popupDurationValueText
 
         configureFixedDurationAndSoundControls()
-
-        // Il pulsante resta nascosto: la chiusura automatica è già gestita.
-        popupView.findViewById<TextView>(R.id.closeProductInfoButton)
-            .visibility = View.GONE
-
-        popupView.findViewById<View>(R.id.productStockCard)
-            .setOnClickListener {
-                showStockEditPopup()
-            }
-
-        // Margini ridotti per lasciare spazio al comando verticale senza
-        // comprimere eccessivamente i dati principali del prodotto.
-        val horizontalMargin = (6 * density).toInt()
-        val topMargin = (42 * density).toInt()
-        val bottomMargin = (8 * density).toInt()
-        val bottomBreathingRoom = (22 * density).toInt()
-        val shadowOffset = (5 * density).toInt()
-
-        val popupWidth = min(
-            (430 * density).toInt(),
-            screenWidth - horizontalMargin * 2
-        )
-
-        // Più spazio verso il basso: circa mezzo centimetro utile in più.
-        val popupMaxHeight = screenHeight - topMargin - bottomMargin
-
-        /*
-         * La card bianca resta completamente opaca.
-         * Il padding inferiore aggiunge circa 3-4 mm sotto la giacenza.
-         */
-        popupView.setPadding(
-            popupView.paddingLeft,
-            popupView.paddingTop,
-            popupView.paddingRight,
-            popupView.paddingBottom + bottomBreathingRoom
-        )
-
-        popupView.background = GradientDrawable().apply {
-            shape = GradientDrawable.RECTANGLE
-            setColor(Color.WHITE)
-            cornerRadius = 22 * density
-        }
-        popupView.alpha = 1.0f
-        popupView.clipToOutline = true
-        popupView.outlineProvider = ViewOutlineProvider.BACKGROUND
-        popupView.elevation = 14 * density
-
-        popupView.measure(
-            View.MeasureSpec.makeMeasureSpec(
-                popupWidth,
-                View.MeasureSpec.EXACTLY
-            ),
-            View.MeasureSpec.makeMeasureSpec(
-                popupMaxHeight - shadowOffset,
-                View.MeasureSpec.AT_MOST
-            )
-        )
-
-        val cardHeight = min(
-            popupView.measuredHeight,
-            popupMaxHeight - shadowOffset
-        )
-
-        /*
-         * Base nera leggermente spostata verso il basso:
-         * ricrea profondità visiva senza rendere trasparente la card.
-         */
-        val cardContainer = FrameLayout(this).apply {
-            clipChildren = false
-            clipToPadding = false
-        }
-
-        val grayBase = View(this).apply {
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.RECTANGLE
-                setColor(Color.BLACK)
-                cornerRadius = 22 * density
-            }
-        }
-
-        val grayBaseParams = FrameLayout.LayoutParams(
-            popupWidth,
-            cardHeight
-        ).apply {
-            gravity = Gravity.TOP or Gravity.START
-            this.topMargin = shadowOffset
-        }
-
-        val whiteCardParams = FrameLayout.LayoutParams(
-            popupWidth,
-            cardHeight
-        ).apply {
-            gravity = Gravity.TOP or Gravity.START
-        }
-
-        cardContainer.addView(grayBase, grayBaseParams)
-        cardContainer.addView(popupView, whiteCardParams)
-
-        val containerParams = FrameLayout.LayoutParams(
-            popupWidth,
-            cardHeight + shadowOffset
-        ).apply {
-            gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
-            this.topMargin = topMargin
-        }
-
-        overlayRoot.addView(cardContainer, containerParams)
-
-        val popupParams = WindowManager.LayoutParams(
-            WindowManager.LayoutParams.MATCH_PARENT,
-            WindowManager.LayoutParams.MATCH_PARENT,
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                    WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
-                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
-            PixelFormat.OPAQUE
-        ).apply {
-            gravity = Gravity.TOP or Gravity.START
-            alpha = 1.0f
-        }
-
-        productInfoPopup = overlayRoot
-        productInfoPopupParams = popupParams
-        windowManager.addView(overlayRoot, popupParams)
     }
 
 
@@ -2251,6 +2261,9 @@ class OverlayService : Service() {
             listOf(product.articleCode, product.description)
                 .filter { it.isNotBlank() }
                 .joinToString(" · ")
+
+        dialogView.findViewById<TextView>(R.id.stockEditCurrentStockText).text =
+            product.stock.trim().takeIf { it.isNotEmpty() && it != "-1" } ?: "—"
 
         val minimumEdit =
             dialogView.findViewById<EditText>(R.id.minimumStockEditText)
@@ -2357,7 +2370,14 @@ class OverlayService : Service() {
                                     "SALVATAGGIO SCORTE OK articleId=${updated.articleId} minimo=${updated.minimumStock} massimo=${updated.maximumStock} lotto=${updated.reorderLot}"
                                 )
 
-                                removeStockEditPopup()
+                                if (reorderListPopup != null) {
+                                    // Chiude popup articolo + modifica scorte,
+                                    // lasciando visibile la lista di riordino.
+                                    removeProductInfoPopup()
+                                    refreshReorderListPopup()
+                                } else {
+                                    removeStockEditPopup()
+                                }
                             }
                         }.onFailure { error ->
                             popupHandler.post {
@@ -2796,7 +2816,6 @@ class OverlayService : Service() {
             stockStatusContainer?.visibility = View.GONE
             stockStatusText?.text = ""
             reorderText?.text = ""
-            availableStockValueText?.text = ""
             minimumStockValueText?.text = ""
             reorderLotValueText?.text = ""
             return
@@ -2804,7 +2823,7 @@ class OverlayService : Service() {
 
         // Il prezzo è già disponibile quando il popup viene aperto e viene
         // aggiornato per primo. Gli altri campi arrivano progressivamente.
-        priceValueText?.text = valueOrLoading(product.publicPrice)
+        priceValueText?.text = formatPublicPrice(product.publicPrice)
         articleCodeValueText?.text = valueOrLoading(product.articleCode)
         barcodeValueText?.text = valueOrLoading(product.barcode)
         descriptionValueText?.text = valueOrLoading(product.description)
@@ -2814,7 +2833,6 @@ class OverlayService : Service() {
         yearValueText?.text = valueOrLoading(product.year)
         locationValueText?.text = product.location.trim().ifEmpty { "Non assegnata" }
         stockValueText?.text = valueOrLoading(product.stock)
-        availableStockValueText?.text = valueOrEmpty(product.availableStock)
         minimumStockValueText?.text = valueOrEmpty(product.minimumStock)
         reorderLotValueText?.text = valueOrEmpty(product.reorderLot)
 
@@ -2955,12 +2973,7 @@ class OverlayService : Service() {
             stockEditPopup = null
         }
 
-        val popup = productInfoPopup ?: return
-
-        try {
-            windowManager.removeView(popup)
-        } catch (_: Exception) {
-        }
+        productInfoPopupController.remove()
 
         productInfoPopup = null
         productInfoPopupParams = null
@@ -2978,7 +2991,6 @@ class OverlayService : Service() {
         stockStatusContainer = null
         stockStatusText = null
         reorderText = null
-        availableStockValueText = null
         minimumStockValueText = null
         reorderLotValueText = null
         popupDurationSeekBar = null
@@ -3165,6 +3177,30 @@ class OverlayService : Service() {
         } else {
             String.format(java.util.Locale.US, "%.2f", this)
         }
+
+    private fun formatPublicPrice(rawValue: String): String {
+        val cleaned = rawValue
+            .trim()
+            .replace("€", "")
+            .replace(" ", "")
+
+        if (cleaned.isEmpty()) return "lettura…"
+
+        val normalized = when {
+            cleaned.contains(',') && cleaned.contains('.') ->
+                cleaned.replace(".", "").replace(',', '.')
+            else -> cleaned.replace(',', '.')
+        }
+
+        val numericValue = normalized.toDoubleOrNull()
+            ?: return rawValue.trim()
+
+        return String.format(
+            java.util.Locale.ITALY,
+            "%.2f",
+            numericValue
+        )
+    }
 
     /**
      * Genera il barcode EAN-13 grafico senza dipendenze esterne.
