@@ -5,6 +5,7 @@ import com.scan2enter.api.DueRetailApiClient
 import com.scan2enter.api.DueRetailStockSettings
 import com.scan2enter.api.GatewayApiClient
 import com.scan2enter.api.LocationDto
+import com.scan2enter.api.DeleteLocationResult
 import com.scan2enter.model.ProductInfo
 
 /**
@@ -120,6 +121,28 @@ class ProductRepository(
             articleId = articleId,
             locationId = locationId
         )
+    }
+
+    fun createLocation(name: String): Result<LocationDto> {
+        return gatewayApi.createLocation(name)
+    }
+
+    fun deleteLocation(locationId: Int): Result<DeleteLocationResult> {
+        return gatewayApi.deleteLocation(locationId)
+    }
+
+
+    fun renameLocation(
+        locationId: Int,
+        name: String
+    ): Result<LocationDto> {
+        return gatewayApi.renameLocation(locationId, name)
+    }
+
+    fun duplicateNextLocation(
+        locationId: Int
+    ): Result<LocationDto> {
+        return gatewayApi.duplicateNextLocation(locationId)
     }
 
     /**

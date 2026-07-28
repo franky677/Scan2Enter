@@ -221,6 +221,111 @@ class GatewayApiClient(
         )
     }
 
+    fun createLocation(name: String): Result<LocationDto> = runCatching {
+        val normalizedName = name.trim().uppercase()
+        require(normalizedName.isNotBlank()) { "Il nome dell'ubicazione è obbligatorio" }
+
+        val url = "${baseUrl.trimEnd('/')}/api/locations"
+        val response = executeJson(
+            urlString = url,
+            method = "POST",
+            jsonBody = JSONObject().put("name", normalizedName).toString()
+        )
+
+        if (response.code !in 200..299) {
+            error("Gateway HTTP ${response.code}: ${response.body.take(500)}")
+        }
+
+        val root = JSONObject(response.body)
+        val item = root.optJSONObject("location")
+            ?: error("Risposta Gateway non valida: location mancante")
+
+        LocationDto(
+            id = item.optInt("id", -1),
+            name = item.optString("name", normalizedName).trim()
+        ).also { require(it.id >= 0) { "ID ubicazione non valido" } }
+    }
+
+    fun deleteLocation(locationId: Int): Result<DeleteLocationResult> = runCatching {
+        require(locationId >= 0) { "locationId non valido: $locationId" }
+
+        val url = "${baseUrl.trimEnd('/')}/api/locations/$locationId"
+        val response = executeWithoutBody(url, "DELETE")
+        val root = if (response.body.isBlank()) JSONObject() else JSONObject(response.body)
+
+        if (response.code !in 200..299 && response.code != HttpURLConnection.HTTP_CONFLICT) {
+            error("Gateway HTTP ${response.code}: ${response.body.take(500)}")
+        }
+
+        DeleteLocationResult(
+            deleted = root.optBoolean("deleted", false),
+            usageCount = root.optInt("usageCount", 0),
+            message = root.optString("message", "")
+        )
+    }
+
+
+    fun renameLocation(
+        locationId: Int,
+        name: String
+    ): Result<LocationDto> = runCatching {
+        require(locationId >= 0) { "locationId non valido: $locationId" }
+
+        val normalizedName = name.trim().uppercase()
+        require(normalizedName.isNotBlank()) {
+            "Il nome dell'ubicazione è obbligatorio"
+        }
+
+        val url = "${baseUrl.trimEnd('/')}/api/locations/$locationId"
+        val response = executeJson(
+            urlString = url,
+            method = "PUT",
+            jsonBody = JSONObject().put("name", normalizedName).toString()
+        )
+
+        if (response.code !in 200..299) {
+            val message = runCatching {
+                JSONObject(response.body).optString("message")
+            }.getOrNull().orEmpty()
+
+            error(
+                message.ifBlank {
+                    "Gateway HTTP ${response.code}: ${response.body.take(500)}"
+                }
+            )
+        }
+
+        parseLocationEnvelope(response.body, normalizedName)
+    }
+
+    fun duplicateNextLocation(
+        locationId: Int
+    ): Result<LocationDto> = runCatching {
+        require(locationId >= 0) { "locationId non valido: $locationId" }
+
+        val url =
+            "${baseUrl.trimEnd('/')}/api/locations/$locationId/duplicate-next"
+
+        val response = executeWithoutBody(
+            urlString = url,
+            method = "POST"
+        )
+
+        if (response.code !in 200..299) {
+            val message = runCatching {
+                JSONObject(response.body).optString("message")
+            }.getOrNull().orEmpty()
+
+            error(
+                message.ifBlank {
+                    "Gateway HTTP ${response.code}: ${response.body.take(500)}"
+                }
+            )
+        }
+
+        parseLocationEnvelope(response.body, "")
+    }
+
     /**
      * Scarica dal Gateway la lista completa degli articoli da riordinare.
      */
@@ -337,6 +442,46 @@ class GatewayApiClient(
             )
         } finally {
             connection.disconnect()
+        }
+    }
+
+    private fun executeJson(
+        urlString: String,
+        method: String,
+        jsonBody: String
+    ): HttpResponse {
+        val connection = URL(urlString).openConnection() as HttpURLConnection
+        try {
+            connection.requestMethod = method
+            connection.connectTimeout = 10_000
+            connection.readTimeout = 30_000
+            connection.doOutput = true
+            connection.setRequestProperty("Accept", "application/json")
+            connection.setRequestProperty("Content-Type", "application/json; charset=utf-8")
+            val bytes = jsonBody.toByteArray(StandardCharsets.UTF_8)
+            connection.setFixedLengthStreamingMode(bytes.size)
+            connection.outputStream.use { it.write(bytes) }
+            val code = connection.responseCode
+            return HttpResponse(code, readResponseBody(connection, code))
+        } finally {
+            connection.disconnect()
+        }
+    }
+
+
+    private fun parseLocationEnvelope(
+        jsonText: String,
+        fallbackName: String
+    ): LocationDto {
+        val root = JSONObject(jsonText)
+        val item = root.optJSONObject("location")
+            ?: error("Risposta Gateway non valida: location mancante")
+
+        return LocationDto(
+            id = item.optInt("id", -1),
+            name = item.optString("name", fallbackName).trim()
+        ).also {
+            require(it.id >= 0) { "ID ubicazione non valido" }
         }
     }
 
@@ -581,3 +726,9 @@ class GatewayApiClient(
         val body: String
     )
 }
+
+data class DeleteLocationResult(
+    val deleted: Boolean,
+    val usageCount: Int,
+    val message: String
+)

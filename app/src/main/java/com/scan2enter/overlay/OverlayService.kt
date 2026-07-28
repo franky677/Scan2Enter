@@ -2359,6 +2359,138 @@ class OverlayService : Service() {
                                     }
                                 }.start()
                             },
+                            onCreate = { name, complete ->
+                                Thread {
+                                    val result = productRepository.createLocation(name).fold(
+                                        onSuccess = { created ->
+                                            productRepository.addLocation(product.articleId, created.id).getOrThrow()
+                                            val available = productRepository.getLocations().getOrThrow()
+                                            val assigned = productRepository.getProductLocations(product.articleId).getOrThrow()
+                                            Result.success(available to assigned)
+                                        },
+                                        onFailure = { Result.failure(it) }
+                                    )
+                                    popupHandler.post {
+                                        result.onSuccess { (_, assigned) ->
+                                            val current = ProductInfoStore.current ?: product
+                                            val updated = current.copy(
+                                                location = assigned.joinToString(" · ") { it.name.trim() },
+                                                locations = assigned
+                                            )
+                                            ProductInfoStore.current = updated
+                                            ProductInfoStore.updateHistoryItem(updated)
+                                            updateProductInfoPopup(updated, true, false)
+                                        }
+                                        complete(result)
+                                    }
+                                }.start()
+                            },
+                            onDelete = { location, complete ->
+                                Thread {
+                                    val result = productRepository.deleteLocation(location.id)
+                                    popupHandler.post { complete(result) }
+                                }.start()
+                            },
+                            onRename = { location, newName, complete ->
+                                Thread {
+                                    val result = productRepository.renameLocation(
+                                        locationId = location.id,
+                                        name = newName
+                                    ).fold(
+                                        onSuccess = {
+                                            val available = productRepository
+                                                .getLocations()
+                                                .getOrThrow()
+
+                                            val assigned = productRepository
+                                                .getProductLocations(product.articleId)
+                                                .getOrThrow()
+
+                                            Result.success(
+                                                Triple(it, available, assigned)
+                                            )
+                                        },
+                                        onFailure = { Result.failure(it) }
+                                    )
+
+                                    popupHandler.post {
+                                        result.onSuccess { (renamed, _, assigned) ->
+                                            val current =
+                                                ProductInfoStore.current ?: product
+
+                                            val updated = current.copy(
+                                                location = assigned.joinToString(" · ") {
+                                                    it.name.trim()
+                                                },
+                                                locations = assigned
+                                            )
+
+                                            ProductInfoStore.current = updated
+                                            ProductInfoStore.updateHistoryItem(updated)
+                                            updateProductInfoPopup(
+                                                updated,
+                                                true,
+                                                false
+                                            )
+
+                                            android.util.Log.d(
+                                                "OverlayService",
+                                                "UBICAZIONE RINOMINATA " +
+                                                        "locationId=${renamed.id} " +
+                                                        "name=${renamed.name}"
+                                            )
+                                        }.onFailure { error ->
+                                            android.util.Log.e(
+                                                "OverlayService",
+                                                "RINOMINA UBICAZIONE FALLITA " +
+                                                        "locationId=${location.id}",
+                                                error
+                                            )
+                                        }
+
+                                        complete(
+                                            result.map { (renamed, _, _) -> renamed }
+                                        )
+                                    }
+                                }.start()
+                            },
+                            onDuplicateNext = { location, complete ->
+                                Thread {
+                                    val result = productRepository
+                                        .duplicateNextLocation(location.id)
+                                        .fold(
+                                            onSuccess = { created ->
+                                                productRepository
+                                                    .getLocations()
+                                                    .getOrThrow()
+
+                                                Result.success(created)
+                                            },
+                                            onFailure = { Result.failure(it) }
+                                        )
+
+                                    popupHandler.post {
+                                        result.onSuccess { created ->
+                                            android.util.Log.d(
+                                                "OverlayService",
+                                                "UBICAZIONE SUCCESSIVA CREATA " +
+                                                        "locationId=${created.id} " +
+                                                        "name=${created.name}"
+                                            )
+                                        }.onFailure { error ->
+                                            android.util.Log.e(
+                                                "OverlayService",
+                                                "DUPLICAZIONE UBICAZIONE FALLITA " +
+                                                        "locationId=${location.id}",
+                                                error
+                                            )
+                                        }
+
+                                        complete(result)
+                                    }
+                                }.start()
+                            },
+
                             onClose = {
                                 popupTimerPausedByUser = false
                                 scheduleProductPopupDismiss(ProductInfoStore.current)
