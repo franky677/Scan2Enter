@@ -1,6 +1,7 @@
 package com.scan2enter.overlay.popup
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.drawable.GradientDrawable
@@ -15,19 +16,26 @@ import android.widget.LinearLayout
 import android.widget.SeekBar
 import android.widget.TextView
 import com.scan2enter.R
+import com.scan2enter.model.ProductInfo
 import kotlin.math.min
 
 /**
- * Gestisce esclusivamente la creazione e la rimozione grafica
+ * Gestisce la creazione, la rimozione e l'aggiornamento grafico
  * del popup informazioni articolo.
  *
- * La logica di aggiornamento dei dati resta temporaneamente in OverlayService
- * e verrà spostata in un passaggio successivo del refactoring.
+ * Timer, suoni e coordinamento del workflow restano in OverlayService.
  */
 class ProductInfoPopup(
     private val context: Context,
     private val windowManager: WindowManager
 ) {
+
+
+    enum class StockSoundStatus {
+        REGULAR,
+        WARNING,
+        REORDER
+    }
 
     data class Bindings(
         val root: View,
@@ -196,6 +204,313 @@ class ProductInfoPopup(
         )
 
         return createdBindings
+    }
+
+    /**
+     * Aggiorna tutti i dati visibili e restituisce lo stato stock che
+     * OverlayService potrà eventualmente trasformare in feedback sonoro.
+     */
+    fun update(
+        product: ProductInfo?,
+        workflowCompleted: Boolean
+    ): StockSoundStatus? {
+        val current = bindings ?: return null
+
+        fun valueOrLoading(value: String): String =
+            value.trim().takeIf { it.isNotEmpty() } ?: "lettura…"
+
+        fun valueOrEmpty(value: String): String =
+            value.trim().takeIf { it.isNotEmpty() && it != "-1" } ?: ""
+
+        if (product == null) {
+            current.priceValueText.text = "—"
+            current.articleCodeValueText.text = "—"
+            current.barcodeValueText.text = "—"
+            current.barcodeImageView.visibility = View.GONE
+            current.descriptionValueText.text = "Nessun articolo letto"
+            current.yearValueText.text = "—"
+            current.seasonValueText.text = "—"
+            current.locationValueText.text = "—"
+            current.taxablePriceValueText.text = "—"
+            current.vatRateValueText.text = "—"
+            current.stockValueText.text = "—"
+            current.stockStatusContainer.visibility = View.GONE
+            current.stockStatusText.text = ""
+            current.reorderText.text = ""
+            current.minimumStockValueText.text = ""
+            current.reorderLotValueText.text = ""
+            return null
+        }
+
+        current.priceValueText.text = formatPublicPrice(product.publicPrice)
+        current.articleCodeValueText.text = valueOrLoading(product.articleCode)
+        current.barcodeValueText.text = valueOrLoading(product.barcode)
+        current.descriptionValueText.text = valueOrLoading(product.description)
+        current.taxablePriceValueText.text = valueOrLoading(product.taxablePrice)
+        current.vatRateValueText.text = valueOrLoading(product.vatRate)
+        current.seasonValueText.text = valueOrLoading(product.season)
+        current.yearValueText.text = valueOrLoading(product.year)
+        current.locationValueText.text =
+            product.location.trim().ifEmpty { "Non assegnata" }
+        current.stockValueText.text = valueOrLoading(product.stock)
+        current.minimumStockValueText.text = valueOrEmpty(product.minimumStock)
+        current.reorderLotValueText.text = valueOrEmpty(product.reorderLot)
+
+        val stockSoundStatus = updateStockStatus(
+            product = product,
+            current = current
+        )
+
+        val barcodeBitmap = createEan13Bitmap(product.barcode)
+
+        if (barcodeBitmap != null) {
+            current.barcodeImageView.setImageBitmap(barcodeBitmap)
+            current.barcodeImageView.visibility = View.VISIBLE
+        } else {
+            current.barcodeImageView.setImageDrawable(null)
+            current.barcodeImageView.visibility = View.GONE
+        }
+
+        android.util.Log.d(
+            "ProductInfoPopup",
+            "GRAFICA AGGIORNATA completed=$workflowCompleted " +
+                    "EAN=${product.barcode} barcodeGraphic=${barcodeBitmap != null}"
+        )
+
+        return stockSoundStatus
+    }
+
+    private fun updateStockStatus(
+        product: ProductInfo,
+        current: Bindings
+    ): StockSoundStatus? {
+        val stock = product.stock.toNumericValue()
+        val minimumStock = product.minimumStock.toNumericValue()
+        val maximumStock = product.maximumStock.toNumericValue()
+        val availableStock = product.availableStock.toNumericValue()
+        val reorderLot = product.reorderLot.toNumericValue()
+
+        val container = current.stockStatusContainer
+        val statusText = current.stockStatusText
+        val orderText = current.reorderText
+
+        if (
+            stock == null ||
+            minimumStock == null ||
+            availableStock == null
+        ) {
+            container.visibility = View.GONE
+            statusText.text = ""
+            orderText.text = ""
+            return null
+        }
+
+        if (
+            minimumStock == 0.0 &&
+            maximumStock == 0.0 &&
+            reorderLot == 0.0
+        ) {
+            container.visibility = View.VISIBLE
+            container.background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = 16 * context.resources.displayMetrics.density
+                setColor(Color.rgb(230, 230, 230))
+            }
+            statusText.text = "✓ Articolo escluso dal riordino automatico"
+            statusText.setTextColor(Color.BLACK)
+            orderText.visibility = View.GONE
+            orderText.text = ""
+            return null
+        }
+
+        container.visibility = View.VISIBLE
+
+        val background = GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = 16 * context.resources.displayMetrics.density
+        }
+
+        val soundStatus = when {
+            stock <= 0.0 || availableStock <= 0.0 -> {
+                background.setColor(Color.rgb(213, 0, 0))
+                statusText.text = "DA RIORDINARE"
+                statusText.setTextColor(Color.WHITE)
+
+                if (reorderLot != null && reorderLot > 0.0) {
+                    orderText.visibility = View.VISIBLE
+                    orderText.text =
+                        "ORDINA ${reorderLot.formatStockQuantity()} PEZZI"
+                    orderText.setTextColor(Color.WHITE)
+                } else {
+                    orderText.visibility = View.GONE
+                    orderText.text = ""
+                }
+
+                StockSoundStatus.REORDER
+            }
+
+            stock <= minimumStock -> {
+                background.setColor(Color.rgb(255, 214, 0))
+                statusText.text = "SOTTO SCORTA"
+                statusText.setTextColor(Color.BLACK)
+
+                if (reorderLot != null && reorderLot > 0.0) {
+                    orderText.visibility = View.VISIBLE
+                    orderText.text =
+                        "LOTTO RIORDINO: ${reorderLot.formatStockQuantity()} PEZZI"
+                    orderText.setTextColor(Color.BLACK)
+                } else {
+                    orderText.visibility = View.GONE
+                    orderText.text = ""
+                }
+
+                StockSoundStatus.WARNING
+            }
+
+            else -> {
+                background.setColor(Color.rgb(0, 200, 83))
+                statusText.text = "SCORTA REGOLARE"
+                statusText.setTextColor(Color.BLACK)
+                orderText.visibility = View.GONE
+                orderText.text = ""
+                StockSoundStatus.REGULAR
+            }
+        }
+
+        container.background = background
+        return soundStatus
+    }
+
+    private fun String.toNumericValue(): Double? =
+        trim()
+            .replace("€", "")
+            .replace(" ", "")
+            .replace(",", ".")
+            .toDoubleOrNull()
+
+    private fun Double.formatStockQuantity(): String =
+        if (this == toInt().toDouble()) {
+            toInt().toString()
+        } else {
+            String.format(java.util.Locale.US, "%.2f", this)
+        }
+
+    private fun formatPublicPrice(rawValue: String): String {
+        val cleaned = rawValue
+            .trim()
+            .replace("€", "")
+            .replace(" ", "")
+
+        if (cleaned.isEmpty()) return "lettura…"
+
+        val normalized = when {
+            cleaned.contains(',') && cleaned.contains('.') ->
+                cleaned.replace(".", "").replace(',', '.')
+            else -> cleaned.replace(',', '.')
+        }
+
+        val numericValue = normalized.toDoubleOrNull()
+            ?: return rawValue.trim()
+
+        return String.format(
+            java.util.Locale.ITALY,
+            "%.2f",
+            numericValue
+        )
+    }
+
+    private fun createEan13Bitmap(rawValue: String): Bitmap? {
+        val ean = rawValue.filter(Char::isDigit)
+
+        if (ean.length != 13 || !isValidEan13(ean)) {
+            return null
+        }
+
+        val leftPatterns = arrayOf(
+            arrayOf("0001101", "0100111", "1110010"),
+            arrayOf("0011001", "0110011", "1100110"),
+            arrayOf("0010011", "0011011", "1101100"),
+            arrayOf("0111101", "0100001", "1000010"),
+            arrayOf("0100011", "0011101", "1011100"),
+            arrayOf("0110001", "0111001", "1001110"),
+            arrayOf("0101111", "0000101", "1010000"),
+            arrayOf("0111011", "0010001", "1000100"),
+            arrayOf("0110111", "0001001", "1001000"),
+            arrayOf("0001011", "0010111", "1110100")
+        )
+
+        val parityPatterns = arrayOf(
+            "LLLLLL", "LLGLGG", "LLGGLG", "LLGGGL", "LGLLGG",
+            "LGGLLG", "LGGGLL", "LGLGLG", "LGLGGL", "LGGLGL"
+        )
+
+        val rightPatterns = arrayOf(
+            "1110010", "1100110", "1101100", "1000010", "1011100",
+            "1001110", "1010000", "1000100", "1001000", "1110100"
+        )
+
+        val modules = StringBuilder(95)
+        modules.append("101")
+
+        val firstDigit = ean[0].digitToInt()
+        val parity = parityPatterns[firstDigit]
+
+        for (index in 1..6) {
+            val digit = ean[index].digitToInt()
+            val patternIndex = if (parity[index - 1] == 'L') 0 else 1
+            modules.append(leftPatterns[digit][patternIndex])
+        }
+
+        modules.append("01010")
+
+        for (index in 7..12) {
+            modules.append(rightPatterns[ean[index].digitToInt()])
+        }
+
+        modules.append("101")
+
+        val quietZoneModules = 11
+        val moduleWidth = 4
+        val bitmapWidth = (modules.length + quietZoneModules * 2) * moduleWidth
+        val bitmapHeight = 220
+
+        val bitmap = Bitmap.createBitmap(
+            bitmapWidth,
+            bitmapHeight,
+            Bitmap.Config.ARGB_8888
+        )
+        bitmap.eraseColor(Color.WHITE)
+
+        var x = quietZoneModules * moduleWidth
+
+        modules.forEach { module ->
+            if (module == '1') {
+                for (barX in x until x + moduleWidth) {
+                    for (barY in 0 until bitmapHeight) {
+                        bitmap.setPixel(barX, barY, Color.BLACK)
+                    }
+                }
+            }
+            x += moduleWidth
+        }
+
+        return bitmap
+    }
+
+    private fun isValidEan13(value: String): Boolean {
+        if (value.length != 13 || value.any { !it.isDigit() }) {
+            return false
+        }
+
+        var sum = 0
+
+        for (index in 0 until 12) {
+            val digit = value[index].digitToInt()
+            sum += if (index % 2 == 0) digit else digit * 3
+        }
+
+        val expectedCheckDigit = (10 - sum % 10) % 10
+        return value[12].digitToInt() == expectedCheckDigit
     }
 
     fun remove() {

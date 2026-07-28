@@ -3,7 +3,6 @@ package com.scan2enter.overlay
 import android.app.Service
 import android.content.Context
 import android.content.Intent
-import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.drawable.GradientDrawable
@@ -239,12 +238,6 @@ class OverlayService : Service() {
 
             openRapidScanner()
         }
-    }
-
-    private enum class StockSoundStatus {
-        REGULAR,
-        WARNING,
-        REORDER
     }
 
     private var reopenScannerAfterPopup = false
@@ -2795,71 +2788,21 @@ class OverlayService : Service() {
         workflowCompleted: Boolean,
         playStockSound: Boolean
     ) {
-        fun valueOrLoading(value: String): String =
-            value.trim().takeIf { it.isNotEmpty() } ?: "lettura…"
+        val stockSoundStatus = productInfoPopupController.update(
+            product = product,
+            workflowCompleted = workflowCompleted
+        )
 
-        fun valueOrEmpty(value: String): String =
-            value.trim().takeIf { it.isNotEmpty() && it != "-1" } ?: ""
-
-        if (product == null) {
-            priceValueText?.text = "—"
-            articleCodeValueText?.text = "—"
-            barcodeValueText?.text = "—"
-            barcodeImageView?.visibility = View.GONE
-            descriptionValueText?.text = "Nessun articolo letto"
-            yearValueText?.text = "—"
-            seasonValueText?.text = "—"
-            locationValueText?.text = "—"
-            taxablePriceValueText?.text = "—"
-            vatRateValueText?.text = "—"
-            stockValueText?.text = "—"
-            stockStatusContainer?.visibility = View.GONE
-            stockStatusText?.text = ""
-            reorderText?.text = ""
-            minimumStockValueText?.text = ""
-            reorderLotValueText?.text = ""
-            return
-        }
-
-        // Il prezzo è già disponibile quando il popup viene aperto e viene
-        // aggiornato per primo. Gli altri campi arrivano progressivamente.
-        priceValueText?.text = formatPublicPrice(product.publicPrice)
-        articleCodeValueText?.text = valueOrLoading(product.articleCode)
-        barcodeValueText?.text = valueOrLoading(product.barcode)
-        descriptionValueText?.text = valueOrLoading(product.description)
-        taxablePriceValueText?.text = valueOrLoading(product.taxablePrice)
-        vatRateValueText?.text = valueOrLoading(product.vatRate)
-        seasonValueText?.text = valueOrLoading(product.season)
-        yearValueText?.text = valueOrLoading(product.year)
-        locationValueText?.text = product.location.trim().ifEmpty { "Non assegnata" }
-        stockValueText?.text = valueOrLoading(product.stock)
-        minimumStockValueText?.text = valueOrEmpty(product.minimumStock)
-        reorderLotValueText?.text = valueOrEmpty(product.reorderLot)
-
-        val stockSoundStatus = updateStockStatus(product)
-
-        if (playStockSound && stockSoundStatus != null) {
+        if (
+            playStockSound &&
+            product != null &&
+            stockSoundStatus != null
+        ) {
             playStockStatusSound(
                 product = product,
                 status = stockSoundStatus
             )
         }
-
-        val barcodeBitmap = createEan13Bitmap(product.barcode)
-
-        if (barcodeBitmap != null) {
-            barcodeImageView?.setImageBitmap(barcodeBitmap)
-            barcodeImageView?.visibility = View.VISIBLE
-        } else {
-            barcodeImageView?.setImageDrawable(null)
-            barcodeImageView?.visibility = View.GONE
-        }
-
-        android.util.Log.d(
-            "OverlayService",
-            "POPUP GRAFICO AGGIORNATO completed=$workflowCompleted " +
-                    "EAN=${product.barcode} barcodeGraphic=${barcodeBitmap != null}"
-        )
     }
 
     private fun showScanErrorPopup(message: String) {
@@ -3006,121 +2949,7 @@ class OverlayService : Service() {
      * Giallo vivo: giacenza uguale alla scorta minima.
      * Rosso: giacenza sotto la scorta minima.
      */
-    private fun updateStockStatus(
-        product: ProductInfo
-    ): StockSoundStatus? {
-        val stock = product.stock.toNumericValue()
-        val minimumStock = product.minimumStock.toNumericValue()
-        val maximumStock = product.maximumStock.toNumericValue()
-        val availableStock = product.availableStock.toNumericValue()
-        val reorderLot = product.reorderLot.toNumericValue()
 
-        val container = stockStatusContainer ?: return null
-        val statusText = stockStatusText ?: return null
-        val orderText = reorderText ?: return null
-
-        /*
-         * Un articolo con uno dei valori necessari nullo non viene
-         * classificato e non genera alcun suono di stato.
-         */
-        if (
-            stock == null ||
-            minimumStock == null ||
-            availableStock == null
-        ) {
-            container.visibility = View.GONE
-            statusText.text = ""
-            orderText.text = ""
-            return null
-        }
-
-        /*
-         * Minima 0 + massima 0 + lotto 0 identifica un articolo
-         * volontariamente escluso dal riordino automatico.
-         * La fascia resta visibile come conferma, ma non viene restituito
-         * alcuno stato sonoro.
-         */
-        if (
-            minimumStock == 0.0 &&
-            maximumStock == 0.0 &&
-            reorderLot == 0.0
-        ) {
-            container.visibility = View.VISIBLE
-
-            val density = resources.displayMetrics.density
-            container.background = GradientDrawable().apply {
-                shape = GradientDrawable.RECTANGLE
-                cornerRadius = 16 * density
-                setColor(Color.rgb(230, 230, 230))
-            }
-
-            statusText.text =
-                "✓ Articolo escluso dal riordino automatico"
-            statusText.setTextColor(Color.BLACK)
-            orderText.visibility = View.GONE
-            orderText.text = ""
-
-            return null
-        }
-
-        container.visibility = View.VISIBLE
-
-        val density = resources.displayMetrics.density
-        val background = GradientDrawable().apply {
-            shape = GradientDrawable.RECTANGLE
-            cornerRadius = 16 * density
-        }
-
-        val soundStatus = when {
-            stock <= 0.0 || availableStock <= 0.0 -> {
-                background.setColor(Color.rgb(213, 0, 0))
-                statusText.text = "DA RIORDINARE"
-                statusText.setTextColor(Color.WHITE)
-
-                if (reorderLot != null && reorderLot > 0.0) {
-                    orderText.visibility = View.VISIBLE
-                    orderText.text =
-                        "ORDINA ${reorderLot.formatStockQuantity()} PEZZI"
-                    orderText.setTextColor(Color.WHITE)
-                } else {
-                    orderText.visibility = View.GONE
-                    orderText.text = ""
-                }
-
-                StockSoundStatus.REORDER
-            }
-
-            stock <= minimumStock -> {
-                background.setColor(Color.rgb(255, 214, 0))
-                statusText.text = "SOTTO SCORTA"
-                statusText.setTextColor(Color.BLACK)
-
-                if (reorderLot != null && reorderLot > 0.0) {
-                    orderText.visibility = View.VISIBLE
-                    orderText.text =
-                        "LOTTO RIORDINO: ${reorderLot.formatStockQuantity()} PEZZI"
-                    orderText.setTextColor(Color.BLACK)
-                } else {
-                    orderText.visibility = View.GONE
-                    orderText.text = ""
-                }
-
-                StockSoundStatus.WARNING
-            }
-
-            else -> {
-                background.setColor(Color.rgb(0, 200, 83))
-                statusText.text = "SCORTA REGOLARE"
-                statusText.setTextColor(Color.BLACK)
-                orderText.visibility = View.GONE
-                orderText.text = ""
-                StockSoundStatus.REGULAR
-            }
-        }
-
-        container.background = background
-        return soundStatus
-    }
 
     /**
      * Riproduce il feedback stock soltanto quando il workflow è completo.
@@ -3131,7 +2960,7 @@ class OverlayService : Service() {
      */
     private fun playStockStatusSound(
         product: ProductInfo,
-        status: StockSoundStatus
+        status: ProductInfoPopup.StockSoundStatus
     ) {
         if (!ScanFeedbackManager.isEnabled(applicationContext)) {
             android.util.Log.d(
@@ -3142,15 +2971,15 @@ class OverlayService : Service() {
         }
 
         when (status) {
-            StockSoundStatus.REGULAR -> {
+            ProductInfoPopup.StockSoundStatus.REGULAR -> {
                 ScanFeedbackManager.playSuccess(applicationContext)
             }
 
-            StockSoundStatus.WARNING -> {
+            ProductInfoPopup.StockSoundStatus.WARNING -> {
                 ScanFeedbackManager.playWarning(applicationContext)
             }
 
-            StockSoundStatus.REORDER -> {
+            ProductInfoPopup.StockSoundStatus.REORDER -> {
                 urgentStockTone?.startTone(
                     ToneGenerator.TONE_CDMA_ALERT_CALL_GUARD,
                     650
@@ -3178,126 +3007,14 @@ class OverlayService : Service() {
             String.format(java.util.Locale.US, "%.2f", this)
         }
 
-    private fun formatPublicPrice(rawValue: String): String {
-        val cleaned = rawValue
-            .trim()
-            .replace("€", "")
-            .replace(" ", "")
 
-        if (cleaned.isEmpty()) return "lettura…"
-
-        val normalized = when {
-            cleaned.contains(',') && cleaned.contains('.') ->
-                cleaned.replace(".", "").replace(',', '.')
-            else -> cleaned.replace(',', '.')
-        }
-
-        val numericValue = normalized.toDoubleOrNull()
-            ?: return rawValue.trim()
-
-        return String.format(
-            java.util.Locale.ITALY,
-            "%.2f",
-            numericValue
-        )
-    }
 
     /**
      * Genera il barcode EAN-13 grafico senza dipendenze esterne.
      */
-    private fun createEan13Bitmap(rawValue: String): Bitmap? {
-        val ean = rawValue.filter(Char::isDigit)
 
-        if (ean.length != 13 || !isValidEan13(ean)) {
-            return null
-        }
 
-        val leftPatterns = arrayOf(
-            arrayOf("0001101", "0100111", "1110010"),
-            arrayOf("0011001", "0110011", "1100110"),
-            arrayOf("0010011", "0011011", "1101100"),
-            arrayOf("0111101", "0100001", "1000010"),
-            arrayOf("0100011", "0011101", "1011100"),
-            arrayOf("0110001", "0111001", "1001110"),
-            arrayOf("0101111", "0000101", "1010000"),
-            arrayOf("0111011", "0010001", "1000100"),
-            arrayOf("0110111", "0001001", "1001000"),
-            arrayOf("0001011", "0010111", "1110100")
-        )
 
-        val parityPatterns = arrayOf(
-            "LLLLLL", "LLGLGG", "LLGGLG", "LLGGGL", "LGLLGG",
-            "LGGLLG", "LGGGLL", "LGLGLG", "LGLGGL", "LGGLGL"
-        )
-
-        val rightPatterns = arrayOf(
-            "1110010", "1100110", "1101100", "1000010", "1011100",
-            "1001110", "1010000", "1000100", "1001000", "1110100"
-        )
-
-        val modules = StringBuilder(95)
-        modules.append("101")
-
-        val firstDigit = ean[0].digitToInt()
-        val parity = parityPatterns[firstDigit]
-
-        for (index in 1..6) {
-            val digit = ean[index].digitToInt()
-            val patternIndex = if (parity[index - 1] == 'L') 0 else 1
-            modules.append(leftPatterns[digit][patternIndex])
-        }
-
-        modules.append("01010")
-
-        for (index in 7..12) {
-            modules.append(rightPatterns[ean[index].digitToInt()])
-        }
-
-        modules.append("101")
-
-        val quietZoneModules = 11
-        val moduleWidth = 4
-        val bitmapWidth = (modules.length + quietZoneModules * 2) * moduleWidth
-        val bitmapHeight = 220
-
-        val bitmap = Bitmap.createBitmap(
-            bitmapWidth,
-            bitmapHeight,
-            Bitmap.Config.ARGB_8888
-        )
-        bitmap.eraseColor(Color.WHITE)
-
-        var x = quietZoneModules * moduleWidth
-
-        modules.forEach { module ->
-            if (module == '1') {
-                for (barX in x until x + moduleWidth) {
-                    for (barY in 0 until bitmapHeight) {
-                        bitmap.setPixel(barX, barY, Color.BLACK)
-                    }
-                }
-            }
-            x += moduleWidth
-        }
-
-        return bitmap
-    }
-
-    private fun isValidEan13(value: String): Boolean {
-        if (value.length != 13 || value.any { !it.isDigit() }) {
-            return false
-        }
-
-        var sum = 0
-
-        for (index in 0 until 12) {
-            val digit = value[index].digitToInt()
-            sum += if (index % 2 == 0) digit else digit * 3
-        }
-
-        val expectedCheckDigit = (10 - sum % 10) % 10
-        return value[12].digitToInt() == expectedCheckDigit
-    }
 
     private fun clampVertical() {
         val displayHeight = resources.displayMetrics.heightPixels
