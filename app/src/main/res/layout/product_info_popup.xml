@@ -68,21 +68,49 @@
                     android:orientation="horizontal">
 
                     <FrameLayout
-                        android:layout_width="112dp"
-                        android:layout_height="112dp"
+                        android:layout_width="148dp"
+                        android:layout_height="148dp"
                         android:layout_marginEnd="13dp"
                         android:background="@drawable/bg_product_info_field"
-                        android:padding="10dp">
+                        android:padding="8dp">
 
+                        <!-- Rimane visibile quando la foto non esiste o è in caricamento. -->
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="match_parent"
+                            android:gravity="center"
+                            android:orientation="vertical"
+                            android:padding="10dp">
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:gravity="center"
+                                android:includeFontPadding="false"
+                                android:text="📦"
+                                android:textSize="42sp" />
+
+                            <TextView
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="7dp"
+                                android:gravity="center"
+                                android:maxLines="2"
+                                android:text="Immagine non disponibile"
+                                android:textColor="#607068"
+                                android:textSize="12sp"
+                                android:textStyle="bold" />
+                        </LinearLayout>
+
+                        <!-- La foto, quando disponibile, copre completamente il segnaposto. -->
                         <ImageView
                             android:id="@+id/productImagePlaceholder"
                             android:layout_width="match_parent"
                             android:layout_height="match_parent"
-                            android:contentDescription="Immagine prodotto non ancora disponibile"
-                            android:padding="18dp"
-                            android:scaleType="fitCenter"
-                            android:src="@android:drawable/ic_menu_gallery"
-                            android:tint="#607068" />
+                            android:adjustViewBounds="true"
+                            android:background="#00000000"
+                            android:contentDescription="Immagine prodotto"
+                            android:scaleType="fitCenter" />
                     </FrameLayout>
 
                     <LinearLayout

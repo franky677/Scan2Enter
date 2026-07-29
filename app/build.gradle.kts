@@ -60,4 +60,8 @@ dependencies {
     implementation(libs.androidx.camera.lifecycle)
     implementation(libs.androidx.camera.view)
     implementation("com.google.mlkit:barcode-scanning:17.3.0")
+
+    // Caricamento e cache delle immagini prodotto dal Gateway.
+    implementation("io.coil-kt.coil3:coil:3.4.0")
+    implementation("io.coil-kt.coil3:coil-network-okhttp:3.4.0")
 }

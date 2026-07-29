@@ -25,6 +25,24 @@ class GatewayApiClient(
         private const val TAG = "Scan2Enter"
     }
 
+    /**
+     * Costruisce l'indirizzo HTTP dell'immagine prodotto esposta dal Gateway.
+     *
+     * GET /api/product/{barcode}/image
+     */
+    fun getProductImageUrl(barcode: String): String {
+        require(barcode.isNotBlank()) {
+            "Il barcode non può essere vuoto"
+        }
+
+        val encodedBarcode = URLEncoder.encode(
+            barcode.trim(),
+            StandardCharsets.UTF_8.name()
+        )
+
+        return "${baseUrl.trimEnd('/')}/api/product/$encodedBarcode/image"
+    }
+
     fun getProductByBarcode(
         barcode: String
     ): Result<GatewayProductDto> = runCatching {
