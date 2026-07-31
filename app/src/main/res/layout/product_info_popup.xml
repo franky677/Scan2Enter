@@ -111,6 +111,8 @@
                             android:background="#00000000"
                             android:contentDescription="Immagine prodotto"
                             android:scaleType="fitCenter" />
+
+
                     </FrameLayout>
 
                     <LinearLayout
@@ -118,6 +120,19 @@
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
                         android:orientation="vertical">
+
+                        <ImageView
+                            android:id="@+id/productFavoriteButton"
+                            android:layout_width="42dp"
+                            android:layout_height="42dp"
+                            android:layout_gravity="end"
+                            android:layout_marginBottom="4dp"
+                            android:background="@drawable/bg_product_info_field"
+                            android:clickable="true"
+                            android:contentDescription="Aggiungi ai preferiti"
+                            android:focusable="true"
+                            android:padding="6dp"
+                            android:src="@drawable/ic_star_border" />
 
                         <TextView
                             android:layout_width="wrap_content"

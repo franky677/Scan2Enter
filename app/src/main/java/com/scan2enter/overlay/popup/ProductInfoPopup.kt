@@ -16,10 +16,12 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.SeekBar
 import android.widget.TextView
+import coil3.load
 import com.scan2enter.R
+import com.scan2enter.api.GatewayApiClient
 import com.scan2enter.model.ProductInfo
 import kotlin.math.min
-
+import com.scan2enter.favorites.FavoriteRepository
 /**
  * Gestisce la creazione, la rimozione e l'aggiornamento grafico
  * del popup informazioni articolo.
@@ -31,6 +33,7 @@ class ProductInfoPopup(
     private val windowManager: WindowManager
 ) {
 
+    private val gatewayApiClient = GatewayApiClient()
 
     enum class StockSoundStatus {
         REGULAR,
@@ -45,6 +48,8 @@ class ProductInfoPopup(
         val articleCodeValueText: TextView,
         val barcodeValueText: TextView,
         val barcodeImageView: ImageView,
+        val productImageView: ImageView,
+        val favoriteButton: ImageView,
         val descriptionValueText: TextView,
         val yearValueText: TextView,
         val seasonValueText: TextView,
@@ -70,7 +75,8 @@ class ProductInfoPopup(
         onStockClick: () -> Unit,
         onLocationClick: () -> Unit,
         onTouchStarted: () -> Unit,
-        onTouchFinished: () -> Unit
+        onTouchFinished: () -> Unit,
+        onPopupTap: () -> Unit
     ): Bindings {
         bindings?.let { return it }
 
@@ -95,6 +101,8 @@ class ProductInfoPopup(
             articleCodeValueText = popupView.findViewById(R.id.productArticleCodeText),
             barcodeValueText = popupView.findViewById(R.id.productBarcodeText),
             barcodeImageView = popupView.findViewById(R.id.productBarcodeImage),
+            productImageView = popupView.findViewById(R.id.productImagePlaceholder),
+            favoriteButton = popupView.findViewById(R.id.productFavoriteButton),
             descriptionValueText = popupView.findViewById(R.id.productDescriptionText),
             yearValueText = popupView.findViewById(R.id.productYearText),
             seasonValueText = popupView.findViewById(R.id.productSeasonText),
@@ -117,6 +125,9 @@ class ProductInfoPopup(
 
         popupView.findViewById<View>(R.id.productStockCard)
             .setOnClickListener { onStockClick() }
+
+        createdBindings.favoriteButton.isClickable = false
+        createdBindings.favoriteButton.isFocusable = false
 
         // L'intera scheda dell'ubicazione è cliccabile, non soltanto il testo.
         (createdBindings.locationValueText.parent as? View)?.apply {
@@ -172,10 +183,36 @@ class ProductInfoPopup(
         )
 
         val cardContainer = object : FrameLayout(context) {
+            private var touchDownX = 0f
+            private var touchDownY = 0f
+            private var touchDownTime = 0L
+
             override fun dispatchTouchEvent(event: MotionEvent): Boolean {
                 when (event.actionMasked) {
-                    MotionEvent.ACTION_DOWN -> onTouchStarted()
-                    MotionEvent.ACTION_UP,
+                    MotionEvent.ACTION_DOWN -> {
+                        touchDownX = event.x
+                        touchDownY = event.y
+                        touchDownTime = System.currentTimeMillis()
+                        onTouchStarted()
+                    }
+
+                    MotionEvent.ACTION_UP -> {
+                        onTouchFinished()
+
+                        val elapsed = System.currentTimeMillis() - touchDownTime
+                        val deltaX = kotlin.math.abs(event.x - touchDownX)
+                        val deltaY = kotlin.math.abs(event.y - touchDownY)
+                        val tapTolerance = 18 * density
+
+                        if (
+                            elapsed <= 350L &&
+                            deltaX <= tapTolerance &&
+                            deltaY <= tapTolerance
+                        ) {
+                            onPopupTap()
+                        }
+                    }
+
                     MotionEvent.ACTION_CANCEL -> onTouchFinished()
                 }
 
@@ -249,7 +286,9 @@ class ProductInfoPopup(
             current.priceValueText.text = "—"
             current.articleCodeValueText.text = "—"
             current.barcodeValueText.text = "—"
+            current.barcodeImageView.setImageDrawable(null)
             current.barcodeImageView.visibility = View.GONE
+            current.productImageView.setImageDrawable(null)
             current.descriptionValueText.text = "Nessun articolo letto"
             current.yearValueText.text = "—"
             current.seasonValueText.text = "—"
@@ -281,14 +320,79 @@ class ProductInfoPopup(
             .ifEmpty {
                 product.location.trim().ifEmpty { "Non assegnata" }
             }
-        current.stockValueText.text = valueOrLoading(product.stock)
+        val stockText = valueOrLoading(product.stock)
+
+        current.stockValueText.text = stockText
+        current.stockValueText.textSize = when {
+            stockText.length >= 5 -> 40f
+            stockText.length == 4 -> 46f
+            else -> 56f
+        }
+
         current.minimumStockValueText.text = valueOrEmpty(product.minimumStock)
         current.reorderLotValueText.text = valueOrEmpty(product.reorderLot)
+        val isFavorite = FavoriteRepository.isFavorite(product.articleId)
 
+        current.favoriteButton.setImageResource(
+            if (isFavorite) {
+                R.drawable.ic_star
+            } else {
+                R.drawable.ic_star_border
+            }
+        )
+
+        current.favoriteButton.alpha =
+            if (isFavorite) 1.0f else 0.35f
         val stockSoundStatus = updateStockStatus(
             product = product,
             current = current
         )
+
+        current.productImageView.setImageDrawable(null)
+        current.productImageView.visibility = View.VISIBLE
+
+        val productBarcode = product.barcode.trim()
+
+        if (productBarcode.isNotEmpty()) {
+            val imageUrl =
+                gatewayApiClient.getProductImageUrl(productBarcode) +
+                        "?t=${System.currentTimeMillis()}"
+
+            android.util.Log.d(
+                "ProductInfoPopup",
+                "CARICAMENTO IMMAGINE = $imageUrl"
+            )
+
+            current.productImageView.load(imageUrl) {
+                listener(
+                    onStart = {
+                        android.util.Log.d(
+                            "ProductInfoPopup",
+                            "IMMAGINE START = $imageUrl"
+                        )
+                    },
+                    onSuccess = { _, result ->
+                        android.util.Log.d(
+                            "ProductInfoPopup",
+                            "IMMAGINE OK = ${result.dataSource}"
+                        )
+                    },
+                    onError = { _, result ->
+                        android.util.Log.e(
+                            "ProductInfoPopup",
+                            "IMMAGINE ERRORE = ${result.throwable.message}",
+                            result.throwable
+                        )
+                    }
+                )
+            }
+        } else {
+            android.util.Log.w(
+                "ProductInfoPopup",
+                "IMMAGINE NON CARICATA: BARCODE VUOTO"
+            )
+        }
+
 
         val barcodeBitmap = createEan13Bitmap(product.barcode)
 
@@ -323,6 +427,43 @@ class ProductInfoPopup(
         val statusText = current.stockStatusText
         val orderText = current.reorderText
 
+        /*
+         * In Due Retail la scorta massima può arrivare vuota/null anche quando
+         * minima e lotto sono stati impostati a zero.
+         *
+         * Minima = 0 e lotto = 0 identificano comunque l'articolo escluso
+         * dal riordino automatico.
+         */
+        val excludedFromAutomaticReorder =
+            (
+                    minimumStock == null &&
+                            maximumStock == null &&
+                            reorderLot == null
+                    ) ||
+                    (
+                            minimumStock == 0.0 &&
+                                    reorderLot == 0.0 &&
+                                    (maximumStock == null || maximumStock == 0.0)
+                            )
+
+        if (excludedFromAutomaticReorder) {
+            container.visibility = View.VISIBLE
+            container.background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = 16 * context.resources.displayMetrics.density
+                setColor(Color.rgb(230, 230, 230))
+            }
+
+            statusText.visibility = View.VISIBLE
+            statusText.text = "✓ Articolo escluso dal riordino automatico"
+            statusText.setTextColor(Color.BLACK)
+
+            orderText.visibility = View.GONE
+            orderText.text = ""
+
+            return null
+        }
+
         if (
             stock == null ||
             minimumStock == null ||
@@ -330,24 +471,6 @@ class ProductInfoPopup(
         ) {
             container.visibility = View.GONE
             statusText.text = ""
-            orderText.text = ""
-            return null
-        }
-
-        if (
-            minimumStock == 0.0 &&
-            maximumStock == 0.0 &&
-            reorderLot == 0.0
-        ) {
-            container.visibility = View.VISIBLE
-            container.background = GradientDrawable().apply {
-                shape = GradientDrawable.RECTANGLE
-                cornerRadius = 16 * context.resources.displayMetrics.density
-                setColor(Color.rgb(230, 230, 230))
-            }
-            statusText.text = "✓ Articolo escluso dal riordino automatico"
-            statusText.setTextColor(Color.BLACK)
-            orderText.visibility = View.GONE
             orderText.text = ""
             return null
         }

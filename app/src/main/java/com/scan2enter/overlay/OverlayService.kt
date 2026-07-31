@@ -31,11 +31,15 @@ import android.widget.ScrollView
 import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.Toast
+import coil3.load
+import coil3.request.crossfade
 import com.scan2enter.BuildFlags
 import com.scan2enter.api.GatewayApiClient
 import com.scan2enter.MainActivity
 import com.scan2enter.R
 import com.scan2enter.feedback.ScanFeedbackManager
+import com.scan2enter.favorites.FavoriteItem
+import com.scan2enter.favorites.FavoriteRepository
 import com.scan2enter.model.ProductInfo
 import com.scan2enter.model.ProductInfoStore
 import com.scan2enter.overlay.popup.LocationManagementPopup
@@ -203,6 +207,26 @@ class OverlayService : Service() {
         }
     }
 
+    private val favoriteStoreListener: (Int) -> Unit = {
+        popupHandler.post {
+            if (reorderPopupMode == ReorderPopupMode.FAVORITES) {
+                refreshReorderListPopup()
+            }
+
+            /*
+             * Se il popup articolo è visibile, aggiorna anche la stellina
+             * indicativa dopo aggiunta/rimozione da Modifica scorte.
+             */
+            ProductInfoStore.current?.let { current ->
+                updateProductInfoPopup(
+                    product = current,
+                    workflowCompleted = true,
+                    playStockSound = false
+                )
+            }
+        }
+    }
+
     private var productInfoPopup: View? = null
     private var productInfoPopupParams: WindowManager.LayoutParams? = null
 
@@ -210,6 +234,7 @@ class OverlayService : Service() {
     private var articleCodeValueText: TextView? = null
     private var barcodeValueText: TextView? = null
     private var barcodeImageView: ImageView? = null
+    private var productImageView: ImageView? = null
     private var descriptionValueText: TextView? = null
     private var yearValueText: TextView? = null
     private var seasonValueText: TextView? = null
@@ -237,10 +262,18 @@ class OverlayService : Service() {
 
     private enum class ReorderPopupMode {
         REORDER,
-        HISTORY
+        HISTORY,
+        FAVORITES
+    }
+
+    private enum class FavoriteSortMode {
+        INSERTION,
+        PRICE_ASCENDING,
+        PRICE_DESCENDING
     }
 
     private var reorderPopupMode = ReorderPopupMode.REORDER
+    private var favoriteSortMode = FavoriteSortMode.INSERTION
     private var reorderSupplierFilterKey: String? = null
     private var urgentStockTone: ToneGenerator? = null
 
@@ -477,6 +510,7 @@ class OverlayService : Service() {
 
         ProductInfoStore.initialize(applicationContext)
         ReorderStore.initialize(applicationContext)
+        FavoriteRepository.initialize(applicationContext)
         loadPopupDurationPreferences()
 
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
@@ -503,6 +537,7 @@ class OverlayService : Service() {
         reorderBadgeText = dockView.findViewById(R.id.reorderBadgeText)
 
         ReorderStore.addSizeListener(reorderStoreListener)
+        FavoriteRepository.addListener(favoriteStoreListener)
         updateReorderBadge(ReorderStore.size())
 
         val density = resources.displayMetrics.density
@@ -842,9 +877,19 @@ class OverlayService : Service() {
         val historyTab = Button(this).apply {
             tag = "historyTabButton"
             text = "CRONOLOGIA"
-            textSize = 14f
+            textSize = 13f
             setOnClickListener {
                 reorderPopupMode = ReorderPopupMode.HISTORY
+                refreshReorderListPopup()
+            }
+        }
+
+        val favoritesTab = Button(this).apply {
+            tag = "favoritesTabButton"
+            text = "PREFERITI"
+            textSize = 13f
+            setOnClickListener {
+                reorderPopupMode = ReorderPopupMode.FAVORITES
                 refreshReorderListPopup()
             }
         }
@@ -868,6 +913,17 @@ class OverlayService : Service() {
             }
         )
 
+        tabs.addView(
+            favoritesTab,
+            LinearLayout.LayoutParams(
+                0,
+                (44 * density).toInt(),
+                1f
+            ).apply {
+                marginStart = (8 * density).toInt()
+            }
+        )
+
         card.addView(
             tabs,
             LinearLayout.LayoutParams(
@@ -875,6 +931,32 @@ class OverlayService : Service() {
                 LinearLayout.LayoutParams.WRAP_CONTENT
             ).apply {
                 bottomMargin = (8 * density).toInt()
+            }
+        )
+
+        val favoriteSortButton = Button(this).apply {
+            tag = "favoriteSortButton"
+            text = "ORDINA: INSERIMENTO  ▼"
+            textSize = 14f
+            gravity = Gravity.CENTER
+            visibility = View.GONE
+            setTextColor(Color.rgb(121, 85, 0))
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                setColor(Color.rgb(255, 248, 225))
+                setStroke((1 * density).toInt(), Color.rgb(255, 213, 79))
+                cornerRadius = 12 * density
+            }
+            setOnClickListener { showFavoriteSortMenu(this) }
+        }
+
+        card.addView(
+            favoriteSortButton,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                (44 * density).toInt()
+            ).apply {
+                bottomMargin = (10 * density).toInt()
             }
         )
 
@@ -923,37 +1005,6 @@ class OverlayService : Service() {
                 0,
                 1f
             )
-        )
-
-        val clearButton = Button(this).apply {
-            tag = "reorderClearButton"
-            text = "SVUOTA LISTA"
-            textSize = 15f
-            setTextColor(Color.WHITE)
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.RECTANGLE
-                setColor(Color.rgb(183, 28, 28))
-                cornerRadius = 14 * density
-            }
-            setOnClickListener {
-                showReorderConfirmation(
-                    title = "Svuotare la lista?",
-                    message = "Verranno rimossi tutti gli articoli dalla lista di riordino.",
-                    confirmText = "SÌ, SVUOTA"
-                ) {
-                    ReorderStore.clear()
-                }
-            }
-        }
-
-        card.addView(
-            clearButton,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                (48 * density).toInt()
-            ).apply {
-                topMargin = (10 * density).toInt()
-            }
         )
 
         val horizontalMargin = (16 * density).toInt()
@@ -1010,9 +1061,11 @@ class OverlayService : Service() {
         val subtitle = findViewByTag<TextView>(popup, "reorderSubtitle")
         val listView = findViewByTag<ListView>(popup, "reorderListView")
             ?: return
-        val clearButton = findViewByTag<Button>(popup, "reorderClearButton")
         val reorderTab = findViewByTag<Button>(popup, "reorderTabButton")
         val historyTab = findViewByTag<Button>(popup, "historyTabButton")
+        val favoritesTab = findViewByTag<Button>(popup, "favoritesTabButton")
+        val favoriteSortButton =
+            findViewByTag<Button>(popup, "favoriteSortButton")
         val supplierFilterButton =
             findViewByTag<Button>(popup, "reorderSupplierFilterButton")
 
@@ -1024,6 +1077,10 @@ class OverlayService : Service() {
             button = historyTab,
             selected = reorderPopupMode == ReorderPopupMode.HISTORY
         )
+        styleReorderTab(
+            button = favoritesTab,
+            selected = reorderPopupMode == ReorderPopupMode.FAVORITES
+        )
 
         if (reorderPopupMode == ReorderPopupMode.HISTORY) {
             val history = ProductInfoStore.getHistory().take(20)
@@ -1034,8 +1091,8 @@ class OverlayService : Service() {
                 else -> "Ultimi ${history.size} articoli letti"
             }
 
-            clearButton?.visibility = View.GONE
             supplierFilterButton?.visibility = View.GONE
+            favoriteSortButton?.visibility = View.GONE
 
             val rows: List<() -> View> = if (history.isEmpty()) {
                 listOf {
@@ -1052,6 +1109,39 @@ class OverlayService : Service() {
             listView.adapter = createVirtualizedListAdapter(rows)
             return
         }
+
+        if (reorderPopupMode == ReorderPopupMode.FAVORITES) {
+            supplierFilterButton?.visibility = View.GONE
+            favoriteSortButton?.visibility = View.VISIBLE
+            favoriteSortButton?.text = favoriteSortLabel()
+
+            val favorites = sortFavoriteItems(
+                FavoriteRepository.getAll()
+            )
+
+            subtitle?.text = when (favorites.size) {
+                0 -> "Nessun articolo preferito"
+                1 -> "1 articolo preferito"
+                else -> "${favorites.size} articoli preferiti"
+            }
+
+            val rows: List<() -> View> = if (favorites.isEmpty()) {
+                listOf {
+                    createVirtualizedEmptyMessage(
+                        "Aggiungi un articolo ai preferiti dalla finestra Modifica scorte."
+                    )
+                }
+            } else {
+                favorites.map { item ->
+                    { createFavoriteItemView(item) }
+                }
+            }
+
+            listView.adapter = createVirtualizedListAdapter(rows)
+            return
+        }
+
+        favoriteSortButton?.visibility = View.GONE
 
         val allItems = ReorderStore.getAll()
             .filter(::shouldShowReorderItem)
@@ -1085,10 +1175,6 @@ class OverlayService : Service() {
             else -> "${allItems.size} articoli · $supplierCount fornitori"
         }
 
-        clearButton?.visibility = View.VISIBLE
-        clearButton?.isEnabled = allItems.isNotEmpty()
-        clearButton?.alpha = if (allItems.isEmpty()) 0.4f else 1.0f
-
         val rows = mutableListOf<() -> View>()
 
         if (items.isEmpty()) {
@@ -1120,6 +1206,59 @@ class OverlayService : Service() {
         }
 
         listView.adapter = createVirtualizedListAdapter(rows)
+    }
+
+    private fun favoriteSortLabel(): String =
+        when (favoriteSortMode) {
+            FavoriteSortMode.INSERTION -> "ORDINA: INSERIMENTO  ▼"
+            FavoriteSortMode.PRICE_ASCENDING -> "PREZZO: CRESCENTE  ▼"
+            FavoriteSortMode.PRICE_DESCENDING -> "PREZZO: DECRESCENTE  ▼"
+        }
+
+    private fun showFavoriteSortMenu(anchor: View) {
+        val menu = PopupMenu(this, anchor)
+
+        menu.menu.add(0, 0, 0, "Ordine di inserimento")
+        menu.menu.add(0, 1, 1, "Prezzo crescente")
+        menu.menu.add(0, 2, 2, "Prezzo decrescente")
+
+        menu.setOnMenuItemClickListener { item ->
+            favoriteSortMode = when (item.itemId) {
+                1 -> FavoriteSortMode.PRICE_ASCENDING
+                2 -> FavoriteSortMode.PRICE_DESCENDING
+                else -> FavoriteSortMode.INSERTION
+            }
+
+            refreshReorderListPopup()
+            true
+        }
+
+        menu.show()
+    }
+
+    private fun sortFavoriteItems(
+        items: List<FavoriteItem>
+    ): List<FavoriteItem> =
+        when (favoriteSortMode) {
+            FavoriteSortMode.INSERTION -> items
+            FavoriteSortMode.PRICE_ASCENDING ->
+                items.sortedBy { it.publicPrice.toPriceValue() }
+            FavoriteSortMode.PRICE_DESCENDING ->
+                items.sortedByDescending { it.publicPrice.toPriceValue() }
+        }
+
+    private fun String.toPriceValue(): Double {
+        val cleaned = trim()
+            .replace("€", "")
+            .replace(" ", "")
+
+        val normalized = when {
+            cleaned.contains(',') && cleaned.contains('.') ->
+                cleaned.replace(".", "").replace(',', '.')
+            else -> cleaned.replace(',', '.')
+        }
+
+        return normalized.toDoubleOrNull() ?: Double.MAX_VALUE
     }
 
     private fun supplierFilterKey(item: ReorderItem): String {
@@ -1389,34 +1528,6 @@ class OverlayService : Service() {
             }
         )
 
-        val removeButton = TextView(this).apply {
-            text = "✕"
-            textSize = 25f
-            gravity = Gravity.CENTER
-            setTextColor(Color.WHITE)
-            isClickable = true
-            contentDescription = "Rimuovi articolo"
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.OVAL
-                setColor(Color.rgb(198, 40, 40))
-            }
-            setOnClickListener { view ->
-                view.parent?.requestDisallowInterceptTouchEvent(true)
-                showReorderConfirmation(
-                    title = "Rimuovere l'articolo?",
-                    message = buildString {
-                        append(item.description.ifBlank { item.articleCode })
-                        if (item.articleCode.isNotBlank()) {
-                            append("\nCodice: ${item.articleCode}")
-                        }
-                    },
-                    confirmText = "SÌ, RIMUOVI"
-                ) {
-                    ReorderStore.remove(item.articleId)
-                }
-            }
-        }
-
         root.addView(
             textContainer,
             LinearLayout.LayoutParams(
@@ -1424,16 +1535,6 @@ class OverlayService : Service() {
                 LinearLayout.LayoutParams.WRAP_CONTENT,
                 1f
             )
-        )
-
-        root.addView(
-            removeButton,
-            LinearLayout.LayoutParams(
-                (42 * density).toInt(),
-                (42 * density).toInt()
-            ).apply {
-                marginStart = (10 * density).toInt()
-            }
         )
 
         return root
@@ -1558,6 +1659,189 @@ class OverlayService : Service() {
                     android.util.Log.e(
                         "OverlayService",
                         "ERRORE APERTURA ARTICOLO RIORDINO EAN=${item.barcode}",
+                        error
+                    )
+                }
+            }
+        }.start()
+    }
+
+    private fun createFavoriteItemView(
+        item: FavoriteItem
+    ): View {
+        val density = resources.displayMetrics.density
+
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            isClickable = true
+            isFocusable = true
+            setPadding(
+                (12 * density).toInt(),
+                (10 * density).toInt(),
+                (10 * density).toInt(),
+                (10 * density).toInt()
+            )
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                setColor(Color.rgb(245, 245, 245))
+                cornerRadius = 12 * density
+                setStroke(
+                    (1 * density).toInt().coerceAtLeast(1),
+                    Color.LTGRAY
+                )
+            }
+            setOnClickListener {
+                openFavoriteItem(item)
+            }
+        }
+
+        val textContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+
+        textContainer.addView(
+            TextView(this).apply {
+                text = item.description
+                    .trim()
+                    .ifEmpty { "Articolo senza descrizione" }
+                textSize = 16f
+                setTextColor(Color.BLACK)
+                setTypeface(typeface, android.graphics.Typeface.BOLD)
+            }
+        )
+
+        val codeLine = buildString {
+            if (item.articleCode.isNotBlank()) {
+                append("Codice: ${item.articleCode.trim()}")
+            }
+            if (item.barcode.isNotBlank()) {
+                if (isNotEmpty()) append("   •   ")
+                append("EAN: ${item.barcode.trim()}")
+            }
+        }
+
+        if (codeLine.isNotEmpty()) {
+            textContainer.addView(
+                TextView(this).apply {
+                    text = codeLine
+                    textSize = 13f
+                    setTextColor(Color.DKGRAY)
+                    setPadding(0, (4 * density).toInt(), 0, 0)
+                }
+            )
+        }
+
+        textContainer.addView(
+            TextView(this).apply {
+                text = "Prezzo: ${formatFavoritePrice(item.publicPrice)}" +
+                        "   •   Giacenza: ${item.stock.ifBlank { "—" }}"
+                textSize = 15f
+                setTextColor(Color.rgb(35, 75, 55))
+                setTypeface(typeface, android.graphics.Typeface.BOLD)
+                setPadding(0, (6 * density).toInt(), 0, 0)
+            }
+        )
+
+        val starButton = ImageView(this).apply {
+            setImageResource(R.drawable.ic_star)
+            contentDescription = "Rimuovi dai preferiti"
+            isClickable = true
+            isFocusable = true
+            setPadding(
+                (6 * density).toInt(),
+                (6 * density).toInt(),
+                (6 * density).toInt(),
+                (6 * density).toInt()
+            )
+            setOnClickListener { view ->
+                view.parent?.requestDisallowInterceptTouchEvent(true)
+                FavoriteRepository.remove(item.articleId)
+
+                Toast.makeText(
+                    this@OverlayService,
+                    "Articolo rimosso dai preferiti",
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
+        }
+
+        root.addView(
+            textContainer,
+            LinearLayout.LayoutParams(
+                0,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                1f
+            )
+        )
+
+        root.addView(
+            starButton,
+            LinearLayout.LayoutParams(
+                (46 * density).toInt(),
+                (46 * density).toInt()
+            ).apply {
+                marginStart = (8 * density).toInt()
+            }
+        )
+
+        return root
+    }
+
+    private fun formatFavoritePrice(raw: String): String {
+        val value = raw.toPriceValue()
+        return if (value == Double.MAX_VALUE) {
+            raw.trim().ifEmpty { "—" }
+        } else {
+            String.format(
+                java.util.Locale.ITALY,
+                "%.2f €",
+                value
+            )
+        }
+    }
+
+    private fun openFavoriteItem(item: FavoriteItem) {
+        if (item.barcode.isBlank()) {
+            Toast.makeText(
+                this,
+                "Barcode non disponibile",
+                Toast.LENGTH_SHORT
+            ).show()
+            return
+        }
+
+        Thread {
+            val result = productRepository.getProduct(item.barcode)
+
+            popupHandler.post {
+                result.onSuccess { product ->
+                    ProductInfoStore.current = product
+                    ProductInfoStore.updateHistoryItem(product)
+
+                    /*
+                     * Mantiene la lista Preferiti aperta dietro al popup,
+                     * come già avviene per la lista di riordino.
+                     */
+                    showOrUpdateProductInfoPopup(
+                        workflowCompleted = true,
+                        manualOpen = true
+                    )
+
+                    android.util.Log.d(
+                        "OverlayService",
+                        "ARTICOLO PREFERITO APERTO EAN=${item.barcode}"
+                    )
+                }.onFailure { error ->
+                    Toast.makeText(
+                        this,
+                        "Impossibile aprire l'articolo",
+                        Toast.LENGTH_SHORT
+                    ).show()
+
+                    android.util.Log.e(
+                        "OverlayService",
+                        "ERRORE APERTURA PREFERITO EAN=${item.barcode}",
                         error
                     )
                 }
@@ -2235,6 +2519,7 @@ class OverlayService : Service() {
             onTouchStarted = {
                 popupTimerPausedByUser = true
                 popupHandler.removeCallbacks(dismissPopupRunnable)
+
                 android.util.Log.d(
                     "OverlayService",
                     "TIMER POPUP IN PAUSA - DITO APPOGGIATO"
@@ -2243,10 +2528,29 @@ class OverlayService : Service() {
             onTouchFinished = {
                 popupTimerPausedByUser = false
                 scheduleProductPopupDismiss(ProductInfoStore.current)
+
                 android.util.Log.d(
                     "OverlayService",
                     "TIMER POPUP RIPARTITO - DITO SOLLEVATO"
                 )
+            },
+            onPopupTap = {
+                if (
+                    reopenScannerAfterPopup &&
+                    loadCurrentScanMode() == MODE_INFO
+                ) {
+                    popupHandler.removeCallbacks(dismissPopupRunnable)
+                    popupTimerPausedByUser = false
+                    reopenScannerAfterPopup = false
+
+                    removeProductInfoPopup()
+                    openRapidScanner()
+
+                    android.util.Log.d(
+                        "OverlayService",
+                        "POPUP TOCCATO - SCANNER RIAPERTO"
+                    )
+                }
             }
         )
 
@@ -2256,6 +2560,9 @@ class OverlayService : Service() {
         articleCodeValueText = bindings.articleCodeValueText
         barcodeValueText = bindings.barcodeValueText
         barcodeImageView = bindings.barcodeImageView
+        productImageView = bindings.root.findViewById(
+            R.id.productImagePlaceholder
+        )
         descriptionValueText = bindings.descriptionValueText
         yearValueText = bindings.yearValueText
         seasonValueText = bindings.seasonValueText
@@ -2274,7 +2581,6 @@ class OverlayService : Service() {
 
         configureFixedDurationAndSoundControls()
     }
-
 
     private fun showLocationManagementPopup() {
         if (locationManagementPopupController.isShowing()) return
@@ -2619,13 +2925,21 @@ class OverlayService : Service() {
                                 "SALVATAGGIO SCORTE OK articleId=${updated.articleId} minimo=${updated.minimumStock} massimo=${updated.maximumStock} lotto=${updated.reorderLot}"
                             )
 
+                            removeStockEditPopup()
+
                             if (reorderListPopup != null) {
-                                // Chiude popup articolo + modifica scorte,
-                                // lasciando visibile la lista di riordino.
-                                removeProductInfoPopup()
+                                /*
+                                 * La lista resta aperta dietro al popup.
+                                 * Dopo SALVA viene aggiornata automaticamente,
+                                 * mentre il popup articolo rimane visibile con
+                                 * i nuovi valori appena salvati.
+                                 */
                                 refreshReorderListPopup()
-                            } else {
-                                removeStockEditPopup()
+
+                                showOrUpdateProductInfoPopup(
+                                    workflowCompleted = true,
+                                    manualOpen = true
+                                )
                             }
                         }
                     }.onFailure { error ->
@@ -2977,6 +3291,8 @@ class OverlayService : Service() {
             workflowCompleted = workflowCompleted
         )
 
+        updateProductImage(product)
+
         if (
             playStockSound &&
             product != null &&
@@ -2987,6 +3303,44 @@ class OverlayService : Service() {
                 status = stockSoundStatus
             )
         }
+    }
+
+    /**
+     * Carica la foto prodotto direttamente dal nuovo endpoint del Gateway.
+     * Coil esegue rete, decodifica e cache fuori dal thread grafico.
+     * In caso di immagine assente (HTTP 404) rimane visibile il placeholder.
+     */
+    private fun updateProductImage(product: ProductInfo?) {
+        val imageView = productImageView ?: return
+        val barcode = product?.barcode
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
+
+        if (barcode == null) {
+            imageView.setImageDrawable(null)
+            imageView.contentDescription = "Immagine prodotto non disponibile"
+            return
+        }
+
+        val imageUrl = gatewayApiClient.getProductImageUrl(barcode)
+
+        /*
+         * Il segnaposto con scatolone e testo è disegnato nell'XML sotto
+         * l'ImageView. Durante il caricamento e in caso di HTTP 404 questa
+         * ImageView resta trasparente; quando la foto arriva la copre.
+         */
+        imageView.setImageDrawable(null)
+        imageView.contentDescription =
+            "Immagine di ${product.description.ifBlank { product.articleCode }}"
+
+        imageView.load(imageUrl) {
+            crossfade(true)
+        }
+
+        android.util.Log.d(
+            "OverlayService",
+            "CARICAMENTO IMMAGINE PRODOTTO EAN=$barcode URL=$imageUrl"
+        )
     }
 
     private fun showScanErrorPopup(message: String) {
@@ -3102,6 +3456,7 @@ class OverlayService : Service() {
         articleCodeValueText = null
         barcodeValueText = null
         barcodeImageView = null
+        productImageView = null
         descriptionValueText = null
         yearValueText = null
         seasonValueText = null
@@ -3248,6 +3603,7 @@ class OverlayService : Service() {
         removeReorderListPopup()
         removeReorderConfirmation()
         ReorderStore.removeSizeListener(reorderStoreListener)
+        FavoriteRepository.removeListener(favoriteStoreListener)
 
         urgentStockTone?.release()
         urgentStockTone = null

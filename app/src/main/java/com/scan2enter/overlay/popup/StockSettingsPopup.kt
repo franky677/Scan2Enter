@@ -18,7 +18,8 @@ import com.scan2enter.R
 import com.scan2enter.model.ProductInfo
 import kotlin.math.max
 import kotlin.math.min
-
+import android.widget.ImageView
+import com.scan2enter.favorites.FavoriteRepository
 /**
  * Finestra overlay dedicata alla modifica di scorta minima e lotto di riordino.
  *
@@ -55,6 +56,73 @@ class StockSettingsPopup(
 
         val dialogView = LayoutInflater.from(context)
             .inflate(R.layout.stock_edit_dialog, root, false)
+        val favoriteButton =
+            dialogView.findViewById<ImageView>(
+                R.id.stockEditFavoriteButton
+            )
+
+        fun updateFavoriteIcon() {
+            val isFavorite =
+                product.articleId > 0L &&
+                        FavoriteRepository.isFavorite(product.articleId)
+
+            favoriteButton.setImageResource(
+                if (isFavorite) {
+                    R.drawable.ic_star
+                } else {
+                    R.drawable.ic_star_border
+                }
+            )
+
+            favoriteButton.contentDescription =
+                if (isFavorite) {
+                    "Rimuovi dai preferiti"
+                } else {
+                    "Aggiungi ai preferiti"
+                }
+        }
+
+        favoriteButton.setOnClickListener {
+            if (product.articleId <= 0L) {
+                Toast.makeText(
+                    context,
+                    "Articolo non disponibile",
+                    Toast.LENGTH_SHORT
+                ).show()
+
+                return@setOnClickListener
+            }
+
+            val isNowFavorite =
+                FavoriteRepository.toggle(product)
+
+            favoriteButton.setImageResource(
+                if (isNowFavorite) {
+                    R.drawable.ic_star
+                } else {
+                    R.drawable.ic_star_border
+                }
+            )
+
+            favoriteButton.contentDescription =
+                if (isNowFavorite) {
+                    "Rimuovi dai preferiti"
+                } else {
+                    "Aggiungi ai preferiti"
+                }
+
+            Toast.makeText(
+                context,
+                if (isNowFavorite) {
+                    "Articolo aggiunto ai preferiti"
+                } else {
+                    "Articolo rimosso dai preferiti"
+                },
+                Toast.LENGTH_SHORT
+            ).show()
+        }
+
+        updateFavoriteIcon()
 
         dialogView.findViewById<TextView>(R.id.stockEditArticleText).text =
             listOf(product.articleCode, product.description)
