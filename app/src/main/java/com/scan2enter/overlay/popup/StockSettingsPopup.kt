@@ -31,6 +31,10 @@ class StockSettingsPopup(
     private val windowManager: WindowManager
 ) {
 
+    private val labelPrintPopup by lazy {
+        LabelPrintPopup(context, windowManager)
+    }
+
     private var overlayRoot: View? = null
 
     fun isShowing(): Boolean = overlayRoot != null
@@ -158,6 +162,11 @@ class StockSettingsPopup(
         dialogView.findViewById<View>(R.id.cancelStockEditButton)
             .setOnClickListener { onClose() }
 
+        dialogView.findViewById<View>(R.id.printLabelButton)
+            .setOnClickListener {
+                labelPrintPopup.show(product)
+            }
+
         val saveButton = dialogView.findViewById<View>(R.id.saveStockEditButton)
 
         saveButton.setOnClickListener {
@@ -251,6 +260,8 @@ class StockSettingsPopup(
     }
 
     fun remove() {
+        labelPrintPopup.remove()
+
         val popup = overlayRoot ?: return
 
         try {

@@ -398,6 +398,55 @@ class GatewayApiClient(
         }
     }
 
+    /**
+     * Invia un lavoro di stampa etichette al Gateway.
+     */
+    fun printLabel(
+        articleCode: String,
+        description: String,
+        barcode: String,
+        publicPrice: String,
+        quantity: Int,
+        printer: String,
+        template: String,
+        note: String = ""
+    ): Result<Unit> = runCatching {
+        require(articleCode.isNotBlank()) {
+            "Codice articolo non disponibile"
+        }
+        require(barcode.isNotBlank()) {
+            "Barcode non disponibile"
+        }
+        require(quantity in 1..100) {
+            "Quantità non valida"
+        }
+
+        val url = "${baseUrl.trimEnd('/')}/api/labels/print"
+
+        val body = JSONObject()
+            .put("articleCode", articleCode.trim())
+            .put("description", description.trim())
+            .put("barcode", barcode.trim())
+            .put("publicPrice", publicPrice.trim())
+            .put("quantity", quantity)
+            .put("printer", printer)
+            .put("template", template)
+            .put("note", note.trim())
+            .toString()
+
+        val response = executeJson(
+            urlString = url,
+            method = "POST",
+            jsonBody = body
+        )
+
+        if (response.code !in 200..299) {
+            error(
+                "Gateway HTTP ${response.code}: ${response.body.take(500)}"
+            )
+        }
+    }
+
     private fun executeGet(urlString: String): HttpResponse {
         val connection =
             URL(urlString).openConnection() as HttpURLConnection
