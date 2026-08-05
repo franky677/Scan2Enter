@@ -15,7 +15,7 @@ import com.scan2enter.api.DueRetailApiTest
 import com.scan2enter.ui.screens.CameraScreen
 import com.scan2enter.ui.theme.Scan2EnterTheme
 import com.scan2enter.viewmodel.MainViewModel
-
+import com.scan2enter.ui.screens.HomeScreen
 class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -57,11 +57,7 @@ class MainActivity : ComponentActivity() {
 
             Scan2EnterTheme {
 
-                val vm: MainViewModel = viewModel()
-
-                CameraScreen(
-                    viewModel = vm
-                )
+                HomeScreen()
             }
         }
     }
