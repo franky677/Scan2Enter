@@ -61,6 +61,9 @@ class OverlayService : Service() {
         const val ACTION_SHOW_REORDER_LIST =
             "com.scan2enter.action.SHOW_REORDER_LIST"
 
+        const val ACTION_SHOW_FAVORITES_LIST =
+            "com.scan2enter.action.SHOW_FAVORITES_LIST"
+
         const val ACTION_UPDATE_PRODUCT_INFO =
             "com.scan2enter.action.UPDATE_PRODUCT_INFO"
 
@@ -334,6 +337,18 @@ class OverlayService : Service() {
     ): Int {
 
         when (intent?.action) {
+            ACTION_SHOW_FAVORITES_LIST -> {
+                android.util.Log.d(
+                    "OverlayService",
+                    "RICHIESTA APERTURA PREFERITI DALLA HOME"
+                )
+
+                showReorderListPopup()
+                reorderPopupMode = ReorderPopupMode.FAVORITES
+                favoriteSortMode = FavoriteSortMode.PRICE_ASCENDING
+                refreshReorderListPopup()
+            }
+
             ACTION_SHOW_REORDER_LIST -> {
                 android.util.Log.d(
                     "OverlayService",

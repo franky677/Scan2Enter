@@ -134,7 +134,14 @@ fun HomeScreen() {
                 leftText = "⭐\nPREFERITI",
                 rightText = "📊\nVENDITE",
                 onLeftClick = {
-                    moduleNotAvailable("Preferiti")
+                    context.startService(
+                        Intent(
+                            context,
+                            OverlayService::class.java
+                        ).apply {
+                            action = OverlayService.ACTION_SHOW_FAVORITES_LIST
+                        }
+                    )
                 },
                 onRightClick = {
                     moduleNotAvailable("Vendite")
