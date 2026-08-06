@@ -1,35 +1,28 @@
 package com.scan2enter.overlay
 
 import android.content.Context
-import android.graphics.Color
 import android.graphics.PixelFormat
-import android.graphics.drawable.GradientDrawable
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import android.view.Gravity
+import android.content.Intent
+import android.graphics.Color
+import android.view.View
+import android.widget.LinearLayout
+import android.widget.TextView
 import android.view.WindowManager
 import android.widget.FrameLayout
-import android.widget.TextView
 import androidx.camera.view.PreviewView
 import com.scan2enter.overlay.camera.OverlayCameraManager
 import com.scan2enter.overlay.camera.OverlayLifecycleOwner
 import com.scan2enter.scanner.ScanConfig
 import com.scan2enter.scanner.ScanSession
+import com.scan2enter.MainActivity
 
 class ScanOverlay(
     private val context: Context
 ) {
-
-    companion object {
-        /*
-         * La finestra non è più centrata verticalmente.
-         * Il bordo superiore resta vicino alla fotocamera dello S24 Ultra,
-         * così il mirino coincide meglio con la direzione reale di ripresa.
-         */
-        private const val SCANNER_TOP_MARGIN_DP = 72
-        private const val RAPID_SCAN_TIMEOUT_MS = 3_000L
-    }
 
     private val windowManager =
         context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
@@ -41,9 +34,10 @@ class ScanOverlay(
         ScanSession(context)
 
     private var lifecycleOwner: OverlayLifecycleOwner? = null
+
     private var container: FrameLayout? = null
+
     private var previewView: PreviewView? = null
-    private var torchButton: TextView? = null
 
     private val handler = Handler(Looper.getMainLooper())
 
@@ -51,6 +45,14 @@ class ScanOverlay(
     private var closing = false
 
     private var rapidRescan = false
+    private var godexMode = false
+
+    private companion object {
+        const val WORKFLOW_PREFS = "scan_workflow"
+        const val WORKFLOW_MODE_KEY = "mode"
+        const val MODE_INFO = "INFO"
+        const val MODE_LABELS_GODEX = "ETICHETTE_GODEX"
+    }
 
     private val timeoutRunnable = Runnable {
 
@@ -84,35 +86,52 @@ class ScanOverlay(
     fun show(
         rapidRescan: Boolean = false
     ) {
+
         if (container != null) return
 
         closing = false
         this.rapidRescan = rapidRescan
+        godexMode = loadCurrentMode() == MODE_LABELS_GODEX
 
         scanSession.start()
 
-        handler.postDelayed(
-            timeoutRunnable,
-            if (rapidRescan) {
-                RAPID_SCAN_TIMEOUT_MS
-            } else {
-                ScanConfig.SCAN_TIMEOUT
-            }
-        )
+        if (!godexMode) {
+            handler.postDelayed(
+                timeoutRunnable,
+                if (rapidRescan) {
+                    2_000L
+                } else {
+                    ScanConfig.SCAN_TIMEOUT
+                }
+            )
+        }
 
         val frame = FrameLayout(context)
 
-        val closeScanner = android.view.View.OnClickListener {
-            Log.d("Scan2Enter", "Scanner chiuso con tocco")
-            hide()
+        val closeScanner = View.OnClickListener {
+            Log.d(
+                "Scan2Enter",
+                "Scanner chiuso con tocco godexMode=$godexMode"
+            )
+
+            if (godexMode) {
+                exitGodexModeToHome()
+            } else {
+                hide()
+            }
         }
 
+        /*
+         * Assegno il tap sia al contenitore sia ai suoi figli: PreviewView e
+         * grafica di mira possono intercettare il tocco prima del FrameLayout.
+         */
         frame.setOnClickListener(closeScanner)
 
-        val preview = PreviewView(context).apply {
-            scaleType = PreviewView.ScaleType.FILL_CENTER
-            setOnClickListener(closeScanner)
-        }
+        val preview = PreviewView(context)
+        preview.setOnClickListener(closeScanner)
+
+        preview.scaleType =
+            PreviewView.ScaleType.FILL_CENTER
 
         frame.addView(
             preview,
@@ -133,44 +152,49 @@ class ScanOverlay(
             )
         )
 
-        val torchControl = createTorchButton()
-        frame.addView(
-            torchControl,
-            FrameLayout.LayoutParams(
-                dp(92),
-                dp(42)
-            ).apply {
-                gravity = Gravity.TOP or Gravity.END
-                topMargin = dp(10)
-                marginEnd = dp(10)
+        if (godexMode) {
+            val message = TextView(context).apply {
+                text = "🏷️ MODALITÀ ETICHETTE GODEX\nTocca lo scanner per tornare alla Home"
+                setTextColor(Color.WHITE)
+                textSize = 14f
+                gravity = Gravity.CENTER
+                setPadding(dp(10), dp(7), dp(10), dp(7))
+                setBackgroundColor(0xCC000000.toInt())
+                setOnClickListener(closeScanner)
             }
-        )
 
-        /*
-         * Il pulsante deve intercettare il tocco senza chiudere lo scanner.
-         */
-        torchControl.setOnClickListener {
-            cameraManager.cycleTorchMode()
+            frame.addView(
+                message,
+                FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    gravity = Gravity.BOTTOM
+                }
+            )
         }
 
         val params = WindowManager.LayoutParams(
+
             dp(ScanConfig.OVERLAY_WIDTH_DP),
             dp(ScanConfig.OVERLAY_HEIGHT_DP),
+
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+
             PixelFormat.TRANSLUCENT
-        ).apply {
-            gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
-            y = dp(SCANNER_TOP_MARGIN_DP)
-        }
+        )
+
+        params.gravity = Gravity.CENTER
 
         windowManager.addView(frame, params)
 
         container = frame
         previewView = preview
-        torchButton = torchControl
 
         lifecycleOwner = OverlayLifecycleOwner()
+
         lifecycleOwner!!.start()
 
         cameraManager.start(
@@ -185,105 +209,82 @@ class ScanOverlay(
                 scanSession.onBarcodeRead(barcode) {
                     hide()
                 }
-            },
-            onTorchStateChanged = { mode, enabled, available ->
-                updateTorchButton(
-                    mode = mode,
-                    enabled = enabled,
-                    available = available
-                )
             }
         )
     }
 
     fun hide() {
+
         handler.removeCallbacks(timeoutRunnable)
 
         scanSession.stop()
+
         cameraManager.stop()
 
         lifecycleOwner?.stop()
         lifecycleOwner = null
 
         container?.let {
-            try {
-                windowManager.removeView(it)
-            } catch (_: Exception) {
-            }
+
+            windowManager.removeView(it)
+
         }
 
         container = null
         previewView = null
-        torchButton = null
         rapidRescan = false
+        godexMode = false
         closing = false
     }
 
-    private fun createTorchButton(): TextView {
-        return TextView(context).apply {
-            text = "💡 AUTO"
-            textSize = 14f
-            gravity = Gravity.CENTER
-            setTextColor(Color.WHITE)
-            setTypeface(
-                typeface,
-                android.graphics.Typeface.BOLD
+    private fun loadCurrentMode(): String {
+        return context.applicationContext
+            .getSharedPreferences(
+                WORKFLOW_PREFS,
+                Context.MODE_PRIVATE
             )
-            isClickable = true
-            isFocusable = true
-
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.RECTANGLE
-                setColor(Color.argb(210, 20, 20, 20))
-                cornerRadius = dp(12).toFloat()
-                setStroke(
-                    dp(1).coerceAtLeast(1),
-                    Color.WHITE
-                )
-            }
-        }
+            .getString(
+                WORKFLOW_MODE_KEY,
+                MODE_INFO
+            )
+            ?: MODE_INFO
     }
 
-    private fun updateTorchButton(
-        mode: OverlayCameraManager.TorchMode,
-        enabled: Boolean,
-        available: Boolean
-    ) {
-        val button = torchButton ?: return
+    private fun exitGodexModeToHome() {
+        context.applicationContext
+            .getSharedPreferences(
+                WORKFLOW_PREFS,
+                Context.MODE_PRIVATE
+            )
+            .edit()
+            .putString(
+                WORKFLOW_MODE_KEY,
+                MODE_INFO
+            )
+            .apply()
 
-        if (!available) {
-            button.text = "💡 N/D"
-            button.alpha = 0.55f
-            button.isEnabled = false
-            return
-        }
+        hide()
 
-        button.alpha = 1.0f
-        button.isEnabled = true
-
-        button.text = when (mode) {
-            OverlayCameraManager.TorchMode.AUTO -> {
-                if (enabled) {
-                    "💡 AUTO ON"
-                } else {
-                    "💡 AUTO"
-                }
+        context.startActivity(
+            Intent(
+                context,
+                MainActivity::class.java
+            ).apply {
+                addFlags(
+                    Intent.FLAG_ACTIVITY_NEW_TASK or
+                            Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                            Intent.FLAG_ACTIVITY_SINGLE_TOP
+                )
             }
-
-            OverlayCameraManager.TorchMode.ON -> {
-                "💡 ON"
-            }
-
-            OverlayCameraManager.TorchMode.OFF -> {
-                "💡 OFF"
-            }
-        }
+        )
     }
 
     private fun dp(value: Int): Int {
+
         return (
                 value *
                         context.resources.displayMetrics.density
                 ).toInt()
     }
+
 }

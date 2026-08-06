@@ -115,7 +115,21 @@ fun HomeScreen() {
                     )
                 },
                 onRightClick = {
-                    moduleNotAvailable("Etichette GoDEX")
+                    context.getSharedPreferences(
+                        "scan_workflow",
+                        android.content.Context.MODE_PRIVATE
+                    ).edit()
+                        .putString("mode", "ETICHETTE_GODEX")
+                        .apply()
+
+                    context.startService(
+                        Intent(
+                            context,
+                            OverlayService::class.java
+                        ).apply {
+                            action = OverlayService.ACTION_OPEN_SCANNER
+                        }
+                    )
                 }
             )
 

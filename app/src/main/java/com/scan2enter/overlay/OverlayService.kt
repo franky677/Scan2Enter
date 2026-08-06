@@ -43,6 +43,7 @@ import com.scan2enter.favorites.FavoriteRepository
 import com.scan2enter.model.ProductInfo
 import com.scan2enter.model.ProductInfoStore
 import com.scan2enter.overlay.popup.LocationManagementPopup
+import com.scan2enter.overlay.popup.LabelPrintPopup
 import com.scan2enter.overlay.popup.ProductInfoPopup
 import com.scan2enter.overlay.popup.StockSettingsPopup
 import com.scan2enter.repository.ProductRepositoryProvider
@@ -63,6 +64,9 @@ class OverlayService : Service() {
 
         const val ACTION_SHOW_FAVORITES_LIST =
             "com.scan2enter.action.SHOW_FAVORITES_LIST"
+
+        const val ACTION_SHOW_GODEX_PRINT =
+            "com.scan2enter.action.SHOW_GODEX_PRINT"
 
         const val ACTION_UPDATE_PRODUCT_INFO =
             "com.scan2enter.action.UPDATE_PRODUCT_INFO"
@@ -126,6 +130,7 @@ class OverlayService : Service() {
         private const val WORKFLOW_PREFS = "scan_workflow"
         private const val WORKFLOW_MODE_KEY = "mode"
         private const val MODE_INFO = "INFO"
+        private const val MODE_LABELS_GODEX = "ETICHETTE_GODEX"
     }
 
     private lateinit var windowManager: WindowManager
@@ -162,6 +167,13 @@ class OverlayService : Service() {
 
     private val locationManagementPopupController by lazy {
         LocationManagementPopup(
+            context = this,
+            windowManager = windowManager
+        )
+    }
+
+    private val labelPrintPopupController by lazy {
+        LabelPrintPopup(
             context = this,
             windowManager = windowManager
         )
@@ -337,6 +349,31 @@ class OverlayService : Service() {
     ): Int {
 
         when (intent?.action) {
+            ACTION_SHOW_GODEX_PRINT -> {
+                android.util.Log.d(
+                    "OverlayService",
+                    "RICHIESTA APERTURA FINESTRA GODEX"
+                )
+
+                val product = ProductInfoStore.current
+
+                if (product == null || product.barcode.isBlank()) {
+                    Toast.makeText(
+                        this,
+                        "Articolo non disponibile",
+                        Toast.LENGTH_SHORT
+                    ).show()
+
+                    reopenGodexScannerIfNeeded()
+                } else {
+                    popupHandler.removeCallbacks(dismissPopupRunnable)
+
+                    labelPrintPopupController.show(product) {
+                        reopenGodexScannerIfNeeded()
+                    }
+                }
+            }
+
             ACTION_SHOW_FAVORITES_LIST -> {
                 android.util.Log.d(
                     "OverlayService",
@@ -516,6 +553,19 @@ class OverlayService : Service() {
                 }
             }
         }.start()
+    }
+
+    private fun reopenGodexScannerIfNeeded() {
+        if (loadCurrentScanMode() != MODE_LABELS_GODEX) {
+            return
+        }
+
+        popupHandler.postDelayed(
+            {
+                scanOverlay.show(rapidRescan = false)
+            },
+            250L
+        )
     }
 
     private fun loadCurrentScanMode(): String {

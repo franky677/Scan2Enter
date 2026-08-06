@@ -28,7 +28,10 @@ class LabelPrintPopup(
     private val gatewayApiClient = GatewayApiClient()
     private var overlayRoot: View? = null
 
-    fun show(product: ProductInfo) {
+    fun show(
+        product: ProductInfo,
+        onClosed: () -> Unit = {}
+    ) {
         if (overlayRoot != null) return
 
         val density = context.resources.displayMetrics.density
@@ -63,34 +66,26 @@ class LabelPrintPopup(
         val note = dialogView.findViewById<RadioButton>(
             R.id.noteLabelRadioButton
         )
-        val noteContainer = dialogView.findViewById<View>(
+        val noteEditorContainer = dialogView.findViewById<View>(
             R.id.noteEditorContainer
         )
-        val noteEdit = dialogView.findViewById<EditText>(
+        val noteEditText = dialogView.findViewById<EditText>(
             R.id.noteEditText
         )
-
-        val notePreferences = context.getSharedPreferences(
-            "scan2enter_label_notes",
-            Context.MODE_PRIVATE
-        )
-        val noteKey = when {
-            product.articleId > 0L -> "article_${product.articleId}"
-            product.barcode.isNotBlank() -> "barcode_${product.barcode.trim()}"
-            else -> "code_${product.articleCode.trim()}"
-        }
-
-        noteEdit.setText(
-            notePreferences.getString(noteKey, "").orEmpty()
-        )
-
-        note.setOnCheckedChangeListener { _, checked ->
-            noteContainer.visibility =
-                if (checked) View.VISIBLE else View.GONE
-        }
         val quantityEdit = dialogView.findViewById<EditText>(
             R.id.labelQuantityEditText
         )
+
+        fun updateNoteEditorVisibility() {
+            noteEditorContainer.visibility =
+                if (note.isChecked) View.VISIBLE else View.GONE
+        }
+
+        note.setOnCheckedChangeListener { _, _ ->
+            updateNoteEditorVisibility()
+        }
+
+        updateNoteEditorVisibility()
 
         bindQuantityButtons(
             dialogView.findViewById(R.id.labelQuantityMinusButton),
@@ -99,9 +94,15 @@ class LabelPrintPopup(
         )
 
         dialogView.findViewById<View>(R.id.closeLabelPrintButton)
-            .setOnClickListener { remove() }
+            .setOnClickListener {
+                remove()
+                onClosed()
+            }
         dialogView.findViewById<View>(R.id.cancelLabelPrintButton)
-            .setOnClickListener { remove() }
+            .setOnClickListener {
+                remove()
+                onClosed()
+            }
 
         val printButton = dialogView.findViewById<Button>(
             R.id.confirmLabelPrintButton
@@ -124,6 +125,12 @@ class LabelPrintPopup(
                 else -> "STANDARD"
             }
 
+            if (template == "NOTE" && noteEditText.text.toString().trim().isEmpty()) {
+                noteEditText.error = "Inserire una nota"
+                noteEditText.requestFocus()
+                return@setOnClickListener
+            }
+
             if (printer != "GODEX") {
                 Toast.makeText(
                     context,
@@ -133,22 +140,13 @@ class LabelPrintPopup(
                 return@setOnClickListener
             }
 
-            val noteText = noteEdit.text.toString().trim()
-
-            if (template == "NOTE" && noteText.isBlank()) {
+            if (template == "NOTE") {
                 Toast.makeText(
                     context,
-                    "Impossibile stampare: scrivere un testo",
-                    Toast.LENGTH_LONG
+                    "La stampa della nota personalizzata è in preparazione",
+                    Toast.LENGTH_SHORT
                 ).show()
-                noteEdit.error = "Scrivere un testo"
                 return@setOnClickListener
-            }
-
-            if (template == "NOTE") {
-                notePreferences.edit()
-                    .putString(noteKey, noteText)
-                    .apply()
             }
 
             printButton.isEnabled = false
@@ -161,8 +159,7 @@ class LabelPrintPopup(
                     publicPrice = product.publicPrice,
                     quantity = quantity,
                     printer = printer,
-                    template = template,
-                    note = noteText
+                    template = template
                 )
 
                 dialogView.post {
@@ -175,6 +172,7 @@ class LabelPrintPopup(
                             Toast.LENGTH_SHORT
                         ).show()
                         remove()
+                        onClosed()
                     }.onFailure { error ->
                         Toast.makeText(
                             context,

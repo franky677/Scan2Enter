@@ -25,6 +25,7 @@ class ScanSession(
         private const val MODE_INFO = "INFO"
         private const val MODE_FAST_PACKAGE = "COLLO_VELOCE"
         private const val MODE_LABELS = "ETICHETTE"
+        private const val MODE_LABELS_GODEX = "ETICHETTE_GODEX"
     }
 
     private val productRepository by lazy {
@@ -145,8 +146,11 @@ class ScanSession(
                             context,
                             OverlayService::class.java
                         ).apply {
-                            action =
+                            action = if (scanMode == MODE_LABELS_GODEX) {
+                                OverlayService.ACTION_SHOW_GODEX_PRINT
+                            } else {
                                 OverlayService.ACTION_SHOW_PRODUCT_INFO
+                            }
 
                             putExtra(
                                 OverlayService.EXTRA_WORKFLOW_COMPLETED,
