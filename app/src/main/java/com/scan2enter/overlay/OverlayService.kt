@@ -35,7 +35,7 @@ import coil3.load
 import coil3.request.crossfade
 import com.scan2enter.BuildFlags
 import com.scan2enter.api.GatewayApiClient
-import com.scan2enter.MainActivity
+import com.scan2enter.ScannerActivity
 import com.scan2enter.R
 import com.scan2enter.feedback.ScanFeedbackManager
 import com.scan2enter.favorites.FavoriteItem
@@ -384,7 +384,7 @@ class OverlayService : Service() {
                 } else {
                     val scannerIntent = Intent(
                         this,
-                        MainActivity::class.java
+                        ScannerActivity::class.java
                     ).apply {
                         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                     }

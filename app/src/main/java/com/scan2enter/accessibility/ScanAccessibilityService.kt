@@ -36,6 +36,7 @@ class ScanAccessibilityService : AccessibilityService() {
 
         private const val MODE_HOME = "HOME"
         private const val MODE_INFO = "INFO"
+        private const val MODE_ARTICLE_DETAIL = "ARTICLE_DETAIL"
         private const val MODE_FAST_PACKAGE = "COLLO_VELOCE"
         private const val MODE_LABELS = "ETICHETTE"
         private const val MODE_UNKNOWN = "UNKNOWN"
@@ -316,14 +317,55 @@ class ScanAccessibilityService : AccessibilityService() {
     private fun prepareAndOpenScanner() {
 
         val root = rootInActiveWindow
+        val currentPackage = root?.packageName?.toString()
 
-        if (root?.packageName?.toString() != DUE_PACKAGE) {
+        handler.removeCallbacksAndMessages(null)
+
+        if (currentPackage == packageName) {
+            Log.d(TAG, "HOME SCAN2ENTER - AVVIO DUE RETAIL")
+
+            val launchIntent = packageManager
+                .getLaunchIntentForPackage(DUE_PACKAGE)
+
+            if (launchIntent == null) {
+                Log.d(TAG, "IMPOSSIBILE AVVIARE DUE RETAIL")
+                return
+            }
+
+            launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            startActivity(launchIntent)
+            waitForDueRetailAndPrepare()
+            return
+        }
+
+        if (currentPackage != DUE_PACKAGE || root == null) {
             Log.d(TAG, "DUE RETAIL NON ATTIVO - SCANNER NON APERTO")
             return
         }
 
-        handler.removeCallbacksAndMessages(null)
+        prepareScannerFromDueRetail(root)
+    }
 
+    private fun waitForDueRetailAndPrepare(attempt: Int = 0) {
+        val root = rootInActiveWindow
+
+        if (root?.packageName?.toString() == DUE_PACKAGE) {
+            Log.d(TAG, "DUE RETAIL ATTIVO DOPO AVVIO")
+            prepareScannerFromDueRetail(root)
+            return
+        }
+
+        if (attempt >= 40) {
+            Log.d(TAG, "TIMEOUT AVVIO DUE RETAIL")
+            return
+        }
+
+        handler.postDelayed({
+            waitForDueRetailAndPrepare(attempt + 1)
+        }, 100)
+    }
+
+    private fun prepareScannerFromDueRetail(root: AccessibilityNodeInfo) {
         when (detectCurrentScanMode(root)) {
 
             MODE_HOME -> {
@@ -334,6 +376,18 @@ class ScanAccessibilityService : AccessibilityService() {
                 Log.d(TAG, "CLICK INFORMAZIONI DALLA HOME = $clicked")
 
                 if (clicked) {
+                    waitForInformationSearchScreen()
+                }
+            }
+
+            MODE_ARTICLE_DETAIL -> {
+                saveCurrentScanMode(MODE_INFO)
+                Log.d(TAG, "SCHEDA ARTICOLO RICONOSCIUTA - TORNO ALLA RICERCA")
+
+                val backResult = performGlobalAction(GLOBAL_ACTION_BACK)
+                Log.d(TAG, "BACK DA SCHEDA ARTICOLO = $backResult")
+
+                if (backResult) {
                     waitForInformationSearchScreen()
                 }
             }
@@ -357,7 +411,16 @@ class ScanAccessibilityService : AccessibilityService() {
             }
 
             else -> {
-                Log.d(TAG, "SCHERMATA NON RICONOSCIUTA - SCANNER NON APERTO")
+                Log.d(TAG, "SCHERMATA NON RICONOSCIUTA - PROVO A TORNARE INDIETRO")
+
+                val backResult = performGlobalAction(GLOBAL_ACTION_BACK)
+                Log.d(TAG, "BACK DI RECUPERO = $backResult")
+
+                if (backResult) {
+                    handler.postDelayed({
+                        prepareAndOpenScanner()
+                    }, 350)
+                }
             }
         }
     }
@@ -413,6 +476,7 @@ class ScanAccessibilityService : AccessibilityService() {
 
         return when {
             title.equals("Due Retail Mobile", ignoreCase = true) -> MODE_HOME
+            title.equals("Informazioni articolo", ignoreCase = true) -> MODE_ARTICLE_DETAIL
             title.startsWith("Collo: COLLO VELOCE", ignoreCase = true) -> MODE_FAST_PACKAGE
             title.equals("Nuova etichetta", ignoreCase = true) -> MODE_LABELS
             isInformationScreen -> MODE_INFO
