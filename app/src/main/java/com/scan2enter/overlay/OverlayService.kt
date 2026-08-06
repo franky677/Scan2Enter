@@ -58,6 +58,9 @@ class OverlayService : Service() {
         const val ACTION_SHOW_PRODUCT_INFO =
             "com.scan2enter.action.SHOW_PRODUCT_INFO"
 
+        const val ACTION_SHOW_REORDER_LIST =
+            "com.scan2enter.action.SHOW_REORDER_LIST"
+
         const val ACTION_UPDATE_PRODUCT_INFO =
             "com.scan2enter.action.UPDATE_PRODUCT_INFO"
 
@@ -273,8 +276,16 @@ class OverlayService : Service() {
     }
 
     private var reorderPopupMode = ReorderPopupMode.REORDER
-    private var favoriteSortMode = FavoriteSortMode.INSERTION
+    private var favoriteSortMode = FavoriteSortMode.PRICE_ASCENDING
     private var reorderSupplierFilterKey: String? = null
+
+    /*
+     * Posizione della lista da ripristinare dopo l'apertura di un articolo
+     * o dopo un aggiornamento dell'adapter.
+     */
+    private var savedListMode = ReorderPopupMode.REORDER
+    private var savedListFirstVisiblePosition = 0
+    private var savedListTopOffset = 0
     private var urgentStockTone: ToneGenerator? = null
 
     private val dismissScanErrorRunnable = Runnable {
@@ -323,6 +334,16 @@ class OverlayService : Service() {
     ): Int {
 
         when (intent?.action) {
+            ACTION_SHOW_REORDER_LIST -> {
+                android.util.Log.d(
+                    "OverlayService",
+                    "RICHIESTA APERTURA LISTA RIORDINO DALLA HOME"
+                )
+
+                showReorderListPopup()
+                synchronizeReorderListFromGateway()
+            }
+
             ACTION_SHOW_PRODUCT_INFO -> {
                 val completed = intent.getBooleanExtra(
                     EXTRA_WORKFLOW_COMPLETED,
@@ -1051,6 +1072,56 @@ class OverlayService : Service() {
         )
     }
 
+    private fun rememberReorderListPosition() {
+        val popup = reorderListPopup ?: return
+        val listView = findViewByTag<ListView>(
+            popup,
+            "reorderListView"
+        ) ?: return
+
+        savedListMode = reorderPopupMode
+        savedListFirstVisiblePosition = listView.firstVisiblePosition
+        savedListTopOffset = listView.getChildAt(0)?.top ?: 0
+
+        android.util.Log.d(
+            "OverlayService",
+            "POSIZIONE LISTA SALVATA mode=$savedListMode " +
+                    "position=$savedListFirstVisiblePosition " +
+                    "offset=$savedListTopOffset"
+        )
+    }
+
+    private fun applyListAdapter(
+        listView: ListView,
+        rows: List<() -> View>
+    ) {
+        listView.adapter = createVirtualizedListAdapter(rows)
+
+        if (savedListMode != reorderPopupMode) return
+
+        listView.post {
+            val maxPosition =
+                (listView.adapter?.count ?: 1) - 1
+
+            val safePosition =
+                savedListFirstVisiblePosition.coerceIn(
+                    0,
+                    maxPosition.coerceAtLeast(0)
+                )
+
+            listView.setSelectionFromTop(
+                safePosition,
+                savedListTopOffset
+            )
+
+            android.util.Log.d(
+                "OverlayService",
+                "POSIZIONE LISTA RIPRISTINATA mode=$reorderPopupMode " +
+                        "position=$safePosition offset=$savedListTopOffset"
+            )
+        }
+    }
+
     /**
      * Aggiorna il contenuto della lista usando una ListView virtualizzata.
      * Vengono materializzate soltanto le righe visibili sullo schermo.
@@ -1106,7 +1177,7 @@ class OverlayService : Service() {
                 }
             }
 
-            listView.adapter = createVirtualizedListAdapter(rows)
+            applyListAdapter(listView, rows)
             return
         }
 
@@ -1137,7 +1208,7 @@ class OverlayService : Service() {
                 }
             }
 
-            listView.adapter = createVirtualizedListAdapter(rows)
+            applyListAdapter(listView, rows)
             return
         }
 
@@ -1205,7 +1276,7 @@ class OverlayService : Service() {
             }
         }
 
-        listView.adapter = createVirtualizedListAdapter(rows)
+        applyListAdapter(listView, rows)
     }
 
     private fun favoriteSortLabel(): String =
@@ -1614,6 +1685,8 @@ class OverlayService : Service() {
     }
 
     private fun openReorderItem(item: ReorderItem) {
+        rememberReorderListPosition()
+
         if (item.barcode.isBlank()) {
             Toast.makeText(
                 this,
@@ -1802,6 +1875,8 @@ class OverlayService : Service() {
     }
 
     private fun openFavoriteItem(item: FavoriteItem) {
+        rememberReorderListPosition()
+
         if (item.barcode.isBlank()) {
             Toast.makeText(
                 this,
@@ -1861,6 +1936,7 @@ class OverlayService : Service() {
             isFocusable = true
 
             setOnClickListener {
+                rememberReorderListPosition()
                 ProductInfoStore.current = product
                 removeReorderListPopup()
 
