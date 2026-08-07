@@ -2,11 +2,17 @@ package com.scan2enter.scanner
 
 import android.content.Context
 import android.content.Intent
+import android.media.AudioManager
+import android.media.ToneGenerator
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import com.scan2enter.data.ScanStorage
 import com.scan2enter.feedback.ScanFeedbackManager
+import com.scan2enter.labels.a4.A4LabelItem
+import com.scan2enter.labels.a4.A4LabelStore
+import com.scan2enter.labels.a4.packaging.PackagingPdfGenerator
+import com.scan2enter.labels.a4.packaging.PackagingSelectionStore
 import com.scan2enter.model.ProductInfoStore
 import com.scan2enter.overlay.OverlayService
 import com.scan2enter.reorder.ReorderStore
@@ -26,6 +32,8 @@ class ScanSession(
         private const val MODE_FAST_PACKAGE = "COLLO_VELOCE"
         private const val MODE_LABELS = "ETICHETTE"
         private const val MODE_LABELS_GODEX = "ETICHETTE_GODEX"
+        private const val MODE_LABELS_A4 = "ETICHETTE_A4"
+        private const val MODE_LABELS_BLISTER = "ETICHETTE_BLISTER"
     }
 
     private val productRepository by lazy {
@@ -34,6 +42,13 @@ class ScanSession(
 
     @Volatile
     private var running = false
+
+    private val toneGenerator by lazy {
+        ToneGenerator(
+            AudioManager.STREAM_NOTIFICATION,
+            100
+        )
+    }
 
     fun start() {
         ScanFeedbackManager.initialize(
@@ -141,23 +156,129 @@ class ScanSession(
 
                     ReorderStore.add(productInfo)
 
-                    context.startService(
-                        Intent(
-                            context,
-                            OverlayService::class.java
-                        ).apply {
-                            action = if (scanMode == MODE_LABELS_GODEX) {
-                                OverlayService.ACTION_SHOW_GODEX_PRINT
-                            } else {
-                                OverlayService.ACTION_SHOW_PRODUCT_INFO
-                            }
+                    if (scanMode == MODE_LABELS_BLISTER) {
+                        val options = PackagingSelectionStore.load(
+                            context.applicationContext
+                        )
 
-                            putExtra(
-                                OverlayService.EXTRA_WORKFLOW_COMPLETED,
-                                true
+                        val result = PackagingPdfGenerator.generateAndOpen(
+                            context = context.applicationContext,
+                            product = productInfo,
+                            options = options
+                        )
+
+                        result.onSuccess {
+                            toneGenerator.startTone(
+                                ToneGenerator.TONE_PROP_BEEP,
+                                100
                             )
+                            Log.d(
+                                TAG,
+                                "PDF BLISTER GENERATO barcode=$normalizedBarcode " +
+                                        "type=${options.type} " +
+                                        "hook=${options.includeHook} " +
+                                        "price=${options.showPrice}"
+                            )
+                        }.onFailure { error ->
+                            Log.e(TAG, "ERRORE PDF BLISTER", error)
+                            Handler(Looper.getMainLooper()).post {
+                                showScanError(
+                                    error.message ?: "Errore generazione blister"
+                                )
+                            }
                         }
-                    )
+
+                        context.applicationContext
+                            .getSharedPreferences(
+                                WORKFLOW_PREFS,
+                                Context.MODE_PRIVATE
+                            )
+                            .edit()
+                            .putString(WORKFLOW_MODE_KEY, MODE_INFO)
+                            .apply()
+
+                        return@onSuccess
+                    }
+
+                    val a4AddResult =
+                        if (scanMode == MODE_LABELS_A4) {
+                            A4LabelStore.initialize(
+                                context.applicationContext
+                            )
+
+                            A4LabelStore.add(
+                                A4LabelItem.fromProduct(productInfo)
+                            ).also { result ->
+                                when (result) {
+                                    A4LabelStore.AddResult.ADDED -> {
+                                        Log.d(
+                                            TAG,
+                                            "ETICHETTA A4 AGGIUNTA barcode=$normalizedBarcode"
+                                        )
+                                    }
+
+                                    A4LabelStore.AddResult.DUPLICATE -> {
+                                        Log.d(
+                                            TAG,
+                                            "ETICHETTA A4 DUPLICATA barcode=$normalizedBarcode"
+                                        )
+                                    }
+
+                                    A4LabelStore.AddResult.PAGE_FULL -> {
+                                        Log.d(
+                                            TAG,
+                                            "PAGINA A4 COMPLETA barcode=$normalizedBarcode"
+                                        )
+                                    }
+                                }
+                            }
+                        } else {
+                            null
+                        }
+
+                    if (scanMode == MODE_LABELS_A4) {
+                        Handler(Looper.getMainLooper()).postDelayed(
+                            {
+                                context.startService(
+                                    Intent(
+                                        context,
+                                        OverlayService::class.java
+                                    ).apply {
+                                        action =
+                                            if (
+                                                a4AddResult ==
+                                                A4LabelStore.AddResult.PAGE_FULL
+                                            ) {
+                                                OverlayService.ACTION_SHOW_A4_LABELS
+                                            } else {
+                                                OverlayService.ACTION_OPEN_SCANNER
+                                            }
+                                    }
+                                )
+                            },
+                            1_200L
+                        )
+                    } else {
+                        context.startService(
+                            Intent(
+                                context,
+                                OverlayService::class.java
+                            ).apply {
+                                action = when (scanMode) {
+                                    MODE_LABELS_GODEX ->
+                                        OverlayService.ACTION_SHOW_GODEX_PRINT
+
+                                    else ->
+                                        OverlayService.ACTION_SHOW_PRODUCT_INFO
+                                }
+
+                                putExtra(
+                                    OverlayService.EXTRA_WORKFLOW_COMPLETED,
+                                    true
+                                )
+                            }
+                        )
+                    }
 
                     Log.d(
                         TAG,

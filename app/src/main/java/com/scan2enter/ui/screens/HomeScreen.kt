@@ -115,19 +115,12 @@ fun HomeScreen() {
                     )
                 },
                 onRightClick = {
-                    context.getSharedPreferences(
-                        "scan_workflow",
-                        android.content.Context.MODE_PRIVATE
-                    ).edit()
-                        .putString("mode", "ETICHETTE_GODEX")
-                        .apply()
-
                     context.startService(
                         Intent(
                             context,
                             OverlayService::class.java
                         ).apply {
-                            action = OverlayService.ACTION_OPEN_SCANNER
+                            action = OverlayService.ACTION_SHOW_GODEX_SETUP
                         }
                     )
                 }
@@ -137,7 +130,14 @@ fun HomeScreen() {
                 leftText = "📄\nETICHETTE A4",
                 rightText = "📦\nCOLLO VELOCE",
                 onLeftClick = {
-                    moduleNotAvailable("Etichette A4")
+                    context.startService(
+                        Intent(
+                            context,
+                            OverlayService::class.java
+                        ).apply {
+                            action = OverlayService.ACTION_SHOW_A4_LABELS
+                        }
+                    )
                 },
                 onRightClick = {
                     moduleNotAvailable("Collo veloce")

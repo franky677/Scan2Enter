@@ -42,6 +42,11 @@ import com.scan2enter.favorites.FavoriteItem
 import com.scan2enter.favorites.FavoriteRepository
 import com.scan2enter.model.ProductInfo
 import com.scan2enter.model.ProductInfoStore
+import com.scan2enter.labels.a4.A4LabelsPopup
+import com.scan2enter.labels.a4.A4LabelStore
+import com.scan2enter.labels.a4.packaging.PackagingOptions
+import com.scan2enter.labels.a4.packaging.PackagingSelectionStore
+import com.scan2enter.labels.a4.packaging.PackagingType
 import com.scan2enter.overlay.popup.LocationManagementPopup
 import com.scan2enter.overlay.popup.LabelPrintPopup
 import com.scan2enter.overlay.popup.ProductInfoPopup
@@ -67,6 +72,12 @@ class OverlayService : Service() {
 
         const val ACTION_SHOW_GODEX_PRINT =
             "com.scan2enter.action.SHOW_GODEX_PRINT"
+
+        const val ACTION_SHOW_GODEX_SETUP =
+            "com.scan2enter.action.SHOW_GODEX_SETUP"
+
+        const val ACTION_SHOW_A4_LABELS =
+            "com.scan2enter.action.SHOW_A4_LABELS"
 
         const val ACTION_UPDATE_PRODUCT_INFO =
             "com.scan2enter.action.UPDATE_PRODUCT_INFO"
@@ -131,6 +142,8 @@ class OverlayService : Service() {
         private const val WORKFLOW_MODE_KEY = "mode"
         private const val MODE_INFO = "INFO"
         private const val MODE_LABELS_GODEX = "ETICHETTE_GODEX"
+        private const val MODE_LABELS_A4 = "ETICHETTE_A4"
+        private const val MODE_LABELS_BLISTER = "ETICHETTE_BLISTER"
     }
 
     private lateinit var windowManager: WindowManager
@@ -174,6 +187,13 @@ class OverlayService : Service() {
 
     private val labelPrintPopupController by lazy {
         LabelPrintPopup(
+            context = this,
+            windowManager = windowManager
+        )
+    }
+
+    private val a4LabelsPopupController by lazy {
+        A4LabelsPopup(
             context = this,
             windowManager = windowManager
         )
@@ -349,6 +369,153 @@ class OverlayService : Service() {
     ): Int {
 
         when (intent?.action) {
+            ACTION_SHOW_A4_LABELS -> {
+                android.util.Log.d(
+                    "OverlayService",
+                    "RICHIESTA APERTURA ETICHETTE A4"
+                )
+
+                a4LabelsPopupController.show(
+                    onScanRequested = {
+                        applicationContext
+                            .getSharedPreferences(
+                                WORKFLOW_PREFS,
+                                Context.MODE_PRIVATE
+                            )
+                            .edit()
+                            .putString(
+                                WORKFLOW_MODE_KEY,
+                                MODE_LABELS_A4
+                            )
+                            .apply()
+
+                        popupHandler.postDelayed(
+                            {
+                                startService(
+                                    Intent(
+                                        this,
+                                        OverlayService::class.java
+                                    ).apply {
+                                        action = ACTION_OPEN_SCANNER
+                                    }
+                                )
+                            },
+                            180L
+                        )
+                    },
+                    onBlisterScanRequested = { type, includeHook, showPrice ->
+                        val packagingType = when (type) {
+                            "BLISTER_LONG" -> PackagingType.BLISTER_LONG
+                            "BLISTER_BIG" -> PackagingType.BLISTER_BIG
+                            else -> PackagingType.BLISTER_LARGE
+                        }
+
+                        PackagingSelectionStore.save(
+                            applicationContext,
+                            PackagingOptions(
+                                type = packagingType,
+                                includeHook = includeHook,
+                                showPrice = showPrice
+                            )
+                        )
+
+                        applicationContext
+                            .getSharedPreferences(
+                                WORKFLOW_PREFS,
+                                Context.MODE_PRIVATE
+                            )
+                            .edit()
+                            .putString(
+                                WORKFLOW_MODE_KEY,
+                                MODE_LABELS_BLISTER
+                            )
+                            .apply()
+
+                        popupHandler.postDelayed(
+                            {
+                                startService(
+                                    Intent(
+                                        this,
+                                        OverlayService::class.java
+                                    ).apply {
+                                        action = ACTION_OPEN_SCANNER
+                                    }
+                                )
+                            },
+                            180L
+                        )
+                    },
+                    onClosed = {
+                        applicationContext
+                            .getSharedPreferences(
+                                WORKFLOW_PREFS,
+                                Context.MODE_PRIVATE
+                            )
+                            .edit()
+                            .putString(
+                                WORKFLOW_MODE_KEY,
+                                MODE_INFO
+                            )
+                            .apply()
+                    }
+                )
+            }
+
+            ACTION_SHOW_GODEX_SETUP -> {
+                android.util.Log.d(
+                    "OverlayService",
+                    "RICHIESTA CONFIGURAZIONE GODEX DALLA HOME"
+                )
+
+                applicationContext
+                    .getSharedPreferences(
+                        WORKFLOW_PREFS,
+                        Context.MODE_PRIVATE
+                    )
+                    .edit()
+                    .putString(
+                        WORKFLOW_MODE_KEY,
+                        MODE_INFO
+                    )
+                    .apply()
+
+                popupHandler.removeCallbacks(dismissPopupRunnable)
+
+                labelPrintPopupController.show(
+                    product = null,
+                    onScanRequested = {
+                        applicationContext
+                            .getSharedPreferences(
+                                WORKFLOW_PREFS,
+                                Context.MODE_PRIVATE
+                            )
+                            .edit()
+                            .putString(
+                                WORKFLOW_MODE_KEY,
+                                MODE_LABELS_GODEX
+                            )
+                            .apply()
+
+                        popupHandler.postDelayed(
+                            {
+                                startService(
+                                    Intent(
+                                        this,
+                                        OverlayService::class.java
+                                    ).apply {
+                                        action = ACTION_OPEN_SCANNER
+                                    }
+                                )
+                            },
+                            180L
+                        )
+                    },
+                    onClosed = {
+                        // Dalla configurazione iniziale si resta semplicemente nella Home.
+                    }
+                )
+            }
+
             ACTION_SHOW_GODEX_PRINT -> {
                 android.util.Log.d(
                     "OverlayService",
@@ -368,9 +535,15 @@ class OverlayService : Service() {
                 } else {
                     popupHandler.removeCallbacks(dismissPopupRunnable)
 
-                    labelPrintPopupController.show(product) {
-                        reopenGodexScannerIfNeeded()
-                    }
+                    labelPrintPopupController.show(
+                        product = product,
+                        onScanRequested = {
+                            reopenGodexScannerIfNeeded()
+                        },
+                        onClosed = {
+                            reopenGodexScannerIfNeeded()
+                        }
+                    )
                 }
             }
 
@@ -596,6 +769,7 @@ class OverlayService : Service() {
 
         ProductInfoStore.initialize(applicationContext)
         ReorderStore.initialize(applicationContext)
+        A4LabelStore.initialize(applicationContext)
         FavoriteRepository.initialize(applicationContext)
         loadPopupDurationPreferences()
 
@@ -2078,6 +2252,7 @@ class OverlayService : Service() {
         onConfirm: () -> Unit
     ) {
         removeReorderConfirmation()
+        runCatching { a4LabelsPopupController.remove() }
 
         val density = resources.displayMetrics.density
         val screenWidth = resources.displayMetrics.widthPixels

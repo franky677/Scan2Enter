@@ -4,6 +4,8 @@ import android.content.Context
 import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.drawable.GradientDrawable
+import android.text.Editable
+import android.text.TextWatcher
 import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.View
@@ -25,11 +27,20 @@ class LabelPrintPopup(
     private val context: Context,
     private val windowManager: WindowManager
 ) {
+    private companion object {
+        const val PREFS_NAME = "godex_label_preferences"
+        const val PREF_TEMPLATE = "template"
+        const val PREF_QUANTITY = "quantity"
+        const val PREF_NOTE = "note"
+        const val PREF_PRINTER = "printer"
+    }
+
     private val gatewayApiClient = GatewayApiClient()
     private var overlayRoot: View? = null
 
     fun show(
-        product: ProductInfo,
+        product: ProductInfo?,
+        onScanRequested: () -> Unit = {},
         onClosed: () -> Unit = {}
     ) {
         if (overlayRoot != null) return
@@ -44,9 +55,13 @@ class LabelPrintPopup(
             .inflate(R.layout.label_print_dialog, root, false)
 
         dialogView.findViewById<TextView>(R.id.labelPrintArticleText).text =
-            listOf(product.articleCode, product.description)
-                .filter { it.isNotBlank() }
-                .joinToString(" · ")
+            if (product == null) {
+                "Scegli il tipo di etichetta, poi premi SCANSIONA"
+            } else {
+                listOf(product.articleCode, product.description)
+                    .filter { it.isNotBlank() }
+                    .joinToString(" · ")
+            }
 
         val godex = dialogView.findViewById<RadioButton>(
             R.id.godexPrinterRadioButton
@@ -76,14 +91,101 @@ class LabelPrintPopup(
             R.id.labelQuantityEditText
         )
 
+        val preferences = context.getSharedPreferences(
+            PREFS_NAME,
+            Context.MODE_PRIVATE
+        )
+
+        when (preferences.getString(PREF_TEMPLATE, "STANDARD")) {
+            "IMAGE" -> image.isChecked = true
+            "PRICE" -> price.isChecked = true
+            "NOTE" -> note.isChecked = true
+            else -> standard.isChecked = true
+        }
+
+        if (preferences.getString(PREF_PRINTER, "GODEX") == "EPSON") {
+            epson.isChecked = true
+        } else {
+            godex.isChecked = true
+        }
+
+        quantityEdit.setText(
+            preferences.getInt(PREF_QUANTITY, 1)
+                .coerceIn(1, 100)
+                .toString()
+        )
+        noteEditText.setText(
+            preferences.getString(PREF_NOTE, "").orEmpty()
+        )
+        noteEditText.setSelection(noteEditText.text.length)
+
+        fun selectedTemplate(): String = when {
+            image.isChecked -> "IMAGE"
+            price.isChecked -> "PRICE"
+            note.isChecked -> "NOTE"
+            else -> "STANDARD"
+        }
+
+        fun savePreferences() {
+            preferences.edit()
+                .putString(PREF_TEMPLATE, selectedTemplate())
+                .putInt(
+                    PREF_QUANTITY,
+                    quantityEdit.text.toString()
+                        .toIntOrNull()
+                        ?.coerceIn(1, 100)
+                        ?: 1
+                )
+                .putString(
+                    PREF_NOTE,
+                    noteEditText.text.toString()
+                        .take(80)
+                )
+                .putString(
+                    PREF_PRINTER,
+                    if (epson.isChecked) "EPSON" else "GODEX"
+                )
+                .apply()
+        }
+
         fun updateNoteEditorVisibility() {
             noteEditorContainer.visibility =
                 if (note.isChecked) View.VISIBLE else View.GONE
         }
 
-        note.setOnCheckedChangeListener { _, _ ->
+        val optionChanged = android.widget.CompoundButton.OnCheckedChangeListener { _, _ ->
             updateNoteEditorVisibility()
+            savePreferences()
         }
+
+        standard.setOnCheckedChangeListener(optionChanged)
+        image.setOnCheckedChangeListener(optionChanged)
+        price.setOnCheckedChangeListener(optionChanged)
+        note.setOnCheckedChangeListener(optionChanged)
+        godex.setOnCheckedChangeListener(optionChanged)
+        epson.setOnCheckedChangeListener(optionChanged)
+
+        noteEditText.addTextChangedListener(
+            object : TextWatcher {
+                override fun beforeTextChanged(
+                    text: CharSequence?,
+                    start: Int,
+                    count: Int,
+                    after: Int
+                ) = Unit
+
+                override fun onTextChanged(
+                    text: CharSequence?,
+                    start: Int,
+                    before: Int,
+                    count: Int
+                ) {
+                    savePreferences()
+                }
+
+                override fun afterTextChanged(editable: Editable?) = Unit
+            }
+        )
 
         updateNoteEditorVisibility()
 
@@ -95,11 +197,13 @@ class LabelPrintPopup(
 
         dialogView.findViewById<View>(R.id.closeLabelPrintButton)
             .setOnClickListener {
+                savePreferences()
                 remove()
                 onClosed()
             }
         dialogView.findViewById<View>(R.id.cancelLabelPrintButton)
             .setOnClickListener {
+                savePreferences()
                 remove()
                 onClosed()
             }
@@ -107,6 +211,9 @@ class LabelPrintPopup(
         val printButton = dialogView.findViewById<Button>(
             R.id.confirmLabelPrintButton
         )
+
+        printButton.text =
+            if (product == null) "SCANSIONA" else "STAMPA"
 
         printButton.setOnClickListener {
             val quantity = quantityEdit.text.toString().toIntOrNull()
@@ -117,13 +224,7 @@ class LabelPrintPopup(
             }
 
             val printer = if (epson.isChecked) "EPSON" else "GODEX"
-            val template = when {
-                image.isChecked -> "IMAGE"
-                price.isChecked -> "PRICE"
-                note.isChecked -> "NOTE"
-                standard.isChecked -> "STANDARD"
-                else -> "STANDARD"
-            }
+            val template = selectedTemplate()
 
             if (template == "NOTE" && noteEditText.text.toString().trim().isEmpty()) {
                 noteEditText.error = "Inserire una nota"
@@ -140,26 +241,31 @@ class LabelPrintPopup(
                 return@setOnClickListener
             }
 
-            if (template == "NOTE") {
-                Toast.makeText(
-                    context,
-                    "La stampa della nota personalizzata è in preparazione",
-                    Toast.LENGTH_SHORT
-                ).show()
+            savePreferences()
+
+            if (product == null) {
+                remove()
+                onScanRequested()
                 return@setOnClickListener
             }
 
             printButton.isEnabled = false
+            val printableProduct = product
 
             Thread {
                 val result = gatewayApiClient.printLabel(
-                    articleCode = product.articleCode,
-                    description = product.description,
-                    barcode = product.barcode,
-                    publicPrice = product.publicPrice,
+                    articleCode = printableProduct.articleCode,
+                    description = printableProduct.description,
+                    barcode = printableProduct.barcode,
+                    publicPrice = printableProduct.publicPrice,
                     quantity = quantity,
                     printer = printer,
-                    template = template
+                    template = template,
+                    note = if (template == "NOTE") {
+                        noteEditText.text.toString().trim()
+                    } else {
+                        ""
+                    }
                 )
 
                 dialogView.post {
@@ -171,6 +277,7 @@ class LabelPrintPopup(
                             "$quantity etichette inviate alla GoDEX",
                             Toast.LENGTH_SHORT
                         ).show()
+                        savePreferences()
                         remove()
                         onClosed()
                     }.onFailure { error ->

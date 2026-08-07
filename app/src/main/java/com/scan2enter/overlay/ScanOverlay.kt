@@ -46,12 +46,14 @@ class ScanOverlay(
 
     private var rapidRescan = false
     private var godexMode = false
+    private var a4Mode = false
 
     private companion object {
         const val WORKFLOW_PREFS = "scan_workflow"
         const val WORKFLOW_MODE_KEY = "mode"
         const val MODE_INFO = "INFO"
         const val MODE_LABELS_GODEX = "ETICHETTE_GODEX"
+        const val MODE_LABELS_A4 = "ETICHETTE_A4"
     }
 
     private val timeoutRunnable = Runnable {
@@ -91,11 +93,13 @@ class ScanOverlay(
 
         closing = false
         this.rapidRescan = rapidRescan
-        godexMode = loadCurrentMode() == MODE_LABELS_GODEX
+        val currentMode = loadCurrentMode()
+        godexMode = currentMode == MODE_LABELS_GODEX
+        a4Mode = currentMode == MODE_LABELS_A4
 
         scanSession.start()
 
-        if (!godexMode) {
+        if (!godexMode && !a4Mode) {
             handler.postDelayed(
                 timeoutRunnable,
                 if (rapidRescan) {
@@ -111,11 +115,12 @@ class ScanOverlay(
         val closeScanner = View.OnClickListener {
             Log.d(
                 "Scan2Enter",
-                "Scanner chiuso con tocco godexMode=$godexMode"
+                "Scanner chiuso con tocco " +
+                        "godexMode=$godexMode a4Mode=$a4Mode"
             )
 
-            if (godexMode) {
-                exitGodexModeToHome()
+            if (godexMode || a4Mode) {
+                exitSpecialModeToHome()
             } else {
                 hide()
             }
@@ -152,9 +157,15 @@ class ScanOverlay(
             )
         )
 
-        if (godexMode) {
+        if (godexMode || a4Mode) {
             val message = TextView(context).apply {
-                text = "🏷️ MODALITÀ ETICHETTE GODEX\nTocca lo scanner per tornare alla Home"
+                text = if (a4Mode) {
+                    "📄 MODALITÀ ETICHETTE A4\n" +
+                            "Tocca lo scanner per tornare alla pagina A4"
+                } else {
+                    "🏷️ MODALITÀ ETICHETTE GODEX\n" +
+                            "Tocca lo scanner per tornare alla Home"
+                }
                 setTextColor(Color.WHITE)
                 textSize = 14f
                 gravity = Gravity.CENTER
@@ -234,6 +245,7 @@ class ScanOverlay(
         previewView = null
         rapidRescan = false
         godexMode = false
+        a4Mode = false
         closing = false
     }
 
@@ -250,7 +262,28 @@ class ScanOverlay(
             ?: MODE_INFO
     }
 
-    private fun exitGodexModeToHome() {
+    private fun exitSpecialModeToHome() {
+
+        if (a4Mode) {
+            hide()
+
+            handler.postDelayed(
+                {
+                    context.startService(
+                        Intent(
+                            context,
+                            OverlayService::class.java
+                        ).apply {
+                            action = OverlayService.ACTION_SHOW_A4_LABELS
+                        }
+                    )
+                },
+                250L
+            )
+
+            return
+        }
+
         context.applicationContext
             .getSharedPreferences(
                 WORKFLOW_PREFS,
