@@ -17,7 +17,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -29,8 +28,10 @@ import androidx.compose.ui.unit.sp
 import com.scan2enter.overlay.OverlayService
 
 @Composable
-fun HomeScreen() {
-
+fun HomeScreen(
+    onOpenTrovaTutto: () -> Unit,
+    onOpenSession: () -> Unit
+) {
     val context = LocalContext.current
 
     fun moduleNotAvailable(moduleName: String) {
@@ -42,47 +43,14 @@ fun HomeScreen() {
     }
 
     Scaffold(
-        modifier = Modifier.fillMaxSize(),
-
-        bottomBar = {
-            Surface(
-                modifier = Modifier.navigationBarsPadding(),
-                shadowElevation = 12.dp
-            ) {
-                Button(
-                    onClick = {
-                        context.startService(
-                            Intent(
-                                context,
-                                OverlayService::class.java
-                            ).apply {
-                                action = OverlayService.ACTION_OPEN_SCANNER
-                            }
-                        )
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(82.dp)
-                        .padding(
-                            horizontal = 12.dp,
-                            vertical = 8.dp
-                        ),
-                    contentPadding = PaddingValues(8.dp)
-                ) {
-                    Text(
-                        text = "🔫  SCANSIONA",
-                        fontSize = 24.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-            }
-        }
+        modifier = Modifier.fillMaxSize()
     ) { innerPadding ->
 
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
+                .navigationBarsPadding()
                 .padding(12.dp)
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -102,8 +70,24 @@ fun HomeScreen() {
             )
 
             HomeButtonRow(
+                leftText = "🔎\nTROVATUTTO",
+                rightText = "🔫\nSCANSIONA",
+                onLeftClick = onOpenTrovaTutto,
+                onRightClick = {
+                    context.startService(
+                        Intent(
+                            context,
+                            OverlayService::class.java
+                        ).apply {
+                            action = OverlayService.ACTION_OPEN_SCANNER
+                        }
+                    )
+                }
+            )
+
+            HomeButtonRow(
                 leftText = "📋\nRIORDINO",
-                rightText = "🏷️\nGODEX",
+                rightText = "⭐\nPREFERITI",
                 onLeftClick = {
                     context.startService(
                         Intent(
@@ -120,7 +104,7 @@ fun HomeScreen() {
                             context,
                             OverlayService::class.java
                         ).apply {
-                            action = OverlayService.ACTION_SHOW_GODEX_SETUP
+                            action = OverlayService.ACTION_SHOW_FAVORITES_LIST
                         }
                     )
                 }
@@ -128,7 +112,7 @@ fun HomeScreen() {
 
             HomeButtonRow(
                 leftText = "📄\nETICHETTE A4",
-                rightText = "📦\nCOLLO VELOCE",
+                rightText = "🏷️\nGODEX",
                 onLeftClick = {
                     context.startService(
                         Intent(
@@ -140,36 +124,39 @@ fun HomeScreen() {
                     )
                 },
                 onRightClick = {
-                    moduleNotAvailable("Collo veloce")
-                }
-            )
-
-            HomeButtonRow(
-                leftText = "⭐\nPREFERITI",
-                rightText = "📊\nVENDITE",
-                onLeftClick = {
                     context.startService(
                         Intent(
                             context,
                             OverlayService::class.java
                         ).apply {
-                            action = OverlayService.ACTION_SHOW_FAVORITES_LIST
+                            action = OverlayService.ACTION_SHOW_GODEX_SETUP
                         }
                     )
+                }
+            )
+
+            HomeButtonRow(
+                leftText = "📦\nCOLLO VELOCE",
+                rightText = "📊\nVENDITE",
+                onLeftClick = {
+                    moduleNotAvailable("Collo veloce")
                 },
                 onRightClick = {
                     moduleNotAvailable("Vendite")
                 }
             )
 
-            HomeButtonRow(
-                leftText = "⚙️\nIMPOSTAZIONI",
-                rightText = "",
-                onLeftClick = {
-                    moduleNotAvailable("Impostazioni")
-                },
-                onRightClick = null
-            )
+            Button(
+                onClick = onOpenSession,
+                modifier = Modifier.fillMaxWidth().height(92.dp),
+                contentPadding = PaddingValues(8.dp)
+            ) {
+                Text(
+                    text = "📋  SESSIONE",
+                    fontSize = 23.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
         }
     }
 }
@@ -181,12 +168,10 @@ private fun HomeButtonRow(
     onLeftClick: () -> Unit,
     onRightClick: (() -> Unit)?
 ) {
-
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-
         HomeModuleButton(
             text = leftText,
             onClick = onLeftClick,
@@ -194,21 +179,11 @@ private fun HomeButtonRow(
         )
 
         if (onRightClick != null) {
-
             HomeModuleButton(
                 text = rightText,
                 onClick = onRightClick,
                 modifier = Modifier.weight(1f)
             )
-
-        } else {
-
-            Surface(
-                modifier = Modifier
-                    .weight(1f)
-                    .height(120.dp),
-                color = MaterialTheme.colorScheme.surface
-            ) {}
         }
     }
 }
@@ -219,7 +194,6 @@ private fun HomeModuleButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-
     Button(
         onClick = onClick,
         modifier = modifier.height(120.dp),
@@ -230,7 +204,6 @@ private fun HomeModuleButton(
             contentColor = MaterialTheme.colorScheme.onSurfaceVariant
         )
     ) {
-
         Text(
             text = text,
             fontSize = 19.sp,

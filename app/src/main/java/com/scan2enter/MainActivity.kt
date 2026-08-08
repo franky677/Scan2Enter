@@ -9,13 +9,18 @@ import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.lifecycle.viewmodel.compose.viewModel
-import com.scan2enter.overlay.OverlayService
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import com.scan2enter.api.DueRetailApiTest
-import com.scan2enter.ui.screens.CameraScreen
-import com.scan2enter.ui.theme.Scan2EnterTheme
-import com.scan2enter.viewmodel.MainViewModel
+import com.scan2enter.overlay.OverlayService
 import com.scan2enter.ui.screens.HomeScreen
+import com.scan2enter.ui.screens.TrovaTuttoScreen
+import com.scan2enter.ui.screens.SessionScreen
+import com.scan2enter.session.SessionStore
+import com.scan2enter.ui.theme.Scan2EnterTheme
+
 class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -25,39 +30,77 @@ class MainActivity : ComponentActivity() {
         DueRetailApiTest.run()
         Log.d("DueRetailApi", "TEST API LANCIATO")
 
-        // Richiede il permesso Overlay
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-
             if (!Settings.canDrawOverlays(this)) {
-
                 val intent = Intent(
                     Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
                     Uri.parse("package:$packageName")
                 )
-
                 startActivity(intent)
-
             } else {
-
                 startService(
                     Intent(this, OverlayService::class.java)
                 )
             }
-
         } else {
-
             startService(
                 Intent(this, OverlayService::class.java)
             )
         }
 
+        SessionStore.initialize(applicationContext)
+
         enableEdgeToEdge()
 
         setContent {
-
             Scan2EnterTheme {
+                var currentScreen by rememberSaveable {
+                    mutableStateOf("HOME")
+                }
 
-                HomeScreen()
+                when (currentScreen) {
+                    "TROVATUTTO" -> {
+                        TrovaTuttoScreen(
+                            onBack = {
+                                currentScreen = "HOME"
+                            },
+                            onArticleOpened = null
+                        )
+                    }
+
+                    "TROVATUTTO_SESSIONE" -> {
+                        TrovaTuttoScreen(
+                            onBack = {
+                                currentScreen = "SESSIONE"
+                            },
+                            onArticleOpened = {
+                                currentScreen = "SESSIONE"
+                            }
+                        )
+                    }
+
+                    "SESSIONE" -> {
+                        SessionScreen(
+                            onBack = {
+                                currentScreen = "HOME"
+                            },
+                            onOpenSearch = {
+                                currentScreen = "TROVATUTTO_SESSIONE"
+                            }
+                        )
+                    }
+
+                    else -> {
+                        HomeScreen(
+                            onOpenTrovaTutto = {
+                                currentScreen = "TROVATUTTO"
+                            },
+                            onOpenSession = {
+                                currentScreen = "SESSIONE"
+                            }
+                        )
+                    }
+                }
             }
         }
     }

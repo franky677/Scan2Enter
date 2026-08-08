@@ -54,6 +54,8 @@ import com.scan2enter.overlay.popup.StockSettingsPopup
 import com.scan2enter.repository.ProductRepositoryProvider
 import com.scan2enter.reorder.ReorderItem
 import com.scan2enter.reorder.ReorderStore
+import com.scan2enter.session.SessionStore
+import com.scan2enter.printing.ListPdfGenerator
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
@@ -96,6 +98,9 @@ class OverlayService : Service() {
 
         const val ACTION_OPEN_CURRENT_ARTICLE =
             "com.scan2enter.action.OPEN_CURRENT_ARTICLE"
+
+        const val ACTION_OPEN_SEARCH_ARTICLE =
+            "com.scan2enter.action.OPEN_SEARCH_ARTICLE"
 
         const val ACTION_OPEN_SCANNER =
             "com.scan2enter.action.OPEN_SCANNER"
@@ -337,6 +342,7 @@ class OverlayService : Service() {
     }
 
     private var reopenScannerAfterPopup = false
+    private var sessionRecordedForCurrentScan = false
 
     private val dismissPopupRunnable = Runnable {
         removeProductInfoPopup()
@@ -356,6 +362,7 @@ class OverlayService : Service() {
             shouldReopenScanner &&
             loadCurrentScanMode() == MODE_INFO
         ) {
+            sessionRecordedForCurrentScan = false
             openRapidScanner()
         }
     }
@@ -620,6 +627,8 @@ class OverlayService : Service() {
             }
 
             ACTION_OPEN_SCANNER -> {
+                sessionRecordedForCurrentScan = false
+
                 android.util.Log.d(
                     "OverlayService",
                     "SCHERMATA INFORMAZIONI PRONTA - APRO SCANNER"
@@ -640,7 +649,24 @@ class OverlayService : Service() {
             }
 
             ACTION_OPEN_RAPID_SCANNER -> {
+                sessionRecordedForCurrentScan = false
                 openRapidScanner()
+            }
+
+            ACTION_OPEN_SEARCH_ARTICLE -> {
+                val barcode = intent.getStringExtra(
+                    EXTRA_CURRENT_ARTICLE_BARCODE
+                ).orEmpty()
+
+                openCurrentArticleFromApi(
+                    rawBarcode = barcode,
+                    uiYear = "",
+                    uiSeason = "",
+                    uiLocation = "",
+                    addToHistory = false,
+                    addToReorder = false,
+                    addToSession = true
+                )
             }
 
             ACTION_OPEN_CURRENT_ARTICLE -> {
@@ -664,7 +690,10 @@ class OverlayService : Service() {
         rawBarcode: String,
         uiYear: String,
         uiSeason: String,
-        uiLocation: String
+        uiLocation: String,
+        addToHistory: Boolean = true,
+        addToReorder: Boolean = true,
+        addToSession: Boolean = false
     ) {
         val barcode = rawBarcode
             .trim()
@@ -701,8 +730,18 @@ class OverlayService : Service() {
                     )
 
                     ProductInfoStore.current = enrichedProduct
-                    ProductInfoStore.addToHistory(enrichedProduct)
-                    ReorderStore.add(enrichedProduct)
+
+                    if (addToHistory) {
+                        ProductInfoStore.addToHistory(enrichedProduct)
+                    }
+
+                    if (addToReorder) {
+                        ReorderStore.add(enrichedProduct)
+                    }
+
+                    if (addToSession) {
+                        SessionStore.addOrIncrement(enrichedProduct)
+                    }
 
                     showOrUpdateProductInfoPopup(
                         workflowCompleted = true,
@@ -768,6 +807,7 @@ class OverlayService : Service() {
         super.onCreate()
 
         ProductInfoStore.initialize(applicationContext)
+        SessionStore.initialize(applicationContext)
         ReorderStore.initialize(applicationContext)
         A4LabelStore.initialize(applicationContext)
         FavoriteRepository.initialize(applicationContext)
@@ -826,7 +866,13 @@ class OverlayService : Service() {
             "Dock size = ${dockView.measuredWidth} x ${dockView.measuredHeight}"
         )
 
-        windowManager.addView(dockView, layoutParams)
+        // Dock storica disabilitata: la nuova Sessione sostituisce
+        // i vecchi comandi flottanti. Manteniamo per ora le strutture
+        // interne per non alterare scanner e popup.
+        android.util.Log.d(
+            "OverlayService",
+            "DOCK DISABILITATA - NON AGGIUNTA AL WINDOW MANAGER"
+        )
 
         infoArea.setOnClickListener {
             if (isDragging) return@setOnClickListener
@@ -1245,6 +1291,33 @@ class OverlayService : Service() {
             }
         )
 
+        val printListButton = Button(this).apply {
+            tag = "printListButton"
+            text = "🖨  STAMPA PDF"
+            textSize = 15f
+            gravity = Gravity.CENTER
+            visibility = View.GONE
+            setTextColor(Color.WHITE)
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                setColor(Color.rgb(55, 71, 79))
+                cornerRadius = 12 * density
+            }
+            setOnClickListener {
+                printCurrentVisibleList()
+            }
+        }
+
+        card.addView(
+            printListButton,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                (48 * density).toInt()
+            ).apply {
+                bottomMargin = (10 * density).toInt()
+            }
+        )
+
         /*
          * Lista virtualizzata: ListView crea soltanto le righe visibili.
          * La precedente combinazione ScrollView + LinearLayout costruiva
@@ -1378,6 +1451,8 @@ class OverlayService : Service() {
             findViewByTag<Button>(popup, "favoriteSortButton")
         val supplierFilterButton =
             findViewByTag<Button>(popup, "reorderSupplierFilterButton")
+        val printListButton =
+            findViewByTag<Button>(popup, "printListButton")
 
         styleReorderTab(
             button = reorderTab,
@@ -1403,6 +1478,7 @@ class OverlayService : Service() {
 
             supplierFilterButton?.visibility = View.GONE
             favoriteSortButton?.visibility = View.GONE
+            printListButton?.visibility = View.GONE
 
             val rows: List<() -> View> = if (history.isEmpty()) {
                 listOf {
@@ -1424,6 +1500,7 @@ class OverlayService : Service() {
             supplierFilterButton?.visibility = View.GONE
             favoriteSortButton?.visibility = View.VISIBLE
             favoriteSortButton?.text = favoriteSortLabel()
+            printListButton?.visibility = View.VISIBLE
 
             val favorites = sortFavoriteItems(
                 FavoriteRepository.getAll()
@@ -1452,6 +1529,7 @@ class OverlayService : Service() {
         }
 
         favoriteSortButton?.visibility = View.GONE
+        printListButton?.visibility = View.VISIBLE
 
         val allItems = ReorderStore.getAll()
             .filter(::shouldShowReorderItem)
@@ -1516,6 +1594,96 @@ class OverlayService : Service() {
         }
 
         applyListAdapter(listView, rows)
+    }
+
+    private fun printCurrentVisibleList() {
+        when (reorderPopupMode) {
+            ReorderPopupMode.FAVORITES -> {
+                val favorites = sortFavoriteItems(
+                    FavoriteRepository.getAll()
+                )
+
+                if (favorites.isEmpty()) {
+                    Toast.makeText(
+                        this,
+                        "Nessun preferito da stampare",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                    return
+                }
+
+                val sortDescription = when (favoriteSortMode) {
+                    FavoriteSortMode.INSERTION ->
+                        "Ordine di inserimento"
+                    FavoriteSortMode.PRICE_ASCENDING ->
+                        "Prezzo crescente"
+                    FavoriteSortMode.PRICE_DESCENDING ->
+                        "Prezzo decrescente"
+                }
+
+                val result = ListPdfGenerator.generateFavoritesAndOpen(
+                    context = applicationContext,
+                    items = favorites,
+                    sortDescription = sortDescription
+                )
+
+                result.onFailure { error ->
+                    Toast.makeText(
+                        this,
+                        "Errore PDF preferiti: ${error.message}",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+
+            ReorderPopupMode.REORDER -> {
+                val allItems = ReorderStore.getAll()
+                    .filter(::shouldShowReorderItem)
+
+                val visibleItems =
+                    reorderSupplierFilterKey?.let { selectedKey ->
+                        allItems.filter {
+                            supplierFilterKey(it) == selectedKey
+                        }
+                    } ?: allItems
+
+                if (visibleItems.isEmpty()) {
+                    Toast.makeText(
+                        this,
+                        "Nessun articolo da stampare",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                    return
+                }
+
+                val filterDescription =
+                    if (reorderSupplierFilterKey == null) {
+                        "Tutti i fornitori"
+                    } else {
+                        visibleItems.firstOrNull()
+                            ?.supplierName
+                            ?.trim()
+                            .orEmpty()
+                            .ifEmpty { "Fornitore non indicato" }
+                    }
+
+                val result = ListPdfGenerator.generateReorderAndOpen(
+                    context = applicationContext,
+                    items = visibleItems,
+                    filterDescription = filterDescription
+                )
+
+                result.onFailure { error ->
+                    Toast.makeText(
+                        this,
+                        "Errore PDF riordino: ${error.message}",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+
+            else -> Unit
+        }
     }
 
     private fun favoriteSortLabel(): String =
@@ -2796,6 +2964,22 @@ class OverlayService : Service() {
     ) {
         val product = ProductInfoStore.current
 
+        if (
+            workflowCompleted &&
+            !manualOpen &&
+            !sessionRecordedForCurrentScan &&
+            product != null &&
+            product.articleId > 0L
+        ) {
+            SessionStore.addOrIncrement(product)
+            sessionRecordedForCurrentScan = true
+
+            android.util.Log.d(
+                "OverlayService",
+                "SESSIONE +1 articleId=${product.articleId} qta=${SessionStore.quantityFor(product.articleId)}"
+            )
+        }
+
         if (productInfoPopup == null) {
             createProductInfoPopup()
         }
@@ -2860,6 +3044,7 @@ class OverlayService : Service() {
                     reopenScannerAfterPopup = false
 
                     removeProductInfoPopup()
+                    sessionRecordedForCurrentScan = false
                     openRapidScanner()
 
                     android.util.Log.d(

@@ -31,12 +31,21 @@ class LabelPrintPopup(
         const val PREFS_NAME = "godex_label_preferences"
         const val PREF_TEMPLATE = "template"
         const val PREF_QUANTITY = "quantity"
-        const val PREF_NOTE = "note"
+        const val PREF_NOTE_PREFIX = "note_article_"
         const val PREF_PRINTER = "printer"
     }
 
     private val gatewayApiClient = GatewayApiClient()
     private var overlayRoot: View? = null
+
+    private fun notePreferenceKey(product: ProductInfo?): String? {
+        val articleId = product?.articleId ?: 0L
+        return if (articleId > 0L) {
+            "$PREF_NOTE_PREFIX$articleId"
+        } else {
+            null
+        }
+    }
 
     fun show(
         product: ProductInfo?,
@@ -114,8 +123,12 @@ class LabelPrintPopup(
                 .coerceIn(1, 100)
                 .toString()
         )
+        val noteKey = notePreferenceKey(product)
+
         noteEditText.setText(
-            preferences.getString(PREF_NOTE, "").orEmpty()
+            noteKey
+                ?.let { preferences.getString(it, "") }
+                .orEmpty()
         )
         noteEditText.setSelection(noteEditText.text.length)
 
@@ -127,7 +140,7 @@ class LabelPrintPopup(
         }
 
         fun savePreferences() {
-            preferences.edit()
+            val editor = preferences.edit()
                 .putString(PREF_TEMPLATE, selectedTemplate())
                 .putInt(
                     PREF_QUANTITY,
@@ -137,15 +150,19 @@ class LabelPrintPopup(
                         ?: 1
                 )
                 .putString(
-                    PREF_NOTE,
-                    noteEditText.text.toString()
-                        .take(80)
-                )
-                .putString(
                     PREF_PRINTER,
                     if (epson.isChecked) "EPSON" else "GODEX"
                 )
-                .apply()
+
+            notePreferenceKey(product)?.let { key ->
+                editor.putString(
+                    key,
+                    noteEditText.text.toString()
+                        .take(80)
+                )
+            }
+
+            editor.apply()
         }
 
         fun updateNoteEditorVisibility() {

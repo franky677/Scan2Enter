@@ -1,0 +1,151 @@
+package com.scan2enter.session
+
+import android.content.Context
+import com.scan2enter.model.ProductInfo
+import org.json.JSONArray
+import org.json.JSONObject
+
+object SessionStore {
+    private const val PREFS_NAME = "scan2enter_work_session"
+    private const val KEY_ITEMS = "items"
+
+    private val lock = Any()
+    private val listeners = mutableSetOf<(List<SessionItem>) -> Unit>()
+    private val items = LinkedHashMap<Long, SessionItem>()
+
+    private var applicationContext: Context? = null
+    private var initialized = false
+
+    fun initialize(context: Context) {
+        synchronized(lock) {
+            if (initialized) return
+            applicationContext = context.applicationContext
+            loadLocked()
+            initialized = true
+        }
+    }
+
+    fun addOrIncrement(product: ProductInfo, amount: Int = 1): SessionItem? {
+        if (product.articleId <= 0L || amount <= 0) return null
+
+        val updated: SessionItem
+        synchronized(lock) {
+            val old = items[product.articleId]
+            updated = if (old == null) {
+                SessionItem(
+                    articleId = product.articleId,
+                    articleCode = product.articleCode,
+                    description = product.description,
+                    barcode = product.barcode,
+                    publicPrice = product.publicPrice,
+                    stock = product.stock,
+                    quantity = amount
+                )
+            } else {
+                old.copy(
+                    articleCode = product.articleCode.ifBlank { old.articleCode },
+                    description = product.description.ifBlank { old.description },
+                    barcode = product.barcode.ifBlank { old.barcode },
+                    publicPrice = product.publicPrice.ifBlank { old.publicPrice },
+                    stock = product.stock.ifBlank { old.stock },
+                    quantity = old.quantity + amount
+                )
+            }
+            items[product.articleId] = updated
+            saveLocked()
+        }
+        notifyListeners()
+        return updated
+    }
+
+    fun setQuantity(articleId: Long, quantity: Int) {
+        synchronized(lock) {
+            val old = items[articleId] ?: return
+            if (quantity <= 0) items.remove(articleId)
+            else items[articleId] = old.copy(quantity = quantity.coerceAtMost(9999))
+            saveLocked()
+        }
+        notifyListeners()
+    }
+
+    fun remove(articleId: Long) {
+        synchronized(lock) {
+            if (items.remove(articleId) == null) return
+            saveLocked()
+        }
+        notifyListeners()
+    }
+
+    fun clear() {
+        synchronized(lock) {
+            items.clear()
+            saveLocked()
+        }
+        notifyListeners()
+    }
+
+    fun getItems(): List<SessionItem> = synchronized(lock) { items.values.toList() }
+    fun quantityFor(articleId: Long): Int = synchronized(lock) { items[articleId]?.quantity ?: 0 }
+
+    fun addListener(listener: (List<SessionItem>) -> Unit) {
+        synchronized(lock) { listeners.add(listener) }
+        listener(getItems())
+    }
+
+    fun removeListener(listener: (List<SessionItem>) -> Unit) {
+        synchronized(lock) { listeners.remove(listener) }
+    }
+
+    private fun notifyListeners() {
+        val snapshot = getItems()
+        val callbacks = synchronized(lock) { listeners.toList() }
+        callbacks.forEach { runCatching { it(snapshot) } }
+    }
+
+    private fun loadLocked() {
+        items.clear()
+        val context = applicationContext ?: return
+        val json = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .getString(KEY_ITEMS, null) ?: return
+
+        runCatching {
+            val array = JSONArray(json)
+            for (i in 0 until array.length()) {
+                val obj = array.optJSONObject(i) ?: continue
+                val id = obj.optLong("articleId", 0L)
+                val qty = obj.optInt("quantity", 0)
+                if (id <= 0L || qty <= 0) continue
+                items[id] = SessionItem(
+                    articleId = id,
+                    articleCode = obj.optString("articleCode"),
+                    description = obj.optString("description"),
+                    barcode = obj.optString("barcode"),
+                    publicPrice = obj.optString("publicPrice"),
+                    stock = obj.optString("stock"),
+                    quantity = qty
+                )
+            }
+        }.onFailure { items.clear() }
+    }
+
+    private fun saveLocked() {
+        val context = applicationContext ?: return
+        val array = JSONArray()
+        items.values.forEach { item ->
+            array.put(JSONObject().apply {
+                put("articleId", item.articleId)
+                put("articleCode", item.articleCode)
+                put("description", item.description)
+                put("barcode", item.barcode)
+                put("publicPrice", item.publicPrice)
+                put("stock", item.stock)
+                put("quantity", item.quantity)
+            })
+        }
+
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putString(KEY_ITEMS, array.toString())
+            .apply()
+    }
+}
