@@ -633,21 +633,12 @@ class OverlayService : Service() {
 
                 android.util.Log.d(
                     "OverlayService",
-                    "SCHERMATA INFORMAZIONI PRONTA - APRO SCANNER"
+                    "SUNMI - APRO SCANNER HARDWARE"
                 )
 
-                if (BuildFlags.USE_NEW_SCANNER) {
-                    scanOverlay.show(rapidRescan = false)
-                } else {
-                    val scannerIntent = Intent(
-                        this,
-                        ScannerActivity::class.java
-                    ).apply {
-                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    }
-
-                    startActivity(scannerIntent)
-                }
+                scanOverlay.show(
+                    rapidRescan = false
+                )
             }
 
             ACTION_OPEN_RAPID_SCANNER -> {
@@ -885,16 +876,14 @@ class OverlayService : Service() {
     }
 
     private fun openRapidScanner() {
-        if (!BuildFlags.USE_NEW_SCANNER) {
-            return
-        }
-
         android.util.Log.d(
             "OverlayService",
-            "APERTURA SCANNER AUTOMATICO 2 SECONDI"
+            "SUNMI - RIAPRO SCANNER HARDWARE"
         )
 
-        scanOverlay.show(rapidRescan = true)
+        scanOverlay.show(
+            rapidRescan = true
+        )
     }
 
     override fun onCreate() {

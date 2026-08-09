@@ -68,7 +68,8 @@ private const val KEY_SEARCH_ON_LEFT = "search_on_left"
 @Composable
 fun SessionScreen(
     onBack: () -> Unit,
-    onOpenSearch: () -> Unit
+    onOpenSearch: () -> Unit,
+    onOpenColloHistory: () -> Unit
 ) {
     val context = LocalContext.current
 
@@ -165,7 +166,8 @@ fun SessionScreen(
                         items = sessionItems,
                         onClose = {
                             actionPanelOpen = false
-                        }
+                        },
+                        onOpenColloHistory = onOpenColloHistory
                     )
                 }
 
@@ -577,7 +579,8 @@ private fun SessionActionButton(
 @Composable
 private fun SessionActionPanel(
     items: List<SessionItem>,
-    onClose: () -> Unit
+    onClose: () -> Unit,
+    onOpenColloHistory: () -> Unit
 ) {
     val context = LocalContext.current
     val customer = SessionCustomerStore.current.value
@@ -746,6 +749,13 @@ private fun SessionActionPanel(
             }
 
             Button(
+                onClick = onOpenColloHistory,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("📚  STORICO COLLI")
+            }
+
+            Button(
                 onClick = { },
                 enabled = false,
                 modifier = Modifier.fillMaxWidth()
@@ -826,6 +836,16 @@ private fun SessionActionPanel(
                             "La sessione resta disponibile finché non scegli di chiuderla.",
                         fontSize = 13.sp
                     )
+
+                    Button(
+                        onClick = {
+                            createdCollo = null
+                            onOpenColloHistory()
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("📚 APRI STORICO COLLI")
+                    }
                 }
             },
             confirmButton = {

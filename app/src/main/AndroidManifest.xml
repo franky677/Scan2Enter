@@ -37,6 +37,10 @@
             android:theme="@style/Theme.Scan2Enter" />
 
         <activity
+            android:name=".sunmi.SunmiTestActivity"
+            android:exported="true" />
+
+        <activity
             android:name=".MainActivity"
             android:exported="true"
             android:label="@string/app_name"

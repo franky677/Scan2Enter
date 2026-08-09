@@ -156,6 +156,24 @@ object SessionStore {
         notifyListeners()
     }
 
+    fun replaceWithHistory(
+        historyItems: List<SessionItem>
+    ) {
+        synchronized(lock) {
+            items.clear()
+
+            historyItems.forEach { item ->
+                if (item.articleId > 0L && item.quantity > 0) {
+                    items[item.articleId] = item
+                }
+            }
+
+            saveLocked()
+        }
+
+        notifyListeners()
+    }
+
     fun remove(articleId: Long) {
         synchronized(lock) {
             if (items.remove(articleId) == null) return

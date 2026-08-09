@@ -1,24 +1,21 @@
 package com.scan2enter.overlay
 
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.graphics.Color
 import android.graphics.PixelFormat
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import android.view.Gravity
-import android.content.Intent
-import android.graphics.Color
 import android.view.View
-import android.widget.LinearLayout
-import android.widget.TextView
 import android.view.WindowManager
 import android.widget.FrameLayout
-import androidx.camera.view.PreviewView
-import com.scan2enter.overlay.camera.OverlayCameraManager
-import com.scan2enter.overlay.camera.OverlayLifecycleOwner
-import com.scan2enter.scanner.ScanConfig
-import com.scan2enter.scanner.ScanSession
+import android.widget.TextView
 import com.scan2enter.MainActivity
+import com.scan2enter.scanner.ScanSession
 
 class ScanOverlay(
     private val context: Context
@@ -27,28 +24,27 @@ class ScanOverlay(
     private val windowManager =
         context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
 
-    private val cameraManager =
-        OverlayCameraManager(context)
-
     private val scanSession =
         ScanSession(context)
 
-    private var lifecycleOwner: OverlayLifecycleOwner? = null
+    private val handler =
+        Handler(Looper.getMainLooper())
 
     private var container: FrameLayout? = null
-
-    private var previewView: PreviewView? = null
-
-    private val handler = Handler(Looper.getMainLooper())
 
     @Volatile
     private var closing = false
 
+    private var receiverRegistered = false
     private var rapidRescan = false
     private var godexMode = false
     private var a4Mode = false
 
     private companion object {
+        const val TAG = "Scan2Enter"
+        const val SUNMI_SCAN_ACTION = "com.honeywell.tools.action.scan_result"
+        const val SUNMI_BARCODE_EXTRA = "barcode_data"
+
         const val WORKFLOW_PREFS = "scan_workflow"
         const val WORKFLOW_MODE_KEY = "mode"
         const val MODE_INFO = "INFO"
@@ -56,197 +52,207 @@ class ScanOverlay(
         const val MODE_LABELS_A4 = "ETICHETTE_A4"
     }
 
-    private val timeoutRunnable = Runnable {
-
-        Log.d(
-            "Scan2Enter",
-            "Scanner timeout rapidRescan=$rapidRescan"
-        )
-
-        /*
-         * Il timeout della riapertura automatica non è un errore: significa
-         * semplicemente che l'operatore ha terminato il ciclo spara-spara.
-         */
-        if (!rapidRescan) {
-            context.startService(
-                android.content.Intent(
-                    context,
-                    OverlayService::class.java
-                ).apply {
-                    action = OverlayService.ACTION_SHOW_SCAN_ERROR
-                    putExtra(
-                        OverlayService.EXTRA_SCAN_ERROR_MESSAGE,
-                        "Nessun codice letto. Riprovare."
-                    )
+    private val sunmiReceiver =
+        object : BroadcastReceiver() {
+            override fun onReceive(
+                receiverContext: Context?,
+                intent: Intent?
+            ) {
+                if (intent?.action != SUNMI_SCAN_ACTION) {
+                    return
                 }
-            )
-        }
 
-        hide()
-    }
+                val barcode =
+                    intent.getStringExtra(SUNMI_BARCODE_EXTRA)
+                        ?.trim()
+                        .orEmpty()
+
+                Log.d(
+                    TAG,
+                    "SUNMI BROADCAST barcode=$barcode"
+                )
+
+                if (barcode.isBlank()) {
+                    return
+                }
+
+                onHardwareBarcode(barcode)
+            }
+        }
 
     fun show(
         rapidRescan: Boolean = false
     ) {
-
-        if (container != null) return
+        if (container != null) {
+            Log.d(TAG, "SUNMI SCANNER GIÀ APERTO")
+            return
+        }
 
         closing = false
         this.rapidRescan = rapidRescan
+
         val currentMode = loadCurrentMode()
         godexMode = currentMode == MODE_LABELS_GODEX
         a4Mode = currentMode == MODE_LABELS_A4
 
         scanSession.start()
 
-        if (!godexMode && !a4Mode) {
-            handler.postDelayed(
-                timeoutRunnable,
-                if (rapidRescan) {
-                    2_000L
-                } else {
-                    ScanConfig.SCAN_TIMEOUT
-                }
+        try {
+            context.registerReceiver(
+                sunmiReceiver,
+                IntentFilter(SUNMI_SCAN_ACTION)
+            )
+
+            receiverRegistered = true
+            Log.d(TAG, "SUNMI RECEIVER REGISTRATO")
+        } catch (error: Exception) {
+            receiverRegistered = false
+
+            Log.e(
+                TAG,
+                "ERRORE REGISTRAZIONE SUNMI RECEIVER",
+                error
             )
         }
 
-        val frame = FrameLayout(context)
-
-        val closeScanner = View.OnClickListener {
-            Log.d(
-                "Scan2Enter",
-                "Scanner chiuso con tocco " +
-                        "godexMode=$godexMode a4Mode=$a4Mode"
-            )
-
-            if (godexMode || a4Mode) {
-                exitSpecialModeToHome()
-            } else {
-                hide()
-            }
-        }
-
-        /*
-         * Assegno il tap sia al contenitore sia ai suoi figli: PreviewView e
-         * grafica di mira possono intercettare il tocco prima del FrameLayout.
-         */
-        frame.setOnClickListener(closeScanner)
-
-        val preview = PreviewView(context)
-        preview.setOnClickListener(closeScanner)
-
-        preview.scaleType =
-            PreviewView.ScaleType.FILL_CENTER
-
-        frame.addView(
-            preview,
-            FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT,
-                FrameLayout.LayoutParams.MATCH_PARENT
-            )
-        )
-
-        val overlayView = ScanOverlayView(context)
-        overlayView.setOnClickListener(closeScanner)
-
-        frame.addView(
-            overlayView,
-            FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT,
-                FrameLayout.LayoutParams.MATCH_PARENT
-            )
-        )
-
-        if (godexMode || a4Mode) {
-            val message = TextView(context).apply {
-                text = if (a4Mode) {
-                    "📄 MODALITÀ ETICHETTE A4\n" +
-                            "Tocca lo scanner per tornare alla pagina A4"
-                } else {
-                    "🏷️ MODALITÀ ETICHETTE GODEX\n" +
-                            "Tocca lo scanner per tornare alla Home"
-                }
-                setTextColor(Color.WHITE)
-                textSize = 14f
-                gravity = Gravity.CENTER
-                setPadding(dp(10), dp(7), dp(10), dp(7))
-                setBackgroundColor(0xCC000000.toInt())
-                setOnClickListener(closeScanner)
+        val frame =
+            FrameLayout(context).apply {
+                setBackgroundColor(
+                    Color.rgb(12, 12, 12)
+                )
+                isClickable = true
             }
 
-            frame.addView(
-                message,
-                FrameLayout.LayoutParams(
-                    FrameLayout.LayoutParams.MATCH_PARENT,
-                    FrameLayout.LayoutParams.WRAP_CONTENT
-                ).apply {
-                    gravity = Gravity.BOTTOM
-                }
-            )
-        }
+        val closeScanner =
+            View.OnClickListener {
+                Log.d(
+                    TAG,
+                    "SUNMI SCANNER CHIUSO CON TOCCO"
+                )
 
-        val params = WindowManager.LayoutParams(
-
-            dp(ScanConfig.OVERLAY_WIDTH_DP),
-            dp(ScanConfig.OVERLAY_HEIGHT_DP),
-
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
-
-            PixelFormat.TRANSLUCENT
-        )
-
-        params.gravity = Gravity.CENTER
-
-        windowManager.addView(frame, params)
-
-        container = frame
-        previewView = preview
-
-        lifecycleOwner = OverlayLifecycleOwner()
-
-        lifecycleOwner!!.start()
-
-        cameraManager.start(
-            previewView = preview,
-            lifecycleOwner = lifecycleOwner!!,
-            onBarcodeDetected = { barcode ->
-
-                if (closing) return@start
-
-                closing = true
-
-                scanSession.onBarcodeRead(barcode) {
+                if (godexMode || a4Mode) {
+                    exitSpecialModeToHome()
+                } else {
                     hide()
                 }
             }
+
+        frame.setOnClickListener(closeScanner)
+
+        val readyText =
+            TextView(context).apply {
+                text =
+                    if (godexMode) {
+                        "🏷️ GODEX\n\nPRONTO ALLA LETTURA\n\nPremi il grilletto"
+                    } else if (a4Mode) {
+                        "📄 ETICHETTE A4\n\nPRONTO ALLA LETTURA\n\nPremi il grilletto"
+                    } else {
+                        "🔴 SCANNER SUNMI\n\nPRONTO\n\nPremi il grilletto"
+                    }
+
+                setTextColor(Color.WHITE)
+                textSize = 22f
+                gravity = Gravity.CENTER
+                setPadding(
+                    dp(18),
+                    dp(18),
+                    dp(18),
+                    dp(18)
+                )
+                setOnClickListener(closeScanner)
+            }
+
+        frame.addView(
+            readyText,
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+            )
+        )
+
+        val params =
+            WindowManager.LayoutParams(
+                dp(280),
+                dp(210),
+                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+                PixelFormat.TRANSLUCENT
+            ).apply {
+                gravity = Gravity.CENTER
+            }
+
+        windowManager.addView(frame, params)
+        container = frame
+
+        Log.d(
+            TAG,
+            "SUNMI HARDWARE SCANNER PRONTO - CAMERAX NON AVVIATA"
         )
     }
 
+    fun onHardwareBarcode(
+        barcode: String
+    ) {
+        if (container == null) {
+            Log.d(
+                TAG,
+                "SUNMI BARCODE IGNORATO - SCANNER NON APERTO"
+            )
+            return
+        }
+
+        if (closing) {
+            Log.d(
+                TAG,
+                "SUNMI BARCODE IGNORATO - LETTURA GIÀ IN CORSO"
+            )
+            return
+        }
+
+        val normalized = barcode.trim()
+
+        if (normalized.isBlank()) {
+            return
+        }
+
+        Log.d(
+            TAG,
+            "SUNMI BARCODE -> SCANSESSION = $normalized"
+        )
+
+        closing = true
+
+        scanSession.onBarcodeRead(normalized) {
+            hide()
+        }
+    }
+
     fun hide() {
-
-        handler.removeCallbacks(timeoutRunnable)
-
         scanSession.stop()
 
-        cameraManager.stop()
+        if (receiverRegistered) {
+            try {
+                context.unregisterReceiver(sunmiReceiver)
+            } catch (_: Exception) {
+            }
 
-        lifecycleOwner?.stop()
-        lifecycleOwner = null
+            receiverRegistered = false
+        }
 
-        container?.let {
-
-            windowManager.removeView(it)
-
+        container?.let { view ->
+            try {
+                windowManager.removeView(view)
+            } catch (_: Exception) {
+            }
         }
 
         container = null
-        previewView = null
         rapidRescan = false
         godexMode = false
         a4Mode = false
         closing = false
+
+        Log.d(TAG, "SUNMI SCANNER CHIUSO")
     }
 
     private fun loadCurrentMode(): String {
@@ -263,7 +269,6 @@ class ScanOverlay(
     }
 
     private fun exitSpecialModeToHome() {
-
         if (a4Mode) {
             hide()
 
@@ -274,7 +279,8 @@ class ScanOverlay(
                             context,
                             OverlayService::class.java
                         ).apply {
-                            action = OverlayService.ACTION_SHOW_A4_LABELS
+                            action =
+                                OverlayService.ACTION_SHOW_A4_LABELS
                         }
                     )
                 },
@@ -313,11 +319,9 @@ class ScanOverlay(
     }
 
     private fun dp(value: Int): Int {
-
         return (
                 value *
                         context.resources.displayMetrics.density
                 ).toInt()
     }
-
 }

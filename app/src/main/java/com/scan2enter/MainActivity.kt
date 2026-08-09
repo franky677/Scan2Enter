@@ -18,6 +18,7 @@ import com.scan2enter.overlay.OverlayService
 import com.scan2enter.ui.screens.HomeScreen
 import com.scan2enter.ui.screens.TrovaTuttoScreen
 import com.scan2enter.ui.screens.SessionScreen
+import com.scan2enter.ui.screens.ColloHistoryScreen
 import com.scan2enter.session.SessionStore
 import com.scan2enter.ui.theme.Scan2EnterTheme
 
@@ -86,6 +87,20 @@ class MainActivity : ComponentActivity() {
                             },
                             onOpenSearch = {
                                 currentScreen = "TROVATUTTO_SESSIONE"
+                            },
+                            onOpenColloHistory = {
+                                currentScreen = "STORICO_COLLI"
+                            }
+                        )
+                    }
+
+                    "STORICO_COLLI" -> {
+                        ColloHistoryScreen(
+                            onBack = {
+                                currentScreen = "SESSIONE"
+                            },
+                            onDuplicated = {
+                                currentScreen = "SESSIONE"
                             }
                         )
                     }

@@ -482,6 +482,112 @@ class GatewayApiClient(
     }
 
     /**
+     * Legge lo storico colli recente o completo.
+     */
+    fun getColloHistory(
+        query: String = "",
+        days: Int = 30,
+        limit: Int = 100
+    ): Result<List<ColloHistorySummaryDto>> = runCatching {
+        val encodedQuery = URLEncoder.encode(
+            query.trim(),
+            StandardCharsets.UTF_8.name()
+        )
+
+        val url =
+            "${baseUrl.trimEnd('/')}/api/session/colli" +
+                    "?days=${days.coerceAtLeast(0)}" +
+                    "&limit=${limit.coerceIn(1, 500)}" +
+                    "&q=$encodedQuery"
+
+        val response = executeGet(url)
+
+        if (response.code !in 200..299) {
+            error(
+                "Gateway HTTP ${response.code}: ${response.body.take(500)}"
+            )
+        }
+
+        val root = JSONObject(response.body)
+        val array = root.optJSONArray("items")
+            ?: error("Risposta storico colli non valida")
+
+        val result = ArrayList<ColloHistorySummaryDto>(array.length())
+
+        for (index in 0 until array.length()) {
+            val item = array.optJSONObject(index) ?: continue
+
+            result.add(
+                ColloHistorySummaryDto(
+                    testataId = item.optInt("testataId", 0),
+                    numeroCollo = item.optString("numeroCollo", "").trim(),
+                    barcodeCollo = item.optString("barcodeCollo", "").trim(),
+                    clientId = item.optInt("clientId", 0),
+                    clientName = item.optString("clientName", "").trim(),
+                    createdAt = item.optString("createdAt", "").trim(),
+                    itemCount = item.optInt("itemCount", 0),
+                    pieceCount = item.optDouble("pieceCount", 0.0),
+                    total = item.optDouble("total", 0.0),
+                    isElaborato = item.optBoolean("isElaborato", false)
+                )
+            )
+        }
+
+        result
+    }
+
+    fun getColloHistoryDetail(
+        testataId: Int
+    ): Result<ColloHistoryDetailDto> = runCatching {
+        require(testataId > 0) {
+            "Id collo non valido"
+        }
+
+        val url =
+            "${baseUrl.trimEnd('/')}/api/session/colli/$testataId"
+
+        val response = executeGet(url)
+
+        if (response.code !in 200..299) {
+            error(
+                "Gateway HTTP ${response.code}: ${response.body.take(500)}"
+            )
+        }
+
+        val root = JSONObject(response.body)
+        val itemsArray = root.optJSONArray("items") ?: JSONArray()
+        val items = ArrayList<ColloHistoryItemDto>(itemsArray.length())
+
+        for (index in 0 until itemsArray.length()) {
+            val item = itemsArray.optJSONObject(index) ?: continue
+
+            items.add(
+                ColloHistoryItemDto(
+                    articleId = item.optLong("articleId", 0L),
+                    articleCode = item.optString("articleCode", "").trim(),
+                    description = item.optString("description", "").trim(),
+                    barcode = item.optString("barcode", "").trim(),
+                    quantity = item.optDouble("quantity", 0.0),
+                    price = item.optDouble("price", 0.0),
+                    total = item.optDouble("total", 0.0)
+                )
+            )
+        }
+
+        ColloHistoryDetailDto(
+            testataId = root.optInt("testataId", 0),
+            numeroCollo = root.optString("numeroCollo", "").trim(),
+            barcodeCollo = root.optString("barcodeCollo", "").trim(),
+            clientId = root.optInt("clientId", 0),
+            clientName = root.optString("clientName", "").trim(),
+            createdAt = root.optString("createdAt", "").trim(),
+            isElaborato = root.optBoolean("isElaborato", false),
+            total = root.optDouble("total", 0.0),
+            items = items
+        )
+    }
+
+    /**
      * Crea un collo dalla Sessione Android.
      *
      * POST /api/session/colli
@@ -1033,6 +1139,41 @@ class GatewayApiClient(
         val body: String
     )
 }
+
+data class ColloHistorySummaryDto(
+    val testataId: Int,
+    val numeroCollo: String,
+    val barcodeCollo: String,
+    val clientId: Int,
+    val clientName: String,
+    val createdAt: String,
+    val itemCount: Int,
+    val pieceCount: Double,
+    val total: Double,
+    val isElaborato: Boolean
+)
+
+data class ColloHistoryItemDto(
+    val articleId: Long,
+    val articleCode: String,
+    val description: String,
+    val barcode: String,
+    val quantity: Double,
+    val price: Double,
+    val total: Double
+)
+
+data class ColloHistoryDetailDto(
+    val testataId: Int,
+    val numeroCollo: String,
+    val barcodeCollo: String,
+    val clientId: Int,
+    val clientName: String,
+    val createdAt: String,
+    val isElaborato: Boolean,
+    val total: Double,
+    val items: List<ColloHistoryItemDto>
+)
 
 data class SessionColloItemDto(
     val barcode: String,
