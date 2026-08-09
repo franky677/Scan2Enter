@@ -55,10 +55,12 @@ import com.scan2enter.repository.ProductRepositoryProvider
 import com.scan2enter.reorder.ReorderItem
 import com.scan2enter.reorder.ReorderStore
 import com.scan2enter.session.SessionStore
+import com.scan2enter.session.SessionCustomerStore
 import com.scan2enter.printing.ListPdfGenerator
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
+import java.util.Locale
 
 class OverlayService : Service() {
 
@@ -686,6 +688,96 @@ class OverlayService : Service() {
         return START_STICKY
     }
 
+    private fun addProductToSessionWithCustomerPrice(
+        product: ProductInfo
+    ) {
+        val customer = SessionCustomerStore.current.value
+        val barcode = product.barcode.trim()
+
+        if (barcode.isBlank()) {
+            SessionStore.addOrIncrement(product)
+            return
+        }
+
+        Thread {
+            val result = gatewayApiClient.getClientPrice(
+                clientId = customer.id,
+                barcode = barcode
+            )
+
+            result
+                .onSuccess { clientPrice ->
+                    val finalPriceValue =
+                        clientPrice.finalPrice
+                            ?: product.publicPrice
+                                .replace(",", ".")
+                                .toDoubleOrNull()
+                            ?: 0.0
+
+                    val listPriceValue =
+                        clientPrice.listPrice
+                            ?: finalPriceValue
+
+                    val finalPriceText =
+                        String.format(
+                            Locale.ITALY,
+                            "%.2f",
+                            finalPriceValue
+                        )
+
+                    val listPriceText =
+                        String.format(
+                            Locale.ITALY,
+                            "%.2f",
+                            listPriceValue
+                        )
+
+                    val productForSession =
+                        product.copy(
+                            publicPrice = finalPriceText
+                        )
+
+                    popupHandler.post {
+                        SessionStore.addOrIncrement(
+                            product = productForSession,
+                            priceListName =
+                                clientPrice.priceListName,
+                            listPrice = listPriceText,
+                            discount1 =
+                                clientPrice.discount1,
+                            finalPrice = finalPriceText
+                        )
+
+                        android.util.Log.d(
+                            "OverlayService",
+                            "SESSIONE +1 cliente=${customer.id} " +
+                                    "nome=${customer.name} " +
+                                    "articleId=${product.articleId} " +
+                                    "ean=$barcode " +
+                                    "listino=${clientPrice.priceListName} " +
+                                    "prezzoListino=$listPriceText " +
+                                    "sconto=${clientPrice.discount1} " +
+                                    "prezzoFinale=$finalPriceText " +
+                                    "qta=${SessionStore.quantityFor(product.articleId)}"
+                        )
+                    }
+                }
+                .onFailure { error ->
+                    android.util.Log.e(
+                        "OverlayService",
+                        "PREZZO CLIENTE NON DISPONIBILE " +
+                                "cliente=${customer.id} ean=$barcode - " +
+                                "uso prezzo pubblico",
+                        error
+                    )
+
+                    popupHandler.post {
+                        SessionStore.addOrIncrement(product)
+                    }
+                }
+        }.start()
+    }
+
     private fun openCurrentArticleFromApi(
         rawBarcode: String,
         uiYear: String,
@@ -740,7 +832,9 @@ class OverlayService : Service() {
                     }
 
                     if (addToSession) {
-                        SessionStore.addOrIncrement(enrichedProduct)
+                        addProductToSessionWithCustomerPrice(
+                            enrichedProduct
+                        )
                     }
 
                     showOrUpdateProductInfoPopup(
@@ -2971,13 +3065,8 @@ class OverlayService : Service() {
             product != null &&
             product.articleId > 0L
         ) {
-            SessionStore.addOrIncrement(product)
             sessionRecordedForCurrentScan = true
-
-            android.util.Log.d(
-                "OverlayService",
-                "SESSIONE +1 articleId=${product.articleId} qta=${SessionStore.quantityFor(product.articleId)}"
-            )
+            addProductToSessionWithCustomerPrice(product)
         }
 
         if (productInfoPopup == null) {

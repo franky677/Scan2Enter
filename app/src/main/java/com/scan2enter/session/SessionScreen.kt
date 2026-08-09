@@ -4,9 +4,12 @@ import android.content.Context
 import android.content.Intent
 import android.os.VibrationEffect
 import android.os.Vibrator
+import android.os.Handler
+import android.os.Looper
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.Arrangement
@@ -50,8 +53,12 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.scan2enter.overlay.OverlayService
+import com.scan2enter.api.GatewayApiClient
+import com.scan2enter.api.CustomerDto
+import com.scan2enter.api.SessionColloItemDto
 import com.scan2enter.session.SessionItem
 import com.scan2enter.session.SessionStore
+import com.scan2enter.session.SessionCustomerStore
 import java.util.Locale
 import kotlin.math.abs
 
@@ -84,6 +91,53 @@ fun SessionScreen(
 
     var actionPanelOpen by remember {
         mutableStateOf(false)
+    }
+
+    val currentCustomer = SessionCustomerStore.current.value
+
+    var customerDialogOpen by remember {
+        mutableStateOf(false)
+    }
+
+    var customerQuery by remember {
+        mutableStateOf("")
+    }
+
+    var customerResults by remember {
+        mutableStateOf<List<CustomerDto>>(emptyList())
+    }
+
+    var customerLoading by remember {
+        mutableStateOf(false)
+    }
+
+    var customerError by remember {
+        mutableStateOf<String?>(null)
+    }
+
+    val gatewayApiClient = remember {
+        GatewayApiClient()
+    }
+
+    fun searchCustomers() {
+        customerLoading = true
+        customerError = null
+
+        Thread {
+            val result = gatewayApiClient.getCustomers(customerQuery)
+
+            Handler(Looper.getMainLooper()).post {
+                customerLoading = false
+
+                result.onSuccess {
+                    customerResults = it
+                }.onFailure { error ->
+                    customerResults = emptyList()
+                    customerError =
+                        error.message ?: "Errore ricerca clienti"
+                }
+            }
+        }.start()
     }
 
     DisposableEffect(Unit) {
@@ -197,6 +251,48 @@ fun SessionScreen(
                 modifier = Modifier.height(10.dp)
             )
 
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                tonalElevation = 2.dp
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Text(
+                            text = "👤 Cliente",
+                            fontSize = 13.sp
+                        )
+
+                        Text(
+                            text = currentCustomer.name,
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
+                    Button(
+                        onClick = {
+                            customerDialogOpen = true
+                            customerQuery = ""
+                            customerResults = emptyList()
+                            customerError = null
+                        }
+                    ) {
+                        Text("CAMBIA")
+                    }
+                }
+            }
+
+            Spacer(
+                modifier = Modifier.height(10.dp)
+            )
+
             if (sessionItems.isEmpty()) {
                 Text(
                     text =
@@ -230,16 +326,158 @@ fun SessionScreen(
         }
     }
 
+    if (customerDialogOpen) {
+        AlertDialog(
+            onDismissRequest = {
+                customerDialogOpen = false
+            },
+            title = {
+                Text("Scegli cliente")
+            },
+            text = {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                SessionCustomerStore.useBanco()
+                                customerDialogOpen = false
+                            },
+                        shape = RoundedCornerShape(10.dp),
+                        tonalElevation = 2.dp
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(12.dp)
+                        ) {
+                            Text(
+                                text = "🏪 BANCO",
+                                fontWeight = FontWeight.Bold
+                            )
+
+                            Text(
+                                text = "Cliente predefinito",
+                                fontSize = 13.sp
+                            )
+                        }
+                    }
+
+                    Spacer(
+                        modifier = Modifier.height(8.dp)
+                    )
+
+                    OutlinedTextField(
+                        value = customerQuery,
+                        onValueChange = {
+                            customerQuery = it
+                        },
+                        label = {
+                            Text("Nome cliente")
+                        },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    Button(
+                        onClick = {
+                            searchCustomers()
+                        },
+                        enabled = !customerLoading,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            if (customerLoading) {
+                                "RICERCA..."
+                            } else {
+                                "CERCA"
+                            }
+                        )
+                    }
+
+                    customerError?.let { error ->
+                        Text(
+                            text = error,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+
+                    if (!customerLoading &&
+                        customerResults.isEmpty() &&
+                        customerQuery.isNotBlank() &&
+                        customerError == null
+                    ) {
+                        Text("Nessun cliente trovato")
+                    }
+
+                    if (customerResults.isNotEmpty()) {
+                        LazyColumn(
+                            modifier = Modifier.height(260.dp),
+                            verticalArrangement =
+                                Arrangement.spacedBy(6.dp)
+                        ) {
+                            items(
+                                customerResults,
+                                key = { it.id }
+                            ) { customer ->
+                                Surface(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            SessionCustomerStore.setCustomer(
+                                                id = customer.id,
+                                                name = customer.name
+                                            )
+                                            customerDialogOpen = false
+                                        },
+                                    shape = RoundedCornerShape(10.dp),
+                                    tonalElevation = 2.dp
+                                ) {
+                                    Column(
+                                        modifier = Modifier.padding(12.dp)
+                                    ) {
+                                        Text(
+                                            text = customer.name.ifBlank {
+                                                "Cliente ${customer.id}"
+                                            },
+                                            fontWeight = FontWeight.Bold
+                                        )
+
+                                        Text(
+                                            text =
+                                                "ID ${customer.id} • Listino ${customer.priceListId}",
+                                            fontSize = 13.sp
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        customerDialogOpen = false
+                    }
+                ) {
+                    Text("CHIUDI")
+                }
+            }
+        )
+    }
+
     editingItem?.let { item ->
         QuantityDialog(
             item = item,
             onDismiss = {
                 editingItem = null
             },
-            onSave = { qty ->
-                SessionStore.setQuantity(
-                    item.articleId,
-                    qty
+            onSave = { qty, manualPrice ->
+                SessionStore.setQuantityAndManualPrice(
+                    articleId = item.articleId,
+                    quantity = qty,
+                    manualPrice = manualPrice
                 )
                 editingItem = null
             }
@@ -341,13 +579,32 @@ private fun SessionActionPanel(
     items: List<SessionItem>,
     onClose: () -> Unit
 ) {
+    val context = LocalContext.current
+    val customer = SessionCustomerStore.current.value
+
+    var sendingCollo by remember {
+        mutableStateOf(false)
+    }
+
+    var sendError by remember {
+        mutableStateOf<String?>(null)
+    }
+
+    var createdCollo by remember {
+        mutableStateOf<com.scan2enter.api.CreateColloResultDto?>(null)
+    }
+
+    val gatewayApiClient = remember {
+        GatewayApiClient()
+    }
+
     val totalPieces =
         items.sumOf { it.quantity }
 
     val totalEuro =
         items.sumOf { item ->
             val unitPrice =
-                item.publicPrice
+                item.effectivePrice
                     .replace(",", ".")
                     .toDoubleOrNull()
                     ?: 0.0
@@ -385,6 +642,12 @@ private fun SessionActionPanel(
                     )
 
                     Text(
+                        text = "Cliente: ${customer.name}",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+
+                    Text(
                         text =
                             "Totale: " +
                                     String.format(
@@ -406,12 +669,80 @@ private fun SessionActionPanel(
                 )
             }
 
+            sendError?.let { error ->
+                Text(
+                    text = error,
+                    color = MaterialTheme.colorScheme.error,
+                    fontSize = 14.sp
+                )
+            }
+
             Button(
-                onClick = { },
-                enabled = false,
+                onClick = {
+                    val payloadItems =
+                        items.mapNotNull { item ->
+                            val price =
+                                item.effectivePrice
+                                    .replace(",", ".")
+                                    .toDoubleOrNull()
+
+                            if (
+                                item.barcode.isBlank() ||
+                                item.quantity <= 0 ||
+                                price == null ||
+                                price < 0.0
+                            ) {
+                                null
+                            } else {
+                                SessionColloItemDto(
+                                    barcode = item.barcode,
+                                    quantity = item.quantity,
+                                    price = price
+                                )
+                            }
+                        }
+
+                    if (payloadItems.size != items.size) {
+                        sendError =
+                            "Una o più righe hanno barcode, quantità o prezzo non validi."
+                        return@Button
+                    }
+
+                    sendingCollo = true
+                    sendError = null
+
+                    Thread {
+                        val result =
+                            gatewayApiClient.createSessionCollo(
+                                clientId = customer.id,
+                                items = payloadItems
+                            )
+
+                        Handler(Looper.getMainLooper()).post {
+                            sendingCollo = false
+
+                            result.onSuccess { created ->
+                                createdCollo = created
+                            }.onFailure { error ->
+                                sendError =
+                                    error.message
+                                        ?: "Errore creazione collo"
+                            }
+                        }
+                    }.start()
+                },
+                enabled =
+                    items.isNotEmpty() &&
+                            !sendingCollo,
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Text("📦  INVIA COLLO")
+                Text(
+                    if (sendingCollo) {
+                        "📦  CREAZIONE COLLO..."
+                    } else {
+                        "📦  INVIA COLLO"
+                    }
+                )
             }
 
             Button(
@@ -439,7 +770,255 @@ private fun SessionActionPanel(
             }
         }
     }
+
+    createdCollo?.let { created ->
+        val numeroCollo = created.numeroCollo
+        val colloBarcode = created.barcodeCollo
+
+        AlertDialog(
+            onDismissRequest = {
+                // Restiamo volutamente qui: il barcode deve poter essere letto in cassa.
+            },
+            title = {
+                Text(
+                    text = "✅ COLLO CREATO",
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text(
+                        text = "Cliente: ${customer.name}",
+                        fontSize = 15.sp
+                    )
+
+                    Text(
+                        text = "Collo n. $numeroCollo",
+                        fontSize = 22.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+
+                    Text(
+                        text = "LEGGI QUESTO CODICE IN CASSA",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+
+                    Ean13Barcode(
+                        code = colloBarcode,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(150.dp)
+                    )
+
+                    Text(
+                        text = colloBarcode,
+                        fontSize = 24.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+
+                    Text(
+                        text =
+                            "La sessione resta disponibile finché non scegli di chiuderla.",
+                        fontSize = 13.sp
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        createdCollo = null
+                        SessionStore.clear()
+                        onClose()
+                    }
+                ) {
+                    Text("FATTO • SVUOTA SESSIONE")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        createdCollo = null
+                    }
+                ) {
+                    Text("TORNA ALLA SESSIONE")
+                }
+            }
+        )
+    }
 }
+
+@Composable
+private fun Ean13Barcode(
+    code: String,
+    modifier: Modifier = Modifier
+) {
+    val modules =
+        remember(code) {
+            encodeEan13Modules(code)
+        }
+
+    Canvas(
+        modifier = modifier
+            .background(Color.White)
+            .padding(
+                horizontal = 12.dp,
+                vertical = 10.dp
+            )
+    ) {
+        if (modules.isEmpty()) {
+            return@Canvas
+        }
+
+        val quietModules = 10
+        val totalModules =
+            modules.length + quietModules * 2
+
+        val moduleWidth =
+            size.width / totalModules.toFloat()
+
+        val normalHeight =
+            size.height * 0.82f
+
+        val guardHeight =
+            size.height
+
+        modules.forEachIndexed { index, bit ->
+            if (bit != '1') {
+                return@forEachIndexed
+            }
+
+            val moduleIndex =
+                index + quietModules
+
+            val isGuard =
+                index in 0..2 ||
+                        index in 45..49 ||
+                        index in 92..94
+
+            drawRect(
+                color = Color.Black,
+                topLeft = androidx.compose.ui.geometry.Offset(
+                    x = moduleIndex * moduleWidth,
+                    y = 0f
+                ),
+                size = androidx.compose.ui.geometry.Size(
+                    width = moduleWidth + 0.5f,
+                    height =
+                        if (isGuard) {
+                            guardHeight
+                        } else {
+                            normalHeight
+                        }
+                )
+            )
+        }
+    }
+}
+
+private fun encodeEan13Modules(
+    code: String
+): String {
+    if (
+        code.length != 13 ||
+        !code.all(Char::isDigit)
+    ) {
+        return ""
+    }
+
+    val lPatterns = arrayOf(
+        "0001101",
+        "0011001",
+        "0010011",
+        "0111101",
+        "0100011",
+        "0110001",
+        "0101111",
+        "0111011",
+        "0110111",
+        "0001011"
+    )
+
+    val gPatterns = arrayOf(
+        "0100111",
+        "0110011",
+        "0011011",
+        "0100001",
+        "0011101",
+        "0111001",
+        "0000101",
+        "0010001",
+        "0001001",
+        "0010111"
+    )
+
+    val rPatterns = arrayOf(
+        "1110010",
+        "1100110",
+        "1101100",
+        "1000010",
+        "1011100",
+        "1001110",
+        "1010000",
+        "1000100",
+        "1001000",
+        "1110100"
+    )
+
+    val parity = arrayOf(
+        "LLLLLL",
+        "LLGLGG",
+        "LLGGLG",
+        "LLGGGL",
+        "LGLLGG",
+        "LGGLLG",
+        "LGGGLL",
+        "LGLGLG",
+        "LGLGGL",
+        "LGGLGL"
+    )
+
+    val first =
+        code[0].digitToInt()
+
+    val result =
+        StringBuilder(95)
+
+    result.append("101")
+
+    for (index in 1..6) {
+        val digit =
+            code[index].digitToInt()
+
+        result.append(
+            if (parity[first][index - 1] == 'L') {
+                lPatterns[digit]
+            } else {
+                gPatterns[digit]
+            }
+        )
+    }
+
+    result.append("01010")
+
+    for (index in 7..12) {
+        val digit =
+            code[index].digitToInt()
+
+        result.append(
+            rPatterns[digit]
+        )
+    }
+
+    result.append("101")
+
+    return result.toString()
+}
+
 
 @Composable
 private fun ScanActionButton(
@@ -569,24 +1148,95 @@ private fun SessionRow(
                     )
                 }
 
-                val price =
-                    item.publicPrice
+                val finalPriceValue =
+                    item.effectivePrice
                         .replace(",", ".")
                         .toDoubleOrNull()
-                        ?.let {
-                            String.format(
-                                Locale.ITALY,
-                                "%.2f €",
-                                it
-                            )
-                        }
-                        ?: "—"
+
+                val listPriceValue =
+                    item.listPrice
+                        .ifBlank { item.publicPrice }
+                        .replace(",", ".")
+                        .toDoubleOrNull()
+
+                val finalPriceText =
+                    finalPriceValue?.let {
+                        String.format(
+                            Locale.ITALY,
+                            "%.2f €",
+                            it
+                        )
+                    } ?: "—"
+
+                val listPriceText =
+                    listPriceValue?.let {
+                        String.format(
+                            Locale.ITALY,
+                            "%.2f €",
+                            it
+                        )
+                    } ?: "—"
+
+                if (item.priceListName.isNotBlank()) {
+                    Text(
+                        text = "🏷️ ${item.priceListName}",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color =
+                            MaterialTheme
+                                .colorScheme
+                                .onSurfaceVariant
+                    )
+                }
+
+                val hasDiscount =
+                    item.discount1 > 0.0 &&
+                            listPriceValue != null &&
+                            finalPriceValue != null
 
                 Text(
                     text =
-                        "💰 $price   •   📦 " +
+                        if (hasDiscount) {
+                            val discountText =
+                                if (item.discount1 % 1.0 == 0.0) {
+                                    item.discount1
+                                        .toInt()
+                                        .toString()
+                                } else {
+                                    String.format(
+                                        Locale.ITALY,
+                                        "%.1f",
+                                        item.discount1
+                                    )
+                                }
+
+                            "💰 $listPriceText → " +
+                                    "$finalPriceText (-$discountText%)"
+                        } else {
+                            "💰 $finalPriceText"
+                        },
+                    fontSize = 14.sp,
+                    fontWeight =
+                        if (hasDiscount || item.manualPrice.isNotBlank()) {
+                            FontWeight.SemiBold
+                        } else {
+                            FontWeight.Normal
+                        }
+                )
+
+                if (item.manualPrice.isNotBlank()) {
+                    Text(
+                        text = "✏️ Prezzo manuale",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+
+                Text(
+                    text =
+                        "📦 Giacenza: " +
                                 item.stock.ifBlank { "—" },
-                    fontSize = 14.sp
+                    fontSize = 13.sp
                 )
             }
 
@@ -614,10 +1264,23 @@ private fun SessionRow(
 private fun QuantityDialog(
     item: SessionItem,
     onDismiss: () -> Unit,
-    onSave: (Int) -> Unit
+    onSave: (Int, String) -> Unit
 ) {
-    var text by remember(item.articleId) {
+    var quantityText by remember(item.articleId) {
         mutableStateOf(item.quantity.toString())
+    }
+
+    val proposedPrice =
+        item.finalPrice.ifBlank {
+            item.publicPrice
+        }
+
+    var priceText by remember(item.articleId, item.manualPrice) {
+        mutableStateOf(
+            item.manualPrice.ifBlank {
+                proposedPrice
+            }
+        )
     }
 
     AlertDialog(
@@ -630,12 +1293,44 @@ private fun QuantityDialog(
             )
         },
         text = {
-            Column {
-                Text("Quantità sessione")
+            Column(
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                if (item.priceListName.isNotBlank()) {
+                    Text(
+                        text = "🏷️ ${item.priceListName}",
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
+                if (item.listPrice.isNotBlank()) {
+                    Text(
+                        text = "Prezzo listino: ${
+                            formatPriceText(item.listPrice)
+                        }"
+                    )
+                }
+
+                if (item.discount1 > 0.0) {
+                    Text(
+                        text = "Sconto: ${
+                            formatDiscount(item.discount1)
+                        }"
+                    )
+                }
+
+                Text(
+                    text = "Prezzo proposto: ${
+                        formatPriceText(proposedPrice)
+                    }",
+                    fontWeight = FontWeight.SemiBold
+                )
 
                 Spacer(
-                    modifier = Modifier.height(8.dp)
+                    modifier = Modifier.height(4.dp)
                 )
+
+                Text("Quantità")
 
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -643,9 +1338,11 @@ private fun QuantityDialog(
                 ) {
                     Button(
                         onClick = {
-                            val v = text.toIntOrNull() ?: 1
-                            text =
-                                (v - 1)
+                            val value =
+                                quantityText.toIntOrNull() ?: 1
+
+                            quantityText =
+                                (value - 1)
                                     .coerceAtLeast(0)
                                     .toString()
                         }
@@ -654,13 +1351,13 @@ private fun QuantityDialog(
                     }
 
                     OutlinedTextField(
-                        value = text,
+                        value = quantityText,
                         onValueChange = { value ->
                             if (
                                 value.isEmpty() ||
                                 value.all(Char::isDigit)
                             ) {
-                                text = value
+                                quantityText = value
                             }
                         },
                         singleLine = true,
@@ -674,9 +1371,11 @@ private fun QuantityDialog(
 
                     Button(
                         onClick = {
-                            val v = text.toIntOrNull() ?: 0
-                            text =
-                                (v + 1)
+                            val value =
+                                quantityText.toIntOrNull() ?: 0
+
+                            quantityText =
+                                (value + 1)
                                     .coerceAtMost(9999)
                                     .toString()
                         }
@@ -686,18 +1385,91 @@ private fun QuantityDialog(
                 }
 
                 Text(
-                    text = "0 rimuove l'articolo.",
-                    fontSize = 13.sp,
-                    modifier = Modifier.padding(top = 8.dp)
+                    text = "Prezzo collo",
+                    fontWeight = FontWeight.Bold
+                )
+
+                OutlinedTextField(
+                    value = priceText,
+                    onValueChange = { value ->
+                        if (
+                            value.isEmpty() ||
+                            value.matches(
+                                Regex("""\d{0,6}([,.]\d{0,2})?""")
+                            )
+                        ) {
+                            priceText = value
+                        }
+                    },
+                    singleLine = true,
+                    keyboardOptions =
+                        KeyboardOptions(
+                            keyboardType =
+                                KeyboardType.Decimal
+                        ),
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                TextButton(
+                    onClick = {
+                        priceText = proposedPrice
+                    }
+                ) {
+                    Text(
+                        "RIPRISTINA ${
+                            formatPriceText(proposedPrice)
+                        }"
+                    )
+                }
+
+                if (
+                    priceText.trim()
+                        .replace(",", ".") !=
+                    proposedPrice.trim()
+                        .replace(",", ".")
+                ) {
+                    Text(
+                        text = "✏️ Prezzo modificato manualmente",
+                        color = MaterialTheme.colorScheme.primary,
+                        fontSize = 13.sp
+                    )
+                }
+
+                Text(
+                    text = "0 quantità rimuove l'articolo.",
+                    fontSize = 13.sp
                 )
             }
         },
         confirmButton = {
             TextButton(
                 onClick = {
-                    onSave(
-                        (text.toIntOrNull() ?: 0)
+                    val quantity =
+                        (quantityText.toIntOrNull() ?: 0)
                             .coerceIn(0, 9999)
+
+                    val normalizedPrice =
+                        priceText.trim()
+                            .replace(",", ".")
+
+                    val proposedNormalized =
+                        proposedPrice.trim()
+                            .replace(",", ".")
+
+                    val manualPrice =
+                        if (
+                            normalizedPrice.isBlank() ||
+                            normalizedPrice ==
+                            proposedNormalized
+                        ) {
+                            ""
+                        } else {
+                            normalizedPrice
+                        }
+
+                    onSave(
+                        quantity,
+                        manualPrice
                     )
                 }
             ) {
@@ -712,6 +1484,36 @@ private fun QuantityDialog(
             }
         }
     )
+}
+
+private fun formatPriceText(
+    value: String
+): String {
+    val number =
+        value.trim()
+            .replace(",", ".")
+            .toDoubleOrNull()
+            ?: return "—"
+
+    return String.format(
+        Locale.ITALY,
+        "%.2f €",
+        number
+    )
+}
+
+private fun formatDiscount(
+    value: Double
+): String {
+    return if (value % 1.0 == 0.0) {
+        "${value.toInt()}%"
+    } else {
+        String.format(
+            Locale.ITALY,
+            "%.1f%%",
+            value
+        )
+    }
 }
 
 private fun vibrateSwap(context: Context) {

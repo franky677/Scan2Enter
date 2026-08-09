@@ -85,6 +85,89 @@ class GatewayApiClient(
     }
 
     /**
+     * Recupera il prezzo corretto per un cliente e un articolo.
+     *
+     * GET /api/session/client-price?clientId=...&barcode=...
+     */
+    fun getClientPrice(
+        clientId: Int,
+        barcode: String
+    ): Result<ClientPriceDto> = runCatching {
+        require(clientId > 0) {
+            "Cliente non valido"
+        }
+
+        require(barcode.isNotBlank()) {
+            "Barcode non valido"
+        }
+
+        val encodedBarcode = URLEncoder.encode(
+            barcode.trim(),
+            StandardCharsets.UTF_8.name()
+        )
+
+        val url =
+            "${baseUrl.trimEnd('/')}/api/session/client-price" +
+                    "?clientId=$clientId" +
+                    "&barcode=$encodedBarcode"
+
+        Log.d(TAG, "GATEWAY GET CLIENT PRICE")
+        Log.d(TAG, "URL = $url")
+
+        val response = executeGet(url)
+
+        Log.d(TAG, "GATEWAY CLIENT PRICE HTTP=${response.code}")
+        Log.d(TAG, "BODY=${response.body.take(500)}")
+
+        when (response.code) {
+            HttpURLConnection.HTTP_NOT_FOUND -> {
+                error("Prezzo cliente non trovato")
+            }
+
+            !in 200..299 -> {
+                error(
+                    "Gateway HTTP ${response.code}: ${response.body.take(500)}"
+                )
+            }
+        }
+
+        parseClientPrice(response.body)
+    }
+
+    /**
+     * Cerca clienti disponibili per la Sessione.
+     *
+     * GET /api/session/customers?q=...
+     */
+    fun getCustomers(
+        query: String
+    ): Result<List<CustomerDto>> = runCatching {
+        val encodedQuery = URLEncoder.encode(
+            query.trim(),
+            StandardCharsets.UTF_8.name()
+        )
+
+        val url =
+            "${baseUrl.trimEnd('/')}/api/session/customers?q=$encodedQuery"
+
+        Log.d(TAG, "GATEWAY GET CUSTOMERS")
+        Log.d(TAG, "URL = $url")
+
+        val response = executeGet(url)
+
+        Log.d(TAG, "GATEWAY CUSTOMERS HTTP=${response.code}")
+        Log.d(TAG, "BODY=${response.body.take(500)}")
+
+        if (response.code !in 200..299) {
+            error(
+                "Gateway HTTP ${response.code}: ${response.body.take(500)}"
+            )
+        }
+
+        parseCustomers(response.body)
+    }
+
+    /**
      * Scarica tutte le ubicazioni disponibili.
      *
      * GET /api/locations
@@ -399,6 +482,94 @@ class GatewayApiClient(
     }
 
     /**
+     * Crea un collo dalla Sessione Android.
+     *
+     * POST /api/session/colli
+     */
+    fun createSessionCollo(
+        clientId: Int,
+        items: List<SessionColloItemDto>
+    ): Result<CreateColloResultDto> = runCatching {
+        require(clientId > 0) {
+            "Cliente non valido"
+        }
+
+        require(items.isNotEmpty()) {
+            "La sessione è vuota"
+        }
+
+        val url =
+            "${baseUrl.trimEnd('/')}/api/session/colli"
+
+        val body = JSONObject()
+            .put("clientId", clientId)
+            .put(
+                "items",
+                JSONArray().apply {
+                    items.forEach { item ->
+                        put(
+                            JSONObject()
+                                .put("barcode", item.barcode.trim())
+                                .put("quantity", item.quantity)
+                                .put("price", item.price)
+                        )
+                    }
+                }
+            )
+            .toString()
+
+        Log.d(TAG, "GATEWAY CREATE SESSION COLLO")
+        Log.d(TAG, "URL = $url")
+        Log.d(TAG, "BODY=$body")
+
+        val response = executeJson(
+            urlString = url,
+            method = "POST",
+            jsonBody = body
+        )
+
+        Log.d(TAG, "GATEWAY CREATE COLLO HTTP=${response.code}")
+        Log.d(TAG, "BODY=${response.body.take(500)}")
+
+        if (response.code !in 200..299) {
+            error(
+                "Gateway HTTP ${response.code}: ${response.body.take(500)}"
+            )
+        }
+
+        val root = JSONObject(response.body)
+
+        val created =
+            root.optBoolean("created", false)
+
+        val collo =
+            root.optJSONObject("collo")
+                ?: error(
+                    "Risposta Gateway non valida: oggetto collo mancante"
+                )
+
+        val numeroCollo =
+            collo.optString("numeroCollo", "").trim()
+
+        val barcodeCollo =
+            collo.optString("barcodeCollo", "").trim()
+
+        check(
+            created &&
+                    numeroCollo.isNotBlank() &&
+                    barcodeCollo.isNotBlank()
+        ) {
+            "Risposta Gateway non valida: dati collo mancanti"
+        }
+
+        CreateColloResultDto(
+            created = created,
+            numeroCollo = numeroCollo,
+            barcodeCollo = barcodeCollo
+        )
+    }
+
+    /**
      * Invia un lavoro di stampa etichette al Gateway.
      */
     fun printLabel(
@@ -587,6 +758,75 @@ class GatewayApiClient(
                 item.optString("supplierArticleCode"),
             coverImagePath = item.optString("coverImagePath")
         )
+    }
+
+    private fun parseClientPrice(
+        jsonText: String
+    ): ClientPriceDto {
+        check(jsonText.isNotBlank()) {
+            "Il Gateway ha restituito una risposta prezzo cliente vuota"
+        }
+
+        val item = JSONObject(jsonText)
+
+        val articleId = item.optLong("articleId", 0L)
+        check(articleId > 0L) {
+            "Risposta Gateway non valida: articleId mancante"
+        }
+
+        return ClientPriceDto(
+            clientId = item.optInt("clientId", 0),
+            clientName = item.optString("clientName", "").trim(),
+            clientPriceListId = item.optInt("clientPriceListId", 0),
+            priceListId = item.optInt("priceListId", 0),
+            priceListName = item.optString("priceListName", "").trim(),
+            articleId = articleId,
+            articleCode = item.optString("articleCode", "").trim(),
+            description = item.optString("description", "").trim(),
+            barcode = item.optString("barcode", "").trim(),
+            listPrice = item.optNullableDouble("listPrice"),
+            discount1 = item.optDouble("discount1", 0.0),
+            discount2 = item.optDouble("discount2", 0.0),
+            discount3 = item.optDouble("discount3", 0.0),
+            discount4 = item.optDouble("discount4", 0.0),
+            finalPrice = item.optNullableDouble("finalPrice")
+        )
+    }
+
+    private fun parseCustomers(
+        jsonText: String
+    ): List<CustomerDto> {
+        check(jsonText.isNotBlank()) {
+            "Il Gateway ha restituito una risposta clienti vuota"
+        }
+
+        val root = JSONObject(jsonText)
+        val array = root.optJSONArray("items")
+            ?: error("Risposta Gateway non valida: items clienti mancante")
+
+        val result = ArrayList<CustomerDto>(array.length())
+
+        for (index in 0 until array.length()) {
+            val item = array.optJSONObject(index) ?: continue
+
+            val id = item.optInt("id", 0)
+            if (id <= 0) continue
+
+            result.add(
+                CustomerDto(
+                    id = id,
+                    name = item.optString("name", "").trim(),
+                    code = item.optString("code", "").trim(),
+                    priceListId = item.optInt("priceListId", 0),
+                    discount1 = item.optDouble("discount1", 0.0),
+                    discount2 = item.optDouble("discount2", 0.0),
+                    discount3 = item.optDouble("discount3", 0.0),
+                    discount4 = item.optDouble("discount4", 0.0)
+                )
+            )
+        }
+
+        return result
     }
 
     private fun parseLocations(
@@ -793,6 +1033,47 @@ class GatewayApiClient(
         val body: String
     )
 }
+
+data class SessionColloItemDto(
+    val barcode: String,
+    val quantity: Int,
+    val price: Double
+)
+
+data class CreateColloResultDto(
+    val created: Boolean,
+    val numeroCollo: String,
+    val barcodeCollo: String
+)
+
+data class CustomerDto(
+    val id: Int,
+    val name: String,
+    val code: String,
+    val priceListId: Int,
+    val discount1: Double,
+    val discount2: Double,
+    val discount3: Double,
+    val discount4: Double
+)
+
+data class ClientPriceDto(
+    val clientId: Int,
+    val clientName: String,
+    val clientPriceListId: Int,
+    val priceListId: Int,
+    val priceListName: String,
+    val articleId: Long,
+    val articleCode: String,
+    val description: String,
+    val barcode: String,
+    val listPrice: Double?,
+    val discount1: Double,
+    val discount2: Double,
+    val discount3: Double,
+    val discount4: Double,
+    val finalPrice: Double?
+)
 
 data class DeleteLocationResult(
     val deleted: Boolean,

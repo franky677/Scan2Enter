@@ -25,35 +25,72 @@ object SessionStore {
         }
     }
 
-    fun addOrIncrement(product: ProductInfo, amount: Int = 1): SessionItem? {
+    fun addOrIncrement(
+        product: ProductInfo,
+        amount: Int = 1,
+        priceListName: String = "",
+        listPrice: String = "",
+        discount1: Double = 0.0,
+        finalPrice: String = "",
+        manualPrice: String = ""
+    ): SessionItem? {
         if (product.articleId <= 0L || amount <= 0) return null
 
+        val effectiveFinalPrice =
+            finalPrice.ifBlank { product.publicPrice }
+
+        val effectiveListPrice =
+            listPrice.ifBlank { product.publicPrice }
+
         val updated: SessionItem
+
         synchronized(lock) {
             val old = items[product.articleId]
+
             updated = if (old == null) {
                 SessionItem(
                     articleId = product.articleId,
                     articleCode = product.articleCode,
                     description = product.description,
                     barcode = product.barcode,
-                    publicPrice = product.publicPrice,
+                    publicPrice = effectiveFinalPrice,
                     stock = product.stock,
-                    quantity = amount
+                    quantity = amount,
+                    priceListName = priceListName,
+                    listPrice = effectiveListPrice,
+                    discount1 = discount1,
+                    finalPrice = effectiveFinalPrice,
+                    manualPrice = manualPrice
                 )
             } else {
                 old.copy(
-                    articleCode = product.articleCode.ifBlank { old.articleCode },
-                    description = product.description.ifBlank { old.description },
-                    barcode = product.barcode.ifBlank { old.barcode },
-                    publicPrice = product.publicPrice.ifBlank { old.publicPrice },
-                    stock = product.stock.ifBlank { old.stock },
-                    quantity = old.quantity + amount
+                    articleCode =
+                        product.articleCode.ifBlank { old.articleCode },
+                    description =
+                        product.description.ifBlank { old.description },
+                    barcode =
+                        product.barcode.ifBlank { old.barcode },
+                    publicPrice =
+                        effectiveFinalPrice.ifBlank { old.publicPrice },
+                    stock =
+                        product.stock.ifBlank { old.stock },
+                    quantity = old.quantity + amount,
+                    priceListName =
+                        priceListName.ifBlank { old.priceListName },
+                    listPrice =
+                        effectiveListPrice.ifBlank { old.listPrice },
+                    discount1 = discount1,
+                    finalPrice =
+                        effectiveFinalPrice.ifBlank { old.finalPrice },
+                    manualPrice =
+                        manualPrice.ifBlank { old.manualPrice }
                 )
             }
+
             items[product.articleId] = updated
             saveLocked()
         }
+
         notifyListeners()
         return updated
     }
@@ -61,10 +98,61 @@ object SessionStore {
     fun setQuantity(articleId: Long, quantity: Int) {
         synchronized(lock) {
             val old = items[articleId] ?: return
-            if (quantity <= 0) items.remove(articleId)
-            else items[articleId] = old.copy(quantity = quantity.coerceAtMost(9999))
+
+            if (quantity <= 0) {
+                items.remove(articleId)
+            } else {
+                items[articleId] =
+                    old.copy(
+                        quantity = quantity.coerceAtMost(9999)
+                    )
+            }
+
             saveLocked()
         }
+
+        notifyListeners()
+    }
+
+    fun setManualPrice(
+        articleId: Long,
+        manualPrice: String
+    ) {
+        synchronized(lock) {
+            val old = items[articleId] ?: return
+
+            items[articleId] =
+                old.copy(
+                    manualPrice = manualPrice.trim()
+                )
+
+            saveLocked()
+        }
+
+        notifyListeners()
+    }
+
+    fun setQuantityAndManualPrice(
+        articleId: Long,
+        quantity: Int,
+        manualPrice: String
+    ) {
+        synchronized(lock) {
+            val old = items[articleId] ?: return
+
+            if (quantity <= 0) {
+                items.remove(articleId)
+            } else {
+                items[articleId] =
+                    old.copy(
+                        quantity = quantity.coerceAtMost(9999),
+                        manualPrice = manualPrice.trim()
+                    )
+            }
+
+            saveLocked()
+        }
+
         notifyListeners()
     }
 
@@ -73,6 +161,7 @@ object SessionStore {
             if (items.remove(articleId) == null) return
             saveLocked()
         }
+
         notifyListeners()
     }
 
@@ -81,71 +170,166 @@ object SessionStore {
             items.clear()
             saveLocked()
         }
+
         notifyListeners()
     }
 
-    fun getItems(): List<SessionItem> = synchronized(lock) { items.values.toList() }
-    fun quantityFor(articleId: Long): Int = synchronized(lock) { items[articleId]?.quantity ?: 0 }
+    fun getItems(): List<SessionItem> =
+        synchronized(lock) {
+            items.values.toList()
+        }
 
-    fun addListener(listener: (List<SessionItem>) -> Unit) {
-        synchronized(lock) { listeners.add(listener) }
+    fun quantityFor(articleId: Long): Int =
+        synchronized(lock) {
+            items[articleId]?.quantity ?: 0
+        }
+
+    fun addListener(
+        listener: (List<SessionItem>) -> Unit
+    ) {
+        synchronized(lock) {
+            listeners.add(listener)
+        }
+
         listener(getItems())
     }
 
-    fun removeListener(listener: (List<SessionItem>) -> Unit) {
-        synchronized(lock) { listeners.remove(listener) }
+    fun removeListener(
+        listener: (List<SessionItem>) -> Unit
+    ) {
+        synchronized(lock) {
+            listeners.remove(listener)
+        }
     }
 
     private fun notifyListeners() {
         val snapshot = getItems()
-        val callbacks = synchronized(lock) { listeners.toList() }
-        callbacks.forEach { runCatching { it(snapshot) } }
+
+        val callbacks =
+            synchronized(lock) {
+                listeners.toList()
+            }
+
+        callbacks.forEach { callback ->
+            runCatching {
+                callback(snapshot)
+            }
+        }
     }
 
     private fun loadLocked() {
         items.clear()
+
         val context = applicationContext ?: return
-        val json = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            .getString(KEY_ITEMS, null) ?: return
+
+        val json =
+            context.getSharedPreferences(
+                PREFS_NAME,
+                Context.MODE_PRIVATE
+            )
+                .getString(KEY_ITEMS, null)
+                ?: return
 
         runCatching {
             val array = JSONArray(json)
-            for (i in 0 until array.length()) {
-                val obj = array.optJSONObject(i) ?: continue
-                val id = obj.optLong("articleId", 0L)
-                val qty = obj.optInt("quantity", 0)
-                if (id <= 0L || qty <= 0) continue
-                items[id] = SessionItem(
-                    articleId = id,
-                    articleCode = obj.optString("articleCode"),
-                    description = obj.optString("description"),
-                    barcode = obj.optString("barcode"),
-                    publicPrice = obj.optString("publicPrice"),
-                    stock = obj.optString("stock"),
-                    quantity = qty
-                )
+
+            for (index in 0 until array.length()) {
+                val obj =
+                    array.optJSONObject(index)
+                        ?: continue
+
+                val id =
+                    obj.optLong("articleId", 0L)
+
+                val quantity =
+                    obj.optInt("quantity", 0)
+
+                if (id <= 0L || quantity <= 0) {
+                    continue
+                }
+
+                val publicPrice =
+                    obj.optString("publicPrice")
+
+                val finalPrice =
+                    obj.optString(
+                        "finalPrice",
+                        publicPrice
+                    )
+
+                val listPrice =
+                    obj.optString(
+                        "listPrice",
+                        publicPrice
+                    )
+
+                items[id] =
+                    SessionItem(
+                        articleId = id,
+                        articleCode =
+                            obj.optString("articleCode"),
+                        description =
+                            obj.optString("description"),
+                        barcode =
+                            obj.optString("barcode"),
+                        publicPrice =
+                            finalPrice.ifBlank {
+                                publicPrice
+                            },
+                        stock =
+                            obj.optString("stock"),
+                        quantity = quantity,
+                        priceListName =
+                            obj.optString("priceListName"),
+                        listPrice = listPrice,
+                        discount1 =
+                            obj.optDouble(
+                                "discount1",
+                                0.0
+                            ),
+                        finalPrice = finalPrice,
+                        manualPrice =
+                            obj.optString("manualPrice")
+                    )
             }
-        }.onFailure { items.clear() }
+        }.onFailure {
+            items.clear()
+        }
     }
 
     private fun saveLocked() {
         val context = applicationContext ?: return
+
         val array = JSONArray()
+
         items.values.forEach { item ->
-            array.put(JSONObject().apply {
-                put("articleId", item.articleId)
-                put("articleCode", item.articleCode)
-                put("description", item.description)
-                put("barcode", item.barcode)
-                put("publicPrice", item.publicPrice)
-                put("stock", item.stock)
-                put("quantity", item.quantity)
-            })
+            array.put(
+                JSONObject().apply {
+                    put("articleId", item.articleId)
+                    put("articleCode", item.articleCode)
+                    put("description", item.description)
+                    put("barcode", item.barcode)
+                    put("publicPrice", item.publicPrice)
+                    put("stock", item.stock)
+                    put("quantity", item.quantity)
+                    put("priceListName", item.priceListName)
+                    put("listPrice", item.listPrice)
+                    put("discount1", item.discount1)
+                    put("finalPrice", item.finalPrice)
+                    put("manualPrice", item.manualPrice)
+                }
+            )
         }
 
-        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        context.getSharedPreferences(
+            PREFS_NAME,
+            Context.MODE_PRIVATE
+        )
             .edit()
-            .putString(KEY_ITEMS, array.toString())
+            .putString(
+                KEY_ITEMS,
+                array.toString()
+            )
             .apply()
     }
 }
