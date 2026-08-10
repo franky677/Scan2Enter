@@ -1808,7 +1808,7 @@ class OverlayService : Service() {
                     FavoriteSortMode.PRICE_DESCENDING ->
                         "Prezzo decrescente"
                 }
-
+                removeReorderListPopup()
                 val result = ListPdfGenerator.generateFavoritesAndOpen(
                     context = applicationContext,
                     items = favorites,
@@ -1854,7 +1854,7 @@ class OverlayService : Service() {
                             .orEmpty()
                             .ifEmpty { "Fornitore non indicato" }
                     }
-
+                removeReorderListPopup()
                 val result = ListPdfGenerator.generateReorderAndOpen(
                     context = applicationContext,
                     items = visibleItems,

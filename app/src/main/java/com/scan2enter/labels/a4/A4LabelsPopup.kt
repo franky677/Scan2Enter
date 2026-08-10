@@ -265,6 +265,7 @@ class A4LabelsPopup(
 
         val printButton = Button(context).apply {
             text = "ANTEPRIMA / STAMPA"
+
             setOnClickListener {
                 val items = A4LabelStore.getItems()
 
@@ -279,6 +280,8 @@ class A4LabelsPopup(
 
                 isEnabled = false
 
+                remove()
+
                 Thread {
                     val result = A4PdfGenerator.generateAndOpen(
                         context = context,
@@ -287,15 +290,7 @@ class A4LabelsPopup(
                     )
 
                     post {
-                        isEnabled = true
-
-                        result.onSuccess {
-                            Toast.makeText(
-                                context,
-                                "PDF creato nei Download",
-                                Toast.LENGTH_SHORT
-                            ).show()
-                        }.onFailure { error ->
+                        result.onFailure { error ->
                             Toast.makeText(
                                 context,
                                 "Errore PDF: ${error.message}",

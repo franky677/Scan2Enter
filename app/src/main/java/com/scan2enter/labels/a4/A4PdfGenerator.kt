@@ -1,6 +1,5 @@
 package com.scan2enter.labels.a4
 
-import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
@@ -12,7 +11,8 @@ import android.graphics.Typeface
 import android.graphics.pdf.PdfDocument
 import android.net.Uri
 import android.os.Environment
-import android.provider.MediaStore
+import androidx.core.content.FileProvider
+import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.net.HttpURLConnection
@@ -267,10 +267,16 @@ object A4PdfGenerator {
 
             document.finishPage(page)
 
-            val uri = createDownloadUri(context)
-            context.contentResolver.openOutputStream(uri)?.use {
-                document.writeTo(it)
-            } ?: error("Impossibile creare il file PDF")
+            val pdfFile = createDownloadFile(context)
+            pdfFile.outputStream().use { output ->
+                document.writeTo(output)
+            }
+
+            val uri = FileProvider.getUriForFile(
+                context,
+                "${context.packageName}.fileprovider",
+                pdfFile
+            )
 
             openPdf(context, uri)
             uri
@@ -279,32 +285,30 @@ object A4PdfGenerator {
         }
     }
 
-    private fun createDownloadUri(context: Context): Uri {
+    private fun createDownloadFile(context: Context): File {
         val timestamp = SimpleDateFormat(
             "yyyyMMdd_HHmmss",
             Locale.ITALY
         ).format(Date())
 
-        val values = ContentValues().apply {
-            put(
-                MediaStore.MediaColumns.DISPLAY_NAME,
-                "Scan2Enter_Etichette_A4_$timestamp.pdf"
-            )
-            put(
-                MediaStore.MediaColumns.MIME_TYPE,
-                "application/pdf"
-            )
-            put(
-                MediaStore.MediaColumns.RELATIVE_PATH,
-                Environment.DIRECTORY_DOWNLOADS +
-                        "/Scan2Enter"
-            )
+        val baseDir =
+            context.getExternalFilesDir(
+                Environment.DIRECTORY_DOWNLOADS
+            ) ?: context.filesDir
+
+        val reportDir = File(
+            baseDir,
+            "Scan2Enter"
+        ).apply {
+            if (!exists() && !mkdirs()) {
+                error("Impossibile creare la cartella dei report PDF")
+            }
         }
 
-        return context.contentResolver.insert(
-            MediaStore.Downloads.EXTERNAL_CONTENT_URI,
-            values
-        ) ?: error("Impossibile creare il PDF nei Download")
+        return File(
+            reportDir,
+            "Scan2Enter_Etichette_A4_$timestamp.pdf"
+        )
     }
 
     private fun openPdf(

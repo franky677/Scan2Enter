@@ -1,6 +1,5 @@
 package com.scan2enter.labels.a4.packaging
 
-import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
@@ -14,9 +13,10 @@ import android.graphics.Typeface
 import android.graphics.pdf.PdfDocument
 import android.net.Uri
 import android.os.Environment
-import android.provider.MediaStore
+import androidx.core.content.FileProvider
 import com.scan2enter.R
 import com.scan2enter.model.ProductInfo
+import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
@@ -148,10 +148,20 @@ object PackagingPdfGenerator {
 
             document.finishPage(page)
 
-            val uri = createDownloadUri(context, product)
-            context.contentResolver.openOutputStream(uri)?.use { output ->
+            val pdfFile = createDownloadFile(
+                context = context,
+                product = product
+            )
+
+            pdfFile.outputStream().use { output ->
                 document.writeTo(output)
-            } ?: error("Impossibile creare il PDF")
+            }
+
+            val uri = FileProvider.getUriForFile(
+                context,
+                "${context.packageName}.fileprovider",
+                pdfFile
+            )
 
             openPdf(context, uri)
             uri
@@ -1379,29 +1389,42 @@ object PackagingPdfGenerator {
         return String.format(Locale.ITALY, "%.2f €", value)
     }
 
-    private fun createDownloadUri(context: Context, product: ProductInfo): Uri {
-        val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.ITALY).format(Date())
+    private fun createDownloadFile(
+        context: Context,
+        product: ProductInfo
+    ): File {
+        val timestamp =
+            SimpleDateFormat(
+                "yyyyMMdd_HHmmss",
+                Locale.ITALY
+            ).format(Date())
+
         val safeCode = product.articleCode
             .trim()
-            .replace(Regex("[^A-Za-z0-9_-]"), "_")
+            .replace(
+                Regex("[^A-Za-z0-9_-]"),
+                "_"
+            )
             .ifBlank { "articolo" }
 
-        val values = ContentValues().apply {
-            put(
-                MediaStore.MediaColumns.DISPLAY_NAME,
-                "Blister_${safeCode}_$timestamp.pdf"
-            )
-            put(MediaStore.MediaColumns.MIME_TYPE, "application/pdf")
-            put(
-                MediaStore.MediaColumns.RELATIVE_PATH,
-                Environment.DIRECTORY_DOWNLOADS + "/Scan2Enter/Blister"
-            )
+        val baseDir =
+            context.getExternalFilesDir(
+                Environment.DIRECTORY_DOWNLOADS
+            ) ?: context.filesDir
+
+        val reportDir = File(
+            baseDir,
+            "Scan2Enter/Blister"
+        ).apply {
+            if (!exists() && !mkdirs()) {
+                error("Impossibile creare la cartella dei report blister")
+            }
         }
 
-        return context.contentResolver.insert(
-            MediaStore.Downloads.EXTERNAL_CONTENT_URI,
-            values
-        ) ?: error("Impossibile creare il PDF nei Download")
+        return File(
+            reportDir,
+            "Blister_${safeCode}_$timestamp.pdf"
+        )
     }
 
     private fun openPdf(context: Context, uri: Uri) {
