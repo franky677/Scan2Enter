@@ -1,7 +1,9 @@
 package com.scan2enter.ui.screens
 
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.Handler
@@ -12,6 +14,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -25,8 +28,10 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
@@ -59,6 +64,8 @@ import com.scan2enter.api.SessionColloItemDto
 import com.scan2enter.session.SessionItem
 import com.scan2enter.session.SessionStore
 import com.scan2enter.session.SessionCustomerStore
+import java.text.SimpleDateFormat
+import java.util.Date
 import java.util.Locale
 import kotlin.math.abs
 
@@ -150,6 +157,101 @@ fun SessionScreen(
 
         onDispose {
             SessionStore.removeListener(listener)
+        }
+    }
+
+    DisposableEffect(Unit) {
+        context.startService(
+            Intent(
+                context,
+                OverlayService::class.java
+            ).apply {
+                action =
+                    OverlayService.ACTION_CLOSE_SCANNER
+            }
+        )
+
+        onDispose { }
+    }
+
+    DisposableEffect(Unit) {
+        var lastBarcode = ""
+        var lastScanAt = 0L
+
+        val sunmiReceiver =
+            object : BroadcastReceiver() {
+                override fun onReceive(
+                    receiverContext: Context?,
+                    intent: Intent?
+                ) {
+                    if (
+                        intent?.action !=
+                        "com.honeywell.tools.action.scan_result"
+                    ) {
+                        return
+                    }
+
+                    val barcode =
+                        intent.getStringExtra("barcode_data")
+                            ?.trim()
+                            .orEmpty()
+
+                    if (barcode.isBlank()) {
+                        return
+                    }
+
+                    val now =
+                        android.os.SystemClock.elapsedRealtime()
+
+                    if (
+                        barcode == lastBarcode &&
+                        now - lastScanAt < 600L
+                    ) {
+                        android.util.Log.d(
+                            "SessionScreen",
+                            "DOPPIA LETTURA IGNORATA barcode=$barcode"
+                        )
+                        return
+                    }
+
+                    lastBarcode = barcode
+                    lastScanAt = now
+
+                    context.startService(
+                        Intent(
+                            context,
+                            OverlayService::class.java
+                        ).apply {
+                            action =
+                                OverlayService.ACTION_OPEN_SEARCH_ARTICLE
+
+                            putExtra(
+                                OverlayService.EXTRA_CURRENT_ARTICLE_BARCODE,
+                                barcode
+                            )
+
+                            putExtra(
+                                OverlayService.EXTRA_SUPPRESS_PRODUCT_POPUP,
+                                true
+                            )
+                        }
+                    )
+                }
+            }
+
+        context.registerReceiver(
+            sunmiReceiver,
+            IntentFilter(
+                "com.honeywell.tools.action.scan_result"
+            )
+        )
+
+        onDispose {
+            runCatching {
+                context.unregisterReceiver(
+                    sunmiReceiver
+                )
+            }
         }
     }
 
@@ -299,7 +401,7 @@ fun SessionScreen(
                 Text(
                     text =
                         "La sessione è vuota.\n" +
-                                "Usa SCANSIONA o CERCA qui sotto.",
+                                "Usa il grilletto laterale o CERCA.",
                     modifier = Modifier.padding(16.dp),
                     fontSize = 18.sp
                 )
@@ -317,6 +419,22 @@ fun SessionScreen(
                             item = item,
                             onClick = {
                                 editingItem = item
+                            },
+                            onDoubleClick = {
+                                context.startService(
+                                    Intent(
+                                        context,
+                                        OverlayService::class.java
+                                    ).apply {
+                                        action =
+                                            OverlayService.ACTION_OPEN_SESSION_ARTICLE_DETAIL
+
+                                        putExtra(
+                                            OverlayService.EXTRA_CURRENT_ARTICLE_BARCODE,
+                                            item.barcode
+                                        )
+                                    }
+                                )
                             },
                             onRemove = {
                                 SessionStore.remove(item.articleId)
@@ -597,6 +715,18 @@ private fun SessionActionPanel(
         mutableStateOf<com.scan2enter.api.CreateColloResultDto?>(null)
     }
 
+    var colloCreatedAt by remember {
+        mutableStateOf("")
+    }
+
+    var printingColloLabel by remember {
+        mutableStateOf(false)
+    }
+
+    var colloLabelMessage by remember {
+        mutableStateOf<String?>(null)
+    }
+
     val gatewayApiClient = remember {
         GatewayApiClient()
     }
@@ -725,6 +855,13 @@ private fun SessionActionPanel(
                             sendingCollo = false
 
                             result.onSuccess { created ->
+                                colloCreatedAt =
+                                    SimpleDateFormat(
+                                        "dd/MM/yy HH:mm",
+                                        Locale.ITALY
+                                    ).format(Date())
+
+                                colloLabelMessage = null
                                 createdCollo = created
                             }.onFailure { error ->
                                 sendError =
@@ -797,9 +934,11 @@ private fun SessionActionPanel(
             },
             text = {
                 Column(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState()),
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Text(
                         text = "Cliente: ${customer.name}",
@@ -822,7 +961,7 @@ private fun SessionActionPanel(
                         code = colloBarcode,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(150.dp)
+                            .height(118.dp)
                     )
 
                     Text(
@@ -830,6 +969,85 @@ private fun SessionActionPanel(
                         fontSize = 24.sp,
                         fontWeight = FontWeight.Bold
                     )
+
+                    colloLabelMessage?.let { message ->
+                        Text(
+                            text = message,
+                            fontSize = 13.sp,
+                            color =
+                                if (message.startsWith("✅")) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.error
+                                }
+                        )
+                    }
+
+                    Button(
+                        onClick = {
+                            if (printingColloLabel) {
+                                return@Button
+                            }
+
+                            printingColloLabel = true
+                            colloLabelMessage = null
+
+                            val labelCustomer =
+                                customer.name
+                                    .trim()
+                                    .ifBlank { "BANCO" }
+
+                            val labelDateTime =
+                                colloCreatedAt.ifBlank {
+                                    SimpleDateFormat(
+                                        "dd/MM/yy HH:mm",
+                                        Locale.ITALY
+                                    ).format(Date())
+                                }
+
+                            Thread {
+                                val printResult =
+                                    gatewayApiClient.printLabel(
+                                        articleCode = labelCustomer,
+                                        description = labelDateTime,
+                                        barcode = colloBarcode,
+                                        publicPrice = "",
+                                        quantity = 1,
+                                        printer = "GODEX",
+                                        template = "STANDARD",
+                                        note = ""
+                                    )
+
+                                Handler(
+                                    Looper.getMainLooper()
+                                ).post {
+                                    printingColloLabel = false
+
+                                    printResult
+                                        .onSuccess {
+                                            colloLabelMessage =
+                                                "✅ Etichetta collo stampata"
+                                        }
+                                        .onFailure { error ->
+                                            colloLabelMessage =
+                                                "Errore stampa: " +
+                                                        (error.message
+                                                            ?: "errore sconosciuto")
+                                        }
+                                }
+                            }.start()
+                        },
+                        enabled = !printingColloLabel,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            if (printingColloLabel) {
+                                "🏷️ STAMPA IN CORSO..."
+                            } else {
+                                "🏷️ STAMPA ETICHETTA COLLO"
+                            }
+                        )
+                    }
 
                     Text(
                         text =
@@ -1046,18 +1264,36 @@ private fun ScanActionButton(
     onClick: () -> Unit,
     onSwap: () -> Unit
 ) {
-    GradientActionButton(
-        modifier = modifier,
-        text = "🔫  SCANSIONA",
-        gradient = Brush.horizontalGradient(
-            listOf(
-                Color(0xFF0D47A1),
-                Color(0xFF42A5F5)
+    Box(
+        modifier = modifier
+            .height(96.dp)
+            .background(
+                color = Color(0xFF1B5E20),
+                shape = RoundedCornerShape(18.dp)
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                text = "🟢 SCANNER ATTIVO",
+                color = Color.White,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold
             )
-        ),
-        onClick = onClick,
-        onSwap = onSwap
-    )
+
+            Spacer(
+                modifier = Modifier.height(4.dp)
+            )
+
+            Text(
+                text = "Premi il grilletto",
+                color = Color.White,
+                fontSize = 13.sp
+            )
+        }
+    }
 }
 
 @Composable
@@ -1135,12 +1371,22 @@ private fun GradientActionButton(
 private fun SessionRow(
     item: SessionItem,
     onClick: () -> Unit,
+    onDoubleClick: () -> Unit,
     onRemove: () -> Unit
 ) {
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick),
+            .pointerInput(item.articleId) {
+                detectTapGestures(
+                    onDoubleTap = {
+                        onDoubleClick()
+                    },
+                    onTap = {
+                        onClick()
+                    }
+                )
+            },
         shape = RoundedCornerShape(14.dp),
         tonalElevation = 2.dp
     ) {

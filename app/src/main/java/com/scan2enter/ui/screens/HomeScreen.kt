@@ -1,5 +1,6 @@
 package com.scan2enter.ui.screens
 
+import android.content.Context
 import android.content.Intent
 import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
@@ -19,6 +20,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -33,6 +35,43 @@ fun HomeScreen(
     onOpenSession: () -> Unit
 ) {
     val context = LocalContext.current
+
+    DisposableEffect(Unit) {
+        context
+            .applicationContext
+            .getSharedPreferences(
+                "scan_workflow",
+                Context.MODE_PRIVATE
+            )
+            .edit()
+            .putString(
+                "mode",
+                "INFO"
+            )
+            .apply()
+
+        context.startService(
+            Intent(
+                context,
+                OverlayService::class.java
+            ).apply {
+                action =
+                    OverlayService.ACTION_OPEN_SCANNER
+            }
+        )
+
+        onDispose {
+            context.startService(
+                Intent(
+                    context,
+                    OverlayService::class.java
+                ).apply {
+                    action =
+                        OverlayService.ACTION_CLOSE_SCANNER
+                }
+            )
+        }
+    }
 
     fun moduleNotAvailable(moduleName: String) {
         Toast.makeText(
@@ -69,20 +108,10 @@ fun HomeScreen(
                 fontWeight = FontWeight.Bold
             )
 
-            HomeButtonRow(
-                leftText = "🔎\nTROVATUTTO",
-                rightText = "🔫\nSCANSIONA",
-                onLeftClick = onOpenTrovaTutto,
-                onRightClick = {
-                    context.startService(
-                        Intent(
-                            context,
-                            OverlayService::class.java
-                        ).apply {
-                            action = OverlayService.ACTION_OPEN_SCANNER
-                        }
-                    )
-                }
+            HomeModuleButton(
+                text = "🔎\nTROVATUTTO",
+                onClick = onOpenTrovaTutto,
+                modifier = Modifier.fillMaxWidth()
             )
 
             HomeButtonRow(
@@ -136,14 +165,12 @@ fun HomeScreen(
             )
 
             HomeButtonRow(
-                leftText = "📦\nCOLLO VELOCE",
-                rightText = "📊\nVENDITE",
+                leftText = "📊\nVENDITE",
+                rightText = "",
                 onLeftClick = {
-                    moduleNotAvailable("Collo veloce")
-                },
-                onRightClick = {
                     moduleNotAvailable("Vendite")
-                }
+                },
+                onRightClick = null
             )
 
             Button(

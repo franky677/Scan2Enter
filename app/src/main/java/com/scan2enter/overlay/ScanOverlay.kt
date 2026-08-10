@@ -4,16 +4,9 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
-import android.graphics.Color
-import android.graphics.PixelFormat
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
-import android.view.Gravity
-import android.view.View
-import android.view.WindowManager
-import android.widget.FrameLayout
-import android.widget.TextView
 import com.scan2enter.MainActivity
 import com.scan2enter.scanner.ScanSession
 
@@ -21,16 +14,13 @@ class ScanOverlay(
     private val context: Context
 ) {
 
-    private val windowManager =
-        context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
-
     private val scanSession =
         ScanSession(context)
 
     private val handler =
         Handler(Looper.getMainLooper())
 
-    private var container: FrameLayout? = null
+    private var scannerActive = false
 
     @Volatile
     private var closing = false
@@ -83,8 +73,11 @@ class ScanOverlay(
     fun show(
         rapidRescan: Boolean = false
     ) {
-        if (container != null) {
-            Log.d(TAG, "SUNMI SCANNER GIÀ APERTO")
+        if (scannerActive) {
+            Log.d(
+                TAG,
+                "SUNMI SCANNER GIÀ ATTIVO"
+            )
             return
         }
 
@@ -104,9 +97,15 @@ class ScanOverlay(
             )
 
             receiverRegistered = true
-            Log.d(TAG, "SUNMI RECEIVER REGISTRATO")
+            scannerActive = true
+
+            Log.d(
+                TAG,
+                "SUNMI HARDWARE SCANNER ATTIVO SENZA FINESTRA"
+            )
         } catch (error: Exception) {
             receiverRegistered = false
+            scannerActive = false
 
             Log.e(
                 TAG,
@@ -114,89 +113,15 @@ class ScanOverlay(
                 error
             )
         }
-
-        val frame =
-            FrameLayout(context).apply {
-                setBackgroundColor(
-                    Color.rgb(12, 12, 12)
-                )
-                isClickable = true
-            }
-
-        val closeScanner =
-            View.OnClickListener {
-                Log.d(
-                    TAG,
-                    "SUNMI SCANNER CHIUSO CON TOCCO"
-                )
-
-                if (godexMode || a4Mode) {
-                    exitSpecialModeToHome()
-                } else {
-                    hide()
-                }
-            }
-
-        frame.setOnClickListener(closeScanner)
-
-        val readyText =
-            TextView(context).apply {
-                text =
-                    if (godexMode) {
-                        "🏷️ GODEX\n\nPRONTO ALLA LETTURA\n\nPremi il grilletto"
-                    } else if (a4Mode) {
-                        "📄 ETICHETTE A4\n\nPRONTO ALLA LETTURA\n\nPremi il grilletto"
-                    } else {
-                        "🔴 SCANNER SUNMI\n\nPRONTO\n\nPremi il grilletto"
-                    }
-
-                setTextColor(Color.WHITE)
-                textSize = 22f
-                gravity = Gravity.CENTER
-                setPadding(
-                    dp(18),
-                    dp(18),
-                    dp(18),
-                    dp(18)
-                )
-                setOnClickListener(closeScanner)
-            }
-
-        frame.addView(
-            readyText,
-            FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT,
-                FrameLayout.LayoutParams.MATCH_PARENT
-            )
-        )
-
-        val params =
-            WindowManager.LayoutParams(
-                dp(280),
-                dp(210),
-                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
-                PixelFormat.TRANSLUCENT
-            ).apply {
-                gravity = Gravity.CENTER
-            }
-
-        windowManager.addView(frame, params)
-        container = frame
-
-        Log.d(
-            TAG,
-            "SUNMI HARDWARE SCANNER PRONTO - CAMERAX NON AVVIATA"
-        )
     }
 
     fun onHardwareBarcode(
         barcode: String
     ) {
-        if (container == null) {
+        if (!scannerActive) {
             Log.d(
                 TAG,
-                "SUNMI BARCODE IGNORATO - SCANNER NON APERTO"
+                "SUNMI BARCODE IGNORATO - SCANNER NON ATTIVO"
             )
             return
         }
@@ -232,27 +157,25 @@ class ScanOverlay(
 
         if (receiverRegistered) {
             try {
-                context.unregisterReceiver(sunmiReceiver)
+                context.unregisterReceiver(
+                    sunmiReceiver
+                )
             } catch (_: Exception) {
             }
 
             receiverRegistered = false
         }
 
-        container?.let { view ->
-            try {
-                windowManager.removeView(view)
-            } catch (_: Exception) {
-            }
-        }
-
-        container = null
+        scannerActive = false
         rapidRescan = false
         godexMode = false
         a4Mode = false
         closing = false
 
-        Log.d(TAG, "SUNMI SCANNER CHIUSO")
+        Log.d(
+            TAG,
+            "SUNMI SCANNER DISATTIVATO"
+        )
     }
 
     private fun loadCurrentMode(): String {
@@ -318,10 +241,4 @@ class ScanOverlay(
         )
     }
 
-    private fun dp(value: Int): Int {
-        return (
-                value *
-                        context.resources.displayMetrics.density
-                ).toInt()
-    }
 }

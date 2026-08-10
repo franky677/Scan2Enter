@@ -104,8 +104,14 @@ class OverlayService : Service() {
         const val ACTION_OPEN_SEARCH_ARTICLE =
             "com.scan2enter.action.OPEN_SEARCH_ARTICLE"
 
+        const val ACTION_OPEN_SESSION_ARTICLE_DETAIL =
+            "com.scan2enter.action.OPEN_SESSION_ARTICLE_DETAIL"
+
         const val ACTION_OPEN_SCANNER =
             "com.scan2enter.action.OPEN_SCANNER"
+
+        const val ACTION_CLOSE_SCANNER =
+            "com.scan2enter.action.CLOSE_SCANNER"
 
         const val ACTION_OPEN_RAPID_SCANNER =
             "com.scan2enter.action.OPEN_RAPID_SCANNER"
@@ -118,6 +124,9 @@ class OverlayService : Service() {
 
         const val EXTRA_CURRENT_ARTICLE_BARCODE =
             "com.scan2enter.extra.CURRENT_ARTICLE_BARCODE"
+
+        const val EXTRA_SUPPRESS_PRODUCT_POPUP =
+            "com.scan2enter.extra.SUPPRESS_PRODUCT_POPUP"
 
         const val EXTRA_CURRENT_ARTICLE_YEAR =
             "com.scan2enter.extra.CURRENT_ARTICLE_YEAR"
@@ -384,6 +393,29 @@ class OverlayService : Service() {
                     "RICHIESTA APERTURA ETICHETTE A4"
                 )
 
+                applicationContext
+                    .getSharedPreferences(
+                        WORKFLOW_PREFS,
+                        Context.MODE_PRIVATE
+                    )
+                    .edit()
+                    .putString(
+                        WORKFLOW_MODE_KEY,
+                        MODE_LABELS_A4
+                    )
+                    .apply()
+
+                scanOverlay.hide()
+
+                popupHandler.postDelayed(
+                    {
+                        scanOverlay.show(
+                            rapidRescan = false
+                        )
+                    },
+                    250L
+                )
+
                 a4LabelsPopupController.show(
                     onScanRequested = {
                         applicationContext
@@ -455,6 +487,8 @@ class OverlayService : Service() {
                         )
                     },
                     onClosed = {
+                        scanOverlay.hide()
+
                         applicationContext
                             .getSharedPreferences(
                                 WORKFLOW_PREFS,
@@ -490,6 +524,29 @@ class OverlayService : Service() {
 
                 popupHandler.removeCallbacks(dismissPopupRunnable)
 
+                applicationContext
+                    .getSharedPreferences(
+                        WORKFLOW_PREFS,
+                        Context.MODE_PRIVATE
+                    )
+                    .edit()
+                    .putString(
+                        WORKFLOW_MODE_KEY,
+                        MODE_LABELS_GODEX
+                    )
+                    .apply()
+
+                scanOverlay.hide()
+
+                popupHandler.postDelayed(
+                    {
+                        scanOverlay.show(
+                            rapidRescan = false
+                        )
+                    },
+                    250L
+                )
+
                 labelPrintPopupController.show(
                     product = null,
                     onScanRequested = {
@@ -520,7 +577,19 @@ class OverlayService : Service() {
                         )
                     },
                     onClosed = {
-                        // Dalla configurazione iniziale si resta semplicemente nella Home.
+                        scanOverlay.hide()
+
+                        applicationContext
+                            .getSharedPreferences(
+                                WORKFLOW_PREFS,
+                                Context.MODE_PRIVATE
+                            )
+                            .edit()
+                            .putString(
+                                WORKFLOW_MODE_KEY,
+                                MODE_INFO
+                            )
+                            .apply()
                     }
                 )
             }
@@ -641,12 +710,44 @@ class OverlayService : Service() {
                 )
             }
 
+            ACTION_CLOSE_SCANNER -> {
+                android.util.Log.d(
+                    "OverlayService",
+                    "CHIUDO SCANNER HARDWARE"
+                )
+
+                scanOverlay.hide()
+            }
+
             ACTION_OPEN_RAPID_SCANNER -> {
                 sessionRecordedForCurrentScan = false
                 openRapidScanner()
             }
 
             ACTION_OPEN_SEARCH_ARTICLE -> {
+                val barcode = intent.getStringExtra(
+                    EXTRA_CURRENT_ARTICLE_BARCODE
+                ).orEmpty()
+
+                val suppressPopup =
+                    intent.getBooleanExtra(
+                        EXTRA_SUPPRESS_PRODUCT_POPUP,
+                        false
+                    )
+
+                openCurrentArticleFromApi(
+                    rawBarcode = barcode,
+                    uiYear = "",
+                    uiSeason = "",
+                    uiLocation = "",
+                    addToHistory = false,
+                    addToReorder = false,
+                    addToSession = true,
+                    showPopup = !suppressPopup
+                )
+            }
+
+            ACTION_OPEN_SESSION_ARTICLE_DETAIL -> {
                 val barcode = intent.getStringExtra(
                     EXTRA_CURRENT_ARTICLE_BARCODE
                 ).orEmpty()
@@ -658,7 +759,8 @@ class OverlayService : Service() {
                     uiLocation = "",
                     addToHistory = false,
                     addToReorder = false,
-                    addToSession = true
+                    addToSession = false,
+                    showPopup = true
                 )
             }
 
@@ -776,7 +878,8 @@ class OverlayService : Service() {
         uiLocation: String,
         addToHistory: Boolean = true,
         addToReorder: Boolean = true,
-        addToSession: Boolean = false
+        addToSession: Boolean = false,
+        showPopup: Boolean = true
     ) {
         val barcode = rawBarcode
             .trim()
@@ -828,10 +931,12 @@ class OverlayService : Service() {
                         )
                     }
 
-                    showOrUpdateProductInfoPopup(
-                        workflowCompleted = true,
-                        manualOpen = true
-                    )
+                    if (showPopup) {
+                        showOrUpdateProductInfoPopup(
+                            workflowCompleted = true,
+                            manualOpen = true
+                        )
+                    }
 
                     android.util.Log.d(
                         "OverlayService",
@@ -3113,23 +3218,25 @@ class OverlayService : Service() {
                 )
             },
             onPopupTap = {
-                if (
-                    reopenScannerAfterPopup &&
-                    loadCurrentScanMode() == MODE_INFO
-                ) {
-                    popupHandler.removeCallbacks(dismissPopupRunnable)
-                    popupTimerPausedByUser = false
-                    reopenScannerAfterPopup = false
+                popupHandler.removeCallbacks(dismissPopupRunnable)
+                popupTimerPausedByUser = false
 
-                    removeProductInfoPopup()
+                val reopen =
+                    reopenScannerAfterPopup &&
+                            loadCurrentScanMode() == MODE_INFO
+
+                reopenScannerAfterPopup = false
+                removeProductInfoPopup()
+
+                if (reopen) {
                     sessionRecordedForCurrentScan = false
                     openRapidScanner()
-
-                    android.util.Log.d(
-                        "OverlayService",
-                        "POPUP TOCCATO - SCANNER RIAPERTO"
-                    )
                 }
+
+                android.util.Log.d(
+                    "OverlayService",
+                    "POPUP TOCCATO - CHIUSURA IMMEDIATA"
+                )
             }
         )
 

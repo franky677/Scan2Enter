@@ -1,6 +1,5 @@
 package com.scan2enter.printing
 
-import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
 import android.graphics.Canvas
@@ -10,9 +9,10 @@ import android.graphics.Typeface
 import android.graphics.pdf.PdfDocument
 import android.net.Uri
 import android.os.Environment
-import android.provider.MediaStore
+import androidx.core.content.FileProvider
 import com.scan2enter.favorites.FavoriteItem
 import com.scan2enter.reorder.ReorderItem
+import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -539,36 +539,36 @@ object ListPdfGenerator {
                 Locale.ITALY
             ).format(Date())
 
-        val values = ContentValues().apply {
-            put(
-                MediaStore.MediaColumns.DISPLAY_NAME,
+        val baseDir =
+            context.getExternalFilesDir(
+                Environment.DIRECTORY_DOWNLOADS
+            ) ?: context.filesDir
+
+        val reportDir =
+            File(
+                baseDir,
+                "Scan2Enter"
+            ).apply {
+                if (!exists() && !mkdirs()) {
+                    error("Impossibile creare la cartella dei report PDF")
+                }
+            }
+
+        val pdfFile =
+            File(
+                reportDir,
                 "${filePrefix}_$stamp.pdf"
             )
-            put(
-                MediaStore.MediaColumns.MIME_TYPE,
-                "application/pdf"
-            )
-            put(
-                MediaStore.MediaColumns.RELATIVE_PATH,
-                Environment.DIRECTORY_DOWNLOADS +
-                        "/Scan2Enter"
-            )
+
+        pdfFile.outputStream().use { output ->
+            document.writeTo(output)
         }
 
-        val uri =
-            context.contentResolver.insert(
-                MediaStore.Downloads.EXTERNAL_CONTENT_URI,
-                values
-            ) ?: error("Impossibile creare il file PDF")
-
-        context.contentResolver
-            .openOutputStream(uri)
-            ?.use { output ->
-                document.writeTo(output)
-            }
-            ?: error("Impossibile scrivere il PDF")
-
-        return uri
+        return FileProvider.getUriForFile(
+            context,
+            "${context.packageName}.fileprovider",
+            pdfFile
+        )
     }
 
     private fun openPdf(

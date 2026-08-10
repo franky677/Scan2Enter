@@ -149,7 +149,7 @@
                             android:layout_marginTop="2dp"
                             android:maxLines="1"
                             android:textColor="#172019"
-                            android:textSize="23sp"
+                            android:textSize="16sp"
                             android:textStyle="bold" />
 
                         <TextView
