@@ -87,7 +87,15 @@ object SessionStore {
                 )
             }
 
+            /*
+             * L'ordine della LinkedHashMap rappresenta l'ordine di ultima lettura.
+             * Se l'articolo era già presente, lo togliamo e lo reinseriamo:
+             * così una nuova scansione dello stesso articolo lo rende di nuovo
+             * l'elemento più recente della Sessione.
+             */
+            items.remove(product.articleId)
             items[product.articleId] = updated
+
             saveLocked()
         }
 
@@ -156,6 +164,15 @@ object SessionStore {
         notifyListeners()
     }
 
+    fun remove(articleId: Long) {
+        synchronized(lock) {
+            if (items.remove(articleId) == null) return
+            saveLocked()
+        }
+
+        notifyListeners()
+    }
+
     fun replaceWithHistory(
         historyItems: List<SessionItem>
     ) {
@@ -163,20 +180,14 @@ object SessionStore {
             items.clear()
 
             historyItems.forEach { item ->
-                if (item.articleId > 0L && item.quantity > 0) {
+                if (
+                    item.articleId > 0L &&
+                    item.quantity > 0
+                ) {
                     items[item.articleId] = item
                 }
             }
 
-            saveLocked()
-        }
-
-        notifyListeners()
-    }
-
-    fun remove(articleId: Long) {
-        synchronized(lock) {
-            if (items.remove(articleId) == null) return
             saveLocked()
         }
 

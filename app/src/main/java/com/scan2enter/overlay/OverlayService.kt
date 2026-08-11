@@ -1,8 +1,10 @@
 package com.scan2enter.overlay
 
 import android.app.Service
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.drawable.GradientDrawable
@@ -11,6 +13,7 @@ import android.media.ToneGenerator
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import androidx.core.content.ContextCompat
 import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.MotionEvent
@@ -34,6 +37,7 @@ import android.widget.Toast
 import coil3.load
 import coil3.request.crossfade
 import com.scan2enter.BuildFlags
+import com.scan2enter.MainActivity
 import com.scan2enter.api.GatewayApiClient
 import com.scan2enter.ScannerActivity
 import com.scan2enter.R
@@ -79,6 +83,9 @@ class OverlayService : Service() {
 
         const val ACTION_SHOW_GODEX_SETUP =
             "com.scan2enter.action.SHOW_GODEX_SETUP"
+
+        const val ACTION_OPEN_GODEX_SEARCH_RESULT =
+            "com.scan2enter.action.OPEN_GODEX_SEARCH_RESULT"
 
         const val ACTION_SHOW_A4_LABELS =
             "com.scan2enter.action.SHOW_A4_LABELS"
@@ -127,6 +134,12 @@ class OverlayService : Service() {
 
         const val EXTRA_SUPPRESS_PRODUCT_POPUP =
             "com.scan2enter.extra.SUPPRESS_PRODUCT_POPUP"
+
+        const val EXTRA_FORCE_STOCK_SOUND =
+            "com.scan2enter.extra.FORCE_STOCK_SOUND"
+
+        const val EXTRA_DIRECT_TO_SESSION =
+            "com.scan2enter.extra.DIRECT_TO_SESSION"
 
         const val EXTRA_CURRENT_ARTICLE_YEAR =
             "com.scan2enter.extra.CURRENT_ARTICLE_YEAR"
@@ -229,6 +242,51 @@ class OverlayService : Service() {
     private var currentArticleLoading = false
 
     private val popupHandler = Handler(Looper.getMainLooper())
+
+    private var godexSunmiReceiverRegistered = false
+
+    private val godexSunmiReceiver =
+        object : BroadcastReceiver() {
+            override fun onReceive(
+                receiverContext: Context?,
+                intent: Intent?
+            ) {
+                if (
+                    intent?.action !=
+                    "com.honeywell.tools.action.scan_result"
+                ) {
+                    return
+                }
+
+                if (loadCurrentScanMode() != MODE_LABELS_GODEX) {
+                    return
+                }
+
+                val barcode =
+                    intent.getStringExtra("barcode_data")
+                        ?.trim()
+                        .orEmpty()
+                        .ifBlank {
+                            intent.getByteArrayExtra("source_byte")
+                                ?.toString(Charsets.UTF_8)
+                                ?.trim()
+                                .orEmpty()
+                        }
+
+                if (barcode.isBlank()) {
+                    return
+                }
+
+                android.util.Log.d(
+                    "Scan2Enter",
+                    "SUNMI GODEX SERVICE RECEIVER barcode=$barcode"
+                )
+
+                labelPrintPopupController.remove()
+
+                openGodexBarcodeDirect(barcode)
+            }
+        }
 
     private val scannerLongPressRunnable = Runnable {
         if (!isDragging && ::scannerArea.isInitialized) {
@@ -355,6 +413,25 @@ class OverlayService : Service() {
     private var reopenScannerAfterPopup = false
     private var sessionRecordedForCurrentScan = false
 
+    /*
+     * Dock laterale a scomparsa.
+     * Chiusa: rimane soltanto una piccola lineetta sul bordo.
+     * Aperta: compare un grande pulsante SCAN.
+     */
+    private var quickScanDock: FrameLayout? = null
+    private var quickScanDockParams: WindowManager.LayoutParams? = null
+    private var quickScanDockExpanded = false
+    private var quickScanDockOnLeft = true
+
+    private var quickDockDownX = 0f
+    private var quickDockDownY = 0f
+    private var quickDockStartX = 0
+    private var quickDockStartY = 0
+
+    private val quickDockAutoHideRunnable = Runnable {
+        collapseQuickScanDock()
+    }
+
     private val dismissPopupRunnable = Runnable {
         removeProductInfoPopup()
         android.util.Log.d(
@@ -405,16 +482,12 @@ class OverlayService : Service() {
                     )
                     .apply()
 
+                /*
+                 * Quando si apre ETICHETTE A4 lo scanner resta fermo.
+                 * Verrà aperto soltanto da un comando di scansione
+                 * richiesto dentro la finestra A4.
+                 */
                 scanOverlay.hide()
-
-                popupHandler.postDelayed(
-                    {
-                        scanOverlay.show(
-                            rapidRescan = false
-                        )
-                    },
-                    250L
-                )
 
                 a4LabelsPopupController.show(
                     onScanRequested = {
@@ -536,45 +609,20 @@ class OverlayService : Service() {
                     )
                     .apply()
 
+                /*
+                 * Quando si apre GODEX lo scanner resta fermo.
+                 * Verrà aperto soltanto da un comando di scansione
+                 * richiesto dentro la finestra GoDEX.
+                 */
                 scanOverlay.hide()
-
-                popupHandler.postDelayed(
-                    {
-                        scanOverlay.show(
-                            rapidRescan = false
-                        )
-                    },
-                    250L
-                )
 
                 labelPrintPopupController.show(
                     product = null,
-                    onScanRequested = {
-                        applicationContext
-                            .getSharedPreferences(
-                                WORKFLOW_PREFS,
-                                Context.MODE_PRIVATE
-                            )
-                            .edit()
-                            .putString(
-                                WORKFLOW_MODE_KEY,
-                                MODE_LABELS_GODEX
-                            )
-                            .apply()
-
-                        popupHandler.postDelayed(
-                            {
-                                startService(
-                                    Intent(
-                                        this,
-                                        OverlayService::class.java
-                                    ).apply {
-                                        action = ACTION_OPEN_SCANNER
-                                    }
-                                )
-                            },
-                            180L
-                        )
+                    onSearchRequested = {
+                        openGodexArticleSearch()
+                    },
+                    onHardwareScanRequested = {
+                        reopenGodexScannerIfNeeded()
                     },
                     onClosed = {
                         scanOverlay.hide()
@@ -592,6 +640,8 @@ class OverlayService : Service() {
                             .apply()
                     }
                 )
+
+                bringQuickScanDockToFront()
             }
 
             ACTION_SHOW_GODEX_PRINT -> {
@@ -615,14 +665,66 @@ class OverlayService : Service() {
 
                     labelPrintPopupController.show(
                         product = product,
-                        onScanRequested = {
+                        onSearchRequested = {
+                            openGodexArticleSearch()
+                        },
+                        onHardwareScanRequested = {
                             reopenGodexScannerIfNeeded()
                         },
                         onClosed = {
-                            reopenGodexScannerIfNeeded()
+                            scanOverlay.hide()
                         }
                     )
+
+                    bringQuickScanDockToFront()
                 }
+            }
+
+            ACTION_OPEN_GODEX_SEARCH_RESULT -> {
+                val barcode = intent.getStringExtra(
+                    EXTRA_CURRENT_ARTICLE_BARCODE
+                ).orEmpty()
+
+                applicationContext
+                    .getSharedPreferences(
+                        WORKFLOW_PREFS,
+                        Context.MODE_PRIVATE
+                    )
+                    .edit()
+                    .putString(
+                        WORKFLOW_MODE_KEY,
+                        MODE_LABELS_GODEX
+                    )
+                    .apply()
+
+                scanOverlay.hide()
+
+                openCurrentArticleFromApi(
+                    rawBarcode = barcode,
+                    uiYear = "",
+                    uiSeason = "",
+                    uiLocation = "",
+                    addToHistory = false,
+                    addToReorder = false,
+                    addToSession = false,
+                    showPopup = false,
+                    onLoaded = { loadedProduct ->
+                        labelPrintPopupController.show(
+                            product = loadedProduct,
+                            onSearchRequested = {
+                                openGodexArticleSearch()
+                            },
+                            onHardwareScanRequested = {
+                                reopenGodexScannerIfNeeded()
+                            },
+                            onClosed = {
+                                scanOverlay.hide()
+                            }
+                        )
+
+                        bringQuickScanDockToFront()
+                    }
+                )
             }
 
             ACTION_SHOW_FAVORITES_LIST -> {
@@ -648,6 +750,8 @@ class OverlayService : Service() {
             }
 
             ACTION_SHOW_PRODUCT_INFO -> {
+                keepQuickScanDockAlive()
+
                 val completed = intent.getBooleanExtra(
                     EXTRA_WORKFLOW_COMPLETED,
                     false
@@ -665,6 +769,8 @@ class OverlayService : Service() {
             }
 
             ACTION_UPDATE_PRODUCT_INFO -> {
+                keepQuickScanDockAlive()
+
                 val completed = intent.getBooleanExtra(
                     EXTRA_WORKFLOW_COMPLETED,
                     false
@@ -698,16 +804,43 @@ class OverlayService : Service() {
             }
 
             ACTION_OPEN_SCANNER -> {
-                sessionRecordedForCurrentScan = false
+                val blockUntil =
+                    applicationContext
+                        .getSharedPreferences(
+                            "scanner_startup_guard",
+                            Context.MODE_PRIVATE
+                        )
+                        .getLong(
+                            "block_until",
+                            0L
+                        )
 
-                android.util.Log.d(
-                    "OverlayService",
-                    "SUNMI - APRO SCANNER HARDWARE"
-                )
+                if (System.currentTimeMillis() < blockUntil) {
+                    android.util.Log.d(
+                        "OverlayService",
+                        "APERTURA SCANNER AUTOMATICA BLOCCATA DURANTE STARTUP"
+                    )
 
-                scanOverlay.show(
-                    rapidRescan = false
-                )
+                    scanOverlay.hide()
+                } else {
+                    sessionRecordedForCurrentScan = false
+
+                    val directToSession =
+                        intent.getBooleanExtra(
+                            EXTRA_DIRECT_TO_SESSION,
+                            false
+                        )
+
+                    android.util.Log.d(
+                        "OverlayService",
+                        "APRO SCANNER directToSession=$directToSession"
+                    )
+
+                    scanOverlay.show(
+                        rapidRescan = false,
+                        directToSession = directToSession
+                    )
+                }
             }
 
             ACTION_CLOSE_SCANNER -> {
@@ -725,6 +858,8 @@ class OverlayService : Service() {
             }
 
             ACTION_OPEN_SEARCH_ARTICLE -> {
+                keepQuickScanDockAlive()
+
                 val barcode = intent.getStringExtra(
                     EXTRA_CURRENT_ARTICLE_BARCODE
                 ).orEmpty()
@@ -769,11 +904,18 @@ class OverlayService : Service() {
                     EXTRA_CURRENT_ARTICLE_BARCODE
                 ).orEmpty()
 
+                val forceStockSound =
+                    intent.getBooleanExtra(
+                        EXTRA_FORCE_STOCK_SOUND,
+                        false
+                    )
+
                 openCurrentArticleFromApi(
                     rawBarcode = barcode,
                     uiYear = intent.getStringExtra(EXTRA_CURRENT_ARTICLE_YEAR).orEmpty(),
                     uiSeason = intent.getStringExtra(EXTRA_CURRENT_ARTICLE_SEASON).orEmpty(),
-                    uiLocation = intent.getStringExtra(EXTRA_CURRENT_ARTICLE_LOCATION).orEmpty()
+                    uiLocation = intent.getStringExtra(EXTRA_CURRENT_ARTICLE_LOCATION).orEmpty(),
+                    forceStockSound = forceStockSound
                 )
             }
         }
@@ -831,6 +973,8 @@ class OverlayService : Service() {
                         )
 
                     popupHandler.post {
+                        keepQuickScanDockAlive()
+
                         SessionStore.addOrIncrement(
                             product = productForSession,
                             priceListName =
@@ -865,6 +1009,7 @@ class OverlayService : Service() {
                     )
 
                     popupHandler.post {
+                        keepQuickScanDockAlive()
                         SessionStore.addOrIncrement(product)
                     }
                 }
@@ -879,7 +1024,9 @@ class OverlayService : Service() {
         addToHistory: Boolean = true,
         addToReorder: Boolean = true,
         addToSession: Boolean = false,
-        showPopup: Boolean = true
+        showPopup: Boolean = true,
+        forceStockSound: Boolean = false,
+        onLoaded: ((ProductInfo) -> Unit)? = null
     ) {
         val barcode = rawBarcode
             .trim()
@@ -934,9 +1081,11 @@ class OverlayService : Service() {
                     if (showPopup) {
                         showOrUpdateProductInfoPopup(
                             workflowCompleted = true,
-                            manualOpen = true
+                            manualOpen = !forceStockSound
                         )
                     }
+
+                    onLoaded?.invoke(enrichedProduct)
 
                     android.util.Log.d(
                         "OverlayService",
@@ -955,6 +1104,84 @@ class OverlayService : Service() {
                 }
             }
         }.start()
+    }
+
+    private fun openGodexBarcodeDirect(
+        barcode: String
+    ) {
+        applicationContext
+            .getSharedPreferences(
+                WORKFLOW_PREFS,
+                Context.MODE_PRIVATE
+            )
+            .edit()
+            .putString(
+                WORKFLOW_MODE_KEY,
+                MODE_LABELS_GODEX
+            )
+            .apply()
+
+        scanOverlay.hide()
+
+        openCurrentArticleFromApi(
+            rawBarcode = barcode,
+            uiYear = "",
+            uiSeason = "",
+            uiLocation = "",
+            addToHistory = false,
+            addToReorder = false,
+            addToSession = false,
+            showPopup = false,
+            onLoaded = { loadedProduct ->
+                labelPrintPopupController.show(
+                    product = loadedProduct,
+                    onSearchRequested = {
+                        openGodexArticleSearch()
+                    },
+                    onHardwareScanRequested = {
+                        reopenGodexScannerIfNeeded()
+                    },
+                    onClosed = {
+                        scanOverlay.hide()
+                    }
+                )
+
+                bringQuickScanDockToFront()
+            }
+        )
+    }
+
+    private fun openGodexArticleSearch() {
+        scanOverlay.hide()
+
+        applicationContext
+            .getSharedPreferences(
+                WORKFLOW_PREFS,
+                Context.MODE_PRIVATE
+            )
+            .edit()
+            .putString(
+                WORKFLOW_MODE_KEY,
+                MODE_LABELS_GODEX
+            )
+            .apply()
+
+        startActivity(
+            Intent(
+                this,
+                MainActivity::class.java
+            ).apply {
+                addFlags(
+                    Intent.FLAG_ACTIVITY_NEW_TASK or
+                            Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                            Intent.FLAG_ACTIVITY_SINGLE_TOP
+                )
+                putExtra(
+                    MainActivity.EXTRA_OPEN_GODEX_SEARCH,
+                    true
+                )
+            }
+        )
     }
 
     private fun reopenGodexScannerIfNeeded() {
@@ -1017,6 +1244,24 @@ class OverlayService : Service() {
 
         ScanFeedbackManager.initialize(applicationContext)
 
+        if (!godexSunmiReceiverRegistered) {
+            ContextCompat.registerReceiver(
+                this,
+                godexSunmiReceiver,
+                IntentFilter(
+                    "com.honeywell.tools.action.scan_result"
+                ),
+                ContextCompat.RECEIVER_EXPORTED
+            )
+
+            godexSunmiReceiverRegistered = true
+
+            android.util.Log.d(
+                "Scan2Enter",
+                "SUNMI GODEX SERVICE RECEIVER REGISTRATO"
+            )
+        }
+
         dockView = LayoutInflater.from(this)
             .inflate(R.layout.overlay_button, null)
 
@@ -1061,6 +1306,11 @@ class OverlayService : Service() {
             "OverlayService",
             "DOCK DISABILITATA - NON AGGIUNTA AL WINDOW MANAGER"
         )
+
+        /*
+         * Nuova dock minimale a scomparsa: indipendente dalla vecchia Dock.
+         */
+        initializeQuickScanDock()
 
         infoArea.setOnClickListener {
             if (isDragging) return@setOnClickListener
@@ -4255,6 +4505,585 @@ class OverlayService : Service() {
         )
     }
 
+    private fun initializeQuickScanDock() {
+        if (quickScanDock != null) {
+            return
+        }
+
+        val density = resources.displayMetrics.density
+        val screenWidth = resources.displayMetrics.widthPixels
+        val screenHeight = resources.displayMetrics.heightPixels
+
+        val prefs = applicationContext.getSharedPreferences(
+            "quick_scan_dock",
+            Context.MODE_PRIVATE
+        )
+
+        quickScanDockOnLeft =
+            prefs.getBoolean("on_left", true)
+
+        val collapsedWidth = (16 * density).toInt().coerceAtLeast(10)
+        val collapsedHeight = (96 * density).toInt().coerceAtLeast(56)
+
+        val savedY =
+            prefs.getInt(
+                "y",
+                (screenHeight * 0.42f).toInt()
+            )
+
+        val root = FrameLayout(this).apply {
+            isClickable = true
+            isFocusable = false
+        }
+
+        val params = WindowManager.LayoutParams(
+            collapsedWidth,
+            collapsedHeight,
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+            x =
+                if (quickScanDockOnLeft) {
+                    0
+                } else {
+                    screenWidth - collapsedWidth
+                }
+            y = savedY.coerceIn(
+                0,
+                (screenHeight - collapsedHeight).coerceAtLeast(0)
+            )
+        }
+
+        quickScanDock = root
+        quickScanDockParams = params
+
+        renderQuickScanDockCollapsed()
+
+        try {
+            windowManager.addView(root, params)
+
+            android.util.Log.d(
+                "OverlayService",
+                "QUICK DOCK AGGIUNTA lato=" +
+                        if (quickScanDockOnLeft) "SX" else "DX"
+            )
+        } catch (error: Exception) {
+            android.util.Log.e(
+                "OverlayService",
+                "ERRORE APERTURA QUICK DOCK",
+                error
+            )
+
+            quickScanDock = null
+            quickScanDockParams = null
+        }
+    }
+
+    private fun renderQuickScanDockCollapsed() {
+        val root = quickScanDock ?: return
+        val params = quickScanDockParams ?: return
+
+        popupHandler.removeCallbacks(
+            quickDockAutoHideRunnable
+        )
+
+        quickScanDockExpanded = false
+
+        val density = resources.displayMetrics.density
+        val screenWidth = resources.displayMetrics.widthPixels
+        val screenHeight = resources.displayMetrics.heightPixels
+
+        val width = (16 * density).toInt().coerceAtLeast(10)
+        val height = (96 * density).toInt().coerceAtLeast(56)
+
+        params.width = width
+        params.height = height
+        params.x =
+            if (quickScanDockOnLeft) {
+                0
+            } else {
+                screenWidth - width
+            }
+        params.y =
+            params.y.coerceIn(
+                0,
+                (screenHeight - height).coerceAtLeast(0)
+            )
+
+        root.removeAllViews()
+
+        root.background = GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            setColor(Color.TRANSPARENT)
+        }
+
+        val handle = View(this).apply {
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                setColor(Color.argb(190, 80, 80, 80))
+                cornerRadius = 6 * density
+            }
+        }
+
+        root.addView(
+            handle,
+            FrameLayout.LayoutParams(
+                (6 * density).toInt().coerceAtLeast(4),
+                (62 * density).toInt().coerceAtLeast(40)
+            ).apply {
+                gravity =
+                    Gravity.CENTER_VERTICAL or
+                            if (quickScanDockOnLeft) {
+                                Gravity.LEFT
+                            } else {
+                                Gravity.RIGHT
+                            }
+            }
+        )
+
+        root.setOnTouchListener { _, event ->
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    quickDockDownX = event.rawX
+                    quickDockDownY = event.rawY
+                    quickDockStartX = params.x
+                    quickDockStartY = params.y
+                    true
+                }
+
+                MotionEvent.ACTION_MOVE -> {
+                    val dx =
+                        (event.rawX - quickDockDownX).toInt()
+                    val dy =
+                        (event.rawY - quickDockDownY).toInt()
+
+                    /*
+                     * La lineetta può essere spostata liberamente:
+                     * in verticale per scegliere l'altezza e,
+                     * trascinandola molto, anche da un lato all'altro.
+                     */
+                    params.x =
+                        (quickDockStartX + dx)
+                            .coerceIn(
+                                0,
+                                (screenWidth - width)
+                                    .coerceAtLeast(0)
+                            )
+
+                    params.y =
+                        (quickDockStartY + dy)
+                            .coerceIn(
+                                0,
+                                (screenHeight - height)
+                                    .coerceAtLeast(0)
+                            )
+
+                    runCatching {
+                        windowManager.updateViewLayout(
+                            root,
+                            params
+                        )
+                    }
+
+                    true
+                }
+
+                MotionEvent.ACTION_UP,
+                MotionEvent.ACTION_CANCEL -> {
+                    val dx =
+                        event.rawX - quickDockDownX
+                    val dy =
+                        event.rawY - quickDockDownY
+
+                    /*
+                     * Cambio lato volutamente più difficile:
+                     * bisogna trascinare la dock per circa 2/3 dello schermo.
+                     */
+                    val switchSideThreshold =
+                        screenWidth * 0.68f
+
+                    val inwardThreshold =
+                        28f * density
+
+                    val movedAcrossScreen =
+                        kotlin.math.abs(dx) >
+                                switchSideThreshold
+
+                    val pulledInward =
+                        if (quickScanDockOnLeft) {
+                            dx > inwardThreshold
+                        } else {
+                            dx < -inwardThreshold
+                        }
+
+                    val mostlyVertical =
+                        kotlin.math.abs(dy) >
+                                kotlin.math.abs(dx) * 1.4f
+
+                    if (movedAcrossScreen) {
+                        quickScanDockOnLeft =
+                            event.rawX <
+                                    screenWidth / 2f
+
+                        snapQuickDockToEdge()
+                        saveQuickDockPosition()
+                    } else if (
+                        pulledInward &&
+                        !mostlyVertical
+                    ) {
+                        /*
+                         * Una tirata breve verso il centro apre la paletta.
+                         */
+                        quickScanDockOnLeft =
+                            quickDockStartX <
+                                    screenWidth / 2
+
+                        expandQuickScanDock()
+                    } else {
+                        /*
+                         * Trascinamento verticale o piccolo movimento:
+                         * resta chiusa e si riaggancia al bordo più vicino.
+                         */
+                        quickScanDockOnLeft =
+                            params.x + width / 2 <
+                                    screenWidth / 2
+
+                        snapQuickDockToEdge()
+                        saveQuickDockPosition()
+                    }
+
+                    true
+                }
+
+                else -> false
+            }
+        }
+
+        runCatching {
+            windowManager.updateViewLayout(
+                root,
+                params
+            )
+        }
+    }
+
+    private fun expandQuickScanDock() {
+        val root = quickScanDock ?: return
+        val params = quickScanDockParams ?: return
+
+        popupHandler.removeCallbacks(
+            quickDockAutoHideRunnable
+        )
+
+        quickScanDockExpanded = true
+
+        val density = resources.displayMetrics.density
+        val screenWidth = resources.displayMetrics.widthPixels
+        val screenHeight = resources.displayMetrics.heightPixels
+
+        val expandedWidth =
+            (116 * density).toInt()
+        val expandedHeight =
+            (100 * density).toInt()
+
+        params.width = expandedWidth
+        params.height = expandedHeight
+        params.x =
+            if (quickScanDockOnLeft) {
+                0
+            } else {
+                screenWidth - expandedWidth
+            }
+        params.y =
+            params.y.coerceIn(
+                0,
+                (screenHeight - expandedHeight)
+                    .coerceAtLeast(0)
+            )
+
+        root.removeAllViews()
+        root.setOnTouchListener(null)
+
+        root.background = GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            setColor(Color.argb(235, 35, 35, 35))
+            cornerRadius = 18 * density
+        }
+
+        val scanButton = Button(this).apply {
+            text = "📷\nSCAN"
+            textSize = 18f
+            setTextColor(Color.WHITE)
+            gravity = Gravity.CENTER
+            isAllCaps = false
+
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                setColor(Color.rgb(27, 94, 32))
+                cornerRadius = 16 * density
+            }
+
+            /*
+             * TAP = scansione.
+             * SWIPE verso il bordo = richiude la dock.
+             *
+             * Il gesto di chiusura è quindi l'opposto di quello usato
+             * per aprirla dalla lineetta.
+             */
+            var downX = 0f
+            var downY = 0f
+
+            setOnTouchListener { view, event ->
+                when (event.actionMasked) {
+                    MotionEvent.ACTION_DOWN -> {
+                        downX = event.rawX
+                        downY = event.rawY
+                        true
+                    }
+
+                    MotionEvent.ACTION_UP -> {
+                        val dx = event.rawX - downX
+                        val dy = event.rawY - downY
+
+                        val closeThreshold =
+                            34f * density
+
+                        val horizontalGesture =
+                            kotlin.math.abs(dx) >
+                                    kotlin.math.abs(dy) * 1.25f
+
+                        val pushedToEdge =
+                            if (quickScanDockOnLeft) {
+                                dx < -closeThreshold
+                            } else {
+                                dx > closeThreshold
+                            }
+
+                        if (
+                            horizontalGesture &&
+                            pushedToEdge
+                        ) {
+                            collapseQuickScanDock()
+                        } else {
+                            view.performClick()
+                        }
+
+                        true
+                    }
+
+                    MotionEvent.ACTION_CANCEL -> true
+                    else -> true
+                }
+            }
+
+            setOnClickListener {
+                openScannerFromQuickDock()
+            }
+        }
+
+        root.addView(
+            scanButton,
+            FrameLayout.LayoutParams(
+                (94 * density).toInt(),
+                (76 * density).toInt()
+            ).apply {
+                gravity = Gravity.CENTER
+            }
+        )
+
+        runCatching {
+            windowManager.updateViewLayout(
+                root,
+                params
+            )
+        }
+
+        /*
+         * Dock persistente:
+         * una volta aperta resta visibile finché l'utente non la richiude
+         * con il gesto opposto (verso il bordo).
+         */
+        popupHandler.removeCallbacks(
+            quickDockAutoHideRunnable
+        )
+
+        android.util.Log.d(
+            "OverlayService",
+            "QUICK DOCK APERTA PERSISTENTE"
+        )
+    }
+
+    private fun bringQuickScanDockToFront() {
+        if (quickScanDock == null || quickScanDockParams == null) {
+            initializeQuickScanDock()
+        }
+
+        val dock = quickScanDock ?: return
+        val params = quickScanDockParams ?: return
+
+        runCatching {
+            windowManager.removeViewImmediate(dock)
+        }
+
+        popupHandler.postDelayed(
+            {
+                runCatching {
+                    if (dock.parent == null) {
+                        windowManager.addView(dock, params)
+                    }
+                }.onFailure { error ->
+                    android.util.Log.e(
+                        "OverlayService",
+                        "IMPOSSIBILE PORTARE QUICK DOCK IN PRIMO PIANO",
+                        error
+                    )
+                }
+            },
+            80L
+        )
+    }
+
+    private fun keepQuickScanDockAlive() {
+        /*
+         * La dock è ora persistente: le attività di scansione
+         * non devono avviare alcun timer di chiusura.
+         */
+        if (!quickScanDockExpanded) {
+            return
+        }
+
+        popupHandler.removeCallbacks(
+            quickDockAutoHideRunnable
+        )
+    }
+
+    private fun collapseQuickScanDock() {
+        if (!quickScanDockExpanded) {
+            return
+        }
+
+        renderQuickScanDockCollapsed()
+
+        android.util.Log.d(
+            "OverlayService",
+            "QUICK DOCK RICHIUSA"
+        )
+    }
+
+    private fun openScannerFromQuickDock() {
+        /*
+         * In modalità GoDEX la finestra corrente deve essere rimossa PRIMA
+         * di aprire CameraX. Altrimenti, dopo la lettura, ACTION_SHOW_GODEX_PRINT
+         * tenta di riaprire LabelPrintPopup ma show() la ignora perché
+         * overlayRoot è ancora valorizzato.
+         *
+         * I tasti Volume funzionano già così tramite LabelPrintPopup:
+         * rimuovono il popup e poi aprono lo scanner.
+         * La dock deve seguire esattamente lo stesso percorso.
+         */
+        if (loadCurrentScanMode() == MODE_LABELS_GODEX) {
+            labelPrintPopupController.remove()
+        }
+
+        /*
+         * La Dock usa lo stesso comportamento dei tasti volume.
+         * Dentro SESSIONE il barcode viene accodato direttamente
+         * senza mostrare il popup articolo.
+         */
+        val currentScreen =
+            applicationContext
+                .getSharedPreferences(
+                    "scan_ui_state",
+                    Context.MODE_PRIVATE
+                )
+                .getString(
+                    "current_screen",
+                    "HOME"
+                )
+                ?: "HOME"
+
+        val directToSession =
+            currentScreen == "SESSIONE"
+
+        /*
+         * La dock resta aperta durante il ciclo di lavoro.
+         * Ogni scansione azzera il timer di inattività.
+         */
+        keepQuickScanDockAlive()
+
+        startService(
+            Intent(
+                this,
+                OverlayService::class.java
+            ).apply {
+                action = ACTION_OPEN_SCANNER
+
+                putExtra(
+                    EXTRA_DIRECT_TO_SESSION,
+                    directToSession
+                )
+            }
+        )
+
+        android.util.Log.d(
+            "OverlayService",
+            "QUICK DOCK SCAN directToSession=$directToSession"
+        )
+    }
+
+    private fun snapQuickDockToEdge() {
+        val root = quickScanDock ?: return
+        val params = quickScanDockParams ?: return
+
+        val screenWidth =
+            resources.displayMetrics.widthPixels
+        val screenHeight =
+            resources.displayMetrics.heightPixels
+
+        params.x =
+            if (quickScanDockOnLeft) {
+                0
+            } else {
+                screenWidth - params.width
+            }
+
+        params.y =
+            params.y.coerceIn(
+                0,
+                (screenHeight - params.height)
+                    .coerceAtLeast(0)
+            )
+
+        runCatching {
+            windowManager.updateViewLayout(
+                root,
+                params
+            )
+        }
+    }
+
+    private fun saveQuickDockPosition() {
+        val params = quickScanDockParams ?: return
+
+        applicationContext
+            .getSharedPreferences(
+                "quick_scan_dock",
+                Context.MODE_PRIVATE
+            )
+            .edit()
+            .putBoolean(
+                "on_left",
+                quickScanDockOnLeft
+            )
+            .putInt(
+                "y",
+                params.y
+            )
+            .apply()
+    }
+
     private fun saveCurrentPosition() {
         OverlayPosition.save(
             this,
@@ -4280,6 +5109,26 @@ class OverlayService : Service() {
     }
 
     override fun onDestroy() {
+        if (godexSunmiReceiverRegistered) {
+            runCatching {
+                unregisterReceiver(godexSunmiReceiver)
+            }
+            godexSunmiReceiverRegistered = false
+        }
+
+        popupHandler.removeCallbacks(
+            quickDockAutoHideRunnable
+        )
+
+        quickScanDock?.let { dock ->
+            runCatching {
+                windowManager.removeView(dock)
+            }
+        }
+
+        quickScanDock = null
+        quickScanDockParams = null
+
         popupHandler.removeCallbacks(scannerLongPressRunnable)
         popupHandler.removeCallbacks(dismissPopupRunnable)
         popupHandler.removeCallbacks(dismissScanErrorRunnable)

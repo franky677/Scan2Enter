@@ -1,12 +1,14 @@
 package com.scan2enter.overlay.popup
 
 import android.content.Context
+import android.content.Intent
 import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.drawable.GradientDrawable
 import android.text.Editable
 import android.text.TextWatcher
 import android.view.Gravity
+import android.view.KeyEvent
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewOutlineProvider
@@ -32,7 +34,6 @@ class LabelPrintPopup(
         const val PREF_TEMPLATE = "template"
         const val PREF_QUANTITY = "quantity"
         const val PREF_NOTE_PREFIX = "note_article_"
-        const val PREF_PRINTER = "printer"
     }
 
     private val gatewayApiClient = GatewayApiClient()
@@ -40,22 +41,20 @@ class LabelPrintPopup(
 
     private fun notePreferenceKey(product: ProductInfo?): String? {
         val articleId = product?.articleId ?: 0L
-        return if (articleId > 0L) {
-            "$PREF_NOTE_PREFIX$articleId"
-        } else {
-            null
-        }
+        return if (articleId > 0L) "$PREF_NOTE_PREFIX$articleId" else null
     }
 
     fun show(
         product: ProductInfo?,
-        onScanRequested: () -> Unit = {},
+        onSearchRequested: () -> Unit = {},
+        onHardwareScanRequested: () -> Unit = {},
         onClosed: () -> Unit = {}
     ) {
         if (overlayRoot != null) return
 
         val density = context.resources.displayMetrics.density
         val screenWidth = context.resources.displayMetrics.widthPixels
+
         val root = FrameLayout(context).apply {
             setBackgroundColor(Color.BLACK)
         }
@@ -63,20 +62,8 @@ class LabelPrintPopup(
         val dialogView = LayoutInflater.from(context)
             .inflate(R.layout.label_print_dialog, root, false)
 
-        dialogView.findViewById<TextView>(R.id.labelPrintArticleText).text =
-            if (product == null) {
-                "Scegli il tipo di etichetta, poi premi SCANSIONA"
-            } else {
-                listOf(product.articleCode, product.description)
-                    .filter { it.isNotBlank() }
-                    .joinToString(" · ")
-            }
-
-        val godex = dialogView.findViewById<RadioButton>(
-            R.id.godexPrinterRadioButton
-        )
-        val epson = dialogView.findViewById<RadioButton>(
-            R.id.epsonPrinterRadioButton
+        val articleText = dialogView.findViewById<TextView>(
+            R.id.labelPrintArticleText
         )
         val standard = dialogView.findViewById<RadioButton>(
             R.id.standardLabelRadioButton
@@ -99,6 +86,28 @@ class LabelPrintPopup(
         val quantityEdit = dialogView.findViewById<EditText>(
             R.id.labelQuantityEditText
         )
+        val previewCode = dialogView.findViewById<TextView>(
+            R.id.labelPreviewCode
+        )
+        val previewDescription = dialogView.findViewById<TextView>(
+            R.id.labelPreviewDescription
+        )
+        val previewBarcode = dialogView.findViewById<TextView>(
+            R.id.labelPreviewBarcode
+        )
+        val previewExtra = dialogView.findViewById<TextView>(
+            R.id.labelPreviewExtra
+        )
+
+
+        articleText.text =
+            if (product == null) {
+                "Nessun articolo selezionato"
+            } else {
+                listOf(product.articleCode, product.description)
+                    .filter { it.isNotBlank() }
+                    .joinToString(" · ")
+            }
 
         val preferences = context.getSharedPreferences(
             PREFS_NAME,
@@ -112,23 +121,15 @@ class LabelPrintPopup(
             else -> standard.isChecked = true
         }
 
-        if (preferences.getString(PREF_PRINTER, "GODEX") == "EPSON") {
-            epson.isChecked = true
-        } else {
-            godex.isChecked = true
-        }
-
         quantityEdit.setText(
             preferences.getInt(PREF_QUANTITY, 1)
                 .coerceIn(1, 100)
                 .toString()
         )
-        val noteKey = notePreferenceKey(product)
 
+        val noteKey = notePreferenceKey(product)
         noteEditText.setText(
-            noteKey
-                ?.let { preferences.getString(it, "") }
-                .orEmpty()
+            noteKey?.let { preferences.getString(it, "") }.orEmpty()
         )
         noteEditText.setSelection(noteEditText.text.length)
 
@@ -149,20 +150,53 @@ class LabelPrintPopup(
                         ?.coerceIn(1, 100)
                         ?: 1
                 )
-                .putString(
-                    PREF_PRINTER,
-                    if (epson.isChecked) "EPSON" else "GODEX"
-                )
 
             notePreferenceKey(product)?.let { key ->
                 editor.putString(
                     key,
-                    noteEditText.text.toString()
-                        .take(80)
+                    noteEditText.text.toString().take(80)
                 )
             }
 
             editor.apply()
+        }
+
+        fun updatePreview() {
+            if (product == null) {
+                previewCode.text = "SELEZIONA UN ARTICOLO"
+                previewDescription.text =
+                    "Usa SCANSIONA oppure CERCA per caricare l'etichetta"
+                previewBarcode.text = "|||| ||||| ||||"
+                previewExtra.text = ""
+                return
+            }
+
+            previewCode.text =
+                product.articleCode.ifBlank { "CODICE" }
+
+            previewDescription.text =
+                product.description.ifBlank { "Descrizione articolo" }
+
+            previewBarcode.text =
+                if (product.barcode.isBlank()) {
+                    "|||| ||||| ||||"
+                } else {
+                    "|||| ||||| ||||   ${product.barcode}"
+                }
+
+            previewExtra.text = when (selectedTemplate()) {
+                "PRICE" -> {
+                    val value = product.publicPrice.trim()
+                    if (value.isBlank()) "PREZZO —" else "€ $value"
+                }
+
+                "IMAGE" -> "▣  IMMAGINE ARTICOLO"
+                "NOTE" -> noteEditText.text.toString()
+                    .trim()
+                    .ifBlank { "NOTA PERSONALIZZATA" }
+
+                else -> ""
+            }
         }
 
         fun updateNoteEditorVisibility() {
@@ -170,17 +204,60 @@ class LabelPrintPopup(
                 if (note.isChecked) View.VISIBLE else View.GONE
         }
 
-        val optionChanged = android.widget.CompoundButton.OnCheckedChangeListener { _, _ ->
-            updateNoteEditorVisibility()
-            savePreferences()
+        val hardwareScanKeyListener = View.OnKeyListener { _, keyCode, event ->
+            val isVolumeTrigger =
+                keyCode == KeyEvent.KEYCODE_VOLUME_DOWN ||
+                        keyCode == KeyEvent.KEYCODE_VOLUME_UP
+
+            when {
+                keyCode == KeyEvent.KEYCODE_BACK -> {
+                    if (
+                        event.action == KeyEvent.ACTION_DOWN &&
+                        event.repeatCount == 0
+                    ) {
+                        savePreferences()
+                        remove()
+                        onClosed()
+                    }
+
+                    true
+                }
+
+                isVolumeTrigger -> {
+                    if (
+                        event.action == KeyEvent.ACTION_DOWN &&
+                        event.repeatCount == 0
+                    ) {
+                        savePreferences()
+                        remove()
+                        onHardwareScanRequested()
+                    }
+
+                    true
+                }
+
+                else -> false
+            }
         }
+
+        root.isFocusableInTouchMode = true
+        root.setOnKeyListener(hardwareScanKeyListener)
+        quantityEdit.setOnKeyListener(hardwareScanKeyListener)
+        noteEditText.setOnKeyListener(hardwareScanKeyListener)
+        root.requestFocus()
+
+
+        val optionChanged =
+            android.widget.CompoundButton.OnCheckedChangeListener { _, _ ->
+                updateNoteEditorVisibility()
+                updatePreview()
+                savePreferences()
+            }
 
         standard.setOnCheckedChangeListener(optionChanged)
         image.setOnCheckedChangeListener(optionChanged)
         price.setOnCheckedChangeListener(optionChanged)
         note.setOnCheckedChangeListener(optionChanged)
-        godex.setOnCheckedChangeListener(optionChanged)
-        epson.setOnCheckedChangeListener(optionChanged)
 
         noteEditText.addTextChangedListener(
             object : TextWatcher {
@@ -197,6 +274,7 @@ class LabelPrintPopup(
                     before: Int,
                     count: Int
                 ) {
+                    updatePreview()
                     savePreferences()
                 }
 
@@ -205,6 +283,7 @@ class LabelPrintPopup(
         )
 
         updateNoteEditorVisibility()
+        updatePreview()
 
         bindQuantityButtons(
             dialogView.findViewById(R.id.labelQuantityMinusButton),
@@ -218,21 +297,23 @@ class LabelPrintPopup(
                 remove()
                 onClosed()
             }
-        dialogView.findViewById<View>(R.id.cancelLabelPrintButton)
+
+
+        dialogView.findViewById<Button>(R.id.searchLabelArticleButton)
             .setOnClickListener {
                 savePreferences()
                 remove()
-                onClosed()
+                onSearchRequested()
             }
 
         val printButton = dialogView.findViewById<Button>(
             R.id.confirmLabelPrintButton
         )
 
-        printButton.text =
-            if (product == null) "SCANSIONA" else "STAMPA"
+        printButton.isEnabled = product != null
 
         printButton.setOnClickListener {
+            val printableProduct = product ?: return@setOnClickListener
             val quantity = quantityEdit.text.toString().toIntOrNull()
 
             if (quantity == null || quantity !in 1..100) {
@@ -240,34 +321,19 @@ class LabelPrintPopup(
                 return@setOnClickListener
             }
 
-            val printer = if (epson.isChecked) "EPSON" else "GODEX"
             val template = selectedTemplate()
 
-            if (template == "NOTE" && noteEditText.text.toString().trim().isEmpty()) {
+            if (
+                template == "NOTE" &&
+                noteEditText.text.toString().trim().isEmpty()
+            ) {
                 noteEditText.error = "Inserire una nota"
                 noteEditText.requestFocus()
                 return@setOnClickListener
             }
 
-            if (printer != "GODEX") {
-                Toast.makeText(
-                    context,
-                    "La stampa Epson è in preparazione",
-                    Toast.LENGTH_SHORT
-                ).show()
-                return@setOnClickListener
-            }
-
             savePreferences()
-
-            if (product == null) {
-                remove()
-                onScanRequested()
-                return@setOnClickListener
-            }
-
             printButton.isEnabled = false
-            val printableProduct = product
 
             Thread {
                 val result = gatewayApiClient.printLabel(
@@ -276,7 +342,7 @@ class LabelPrintPopup(
                     barcode = printableProduct.barcode,
                     publicPrice = printableProduct.publicPrice,
                     quantity = quantity,
-                    printer = printer,
+                    printer = "GODEX",
                     template = template,
                     note = if (template == "NOTE") {
                         noteEditText.text.toString().trim()
@@ -294,9 +360,6 @@ class LabelPrintPopup(
                             "$quantity etichette inviate alla GoDEX",
                             Toast.LENGTH_SHORT
                         ).show()
-                        savePreferences()
-                        remove()
-                        onClosed()
                     }.onFailure { error ->
                         Toast.makeText(
                             context,
@@ -316,8 +379,8 @@ class LabelPrintPopup(
         dialogView.outlineProvider = ViewOutlineProvider.BACKGROUND
 
         val dialogWidth = min(
-            (410 * density).toInt(),
-            screenWidth - (40 * density).toInt()
+            (430 * density).toInt(),
+            screenWidth - (28 * density).toInt()
         )
 
         root.addView(
@@ -330,42 +393,42 @@ class LabelPrintPopup(
             }
         )
 
+        val params = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            PixelFormat.OPAQUE
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+            alpha = 1.0f
+        }
+
         overlayRoot = root
-        windowManager.addView(
-            root,
-            WindowManager.LayoutParams(
-                WindowManager.LayoutParams.MATCH_PARENT,
-                WindowManager.LayoutParams.MATCH_PARENT,
-                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
-                PixelFormat.OPAQUE
-            )
-        )
+        windowManager.addView(root, params)
     }
 
     fun remove() {
-        val popup = overlayRoot ?: return
-        try {
-            windowManager.removeView(popup)
-        } catch (_: Exception) {
-        }
+        val root = overlayRoot ?: return
+        runCatching { windowManager.removeView(root) }
         overlayRoot = null
     }
 
     private fun bindQuantityButtons(
-        minus: Button,
-        plus: Button,
-        editText: EditText
+        minusButton: Button,
+        plusButton: Button,
+        quantityEdit: EditText
     ) {
-        minus.setOnClickListener {
-            changeQuantity(editText, -1)
+        minusButton.setOnClickListener {
+            updateQuantity(quantityEdit, -1)
         }
-        plus.setOnClickListener {
-            changeQuantity(editText, 1)
+
+        plusButton.setOnClickListener {
+            updateQuantity(quantityEdit, 1)
         }
     }
 
-    private fun changeQuantity(
+    private fun updateQuantity(
         editText: EditText,
         delta: Int
     ) {

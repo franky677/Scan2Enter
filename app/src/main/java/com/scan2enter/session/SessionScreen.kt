@@ -28,6 +28,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -42,6 +43,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -68,7 +70,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import kotlin.math.abs
-
+import com.scan2enter.scanner.ScannerModeDetector
 private const val SESSION_UI_PREFS = "session_ui_prefs"
 private const val KEY_SEARCH_ON_LEFT = "search_on_left"
 
@@ -82,6 +84,20 @@ fun SessionScreen(
 
     var sessionItems by remember {
         mutableStateOf(SessionStore.getItems())
+    }
+
+    val sessionListState =
+        rememberLazyListState()
+
+    /*
+     * Ogni aggiornamento della Sessione porta automaticamente
+     * in vista il primo elemento, che con l'ordinamento attuale
+     * corrisponde all'ultimo articolo letto.
+     */
+    LaunchedEffect(sessionItems) {
+        if (sessionItems.isNotEmpty()) {
+            sessionListState.animateScrollToItem(0)
+        }
     }
 
     var editingItem by remember {
@@ -239,18 +255,33 @@ fun SessionScreen(
                 }
             }
 
-        context.registerReceiver(
-            sunmiReceiver,
-            IntentFilter(
+        if (ScannerModeDetector.isSunmi()) {
+            val filter = IntentFilter(
                 "com.honeywell.tools.action.scan_result"
             )
-        )
+
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                context.registerReceiver(
+                    sunmiReceiver,
+                    filter,
+                    Context.RECEIVER_EXPORTED
+                )
+            } else {
+                @Suppress("DEPRECATION")
+                context.registerReceiver(
+                    sunmiReceiver,
+                    filter
+                )
+            }
+        }
 
         onDispose {
-            runCatching {
-                context.unregisterReceiver(
-                    sunmiReceiver
-                )
+            if (ScannerModeDetector.isSunmi()) {
+                runCatching {
+                    context.unregisterReceiver(
+                        sunmiReceiver
+                    )
+                }
             }
         }
     }
@@ -407,12 +438,13 @@ fun SessionScreen(
                 )
             } else {
                 LazyColumn(
+                    state = sessionListState,
                     modifier = Modifier.fillMaxSize(),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                     contentPadding = PaddingValues(bottom = 12.dp)
                 ) {
                     items(
-                        sessionItems,
+                        sessionItems.asReversed(),
                         key = { it.articleId }
                     ) { item ->
                         SessionRow(
@@ -1264,12 +1296,21 @@ private fun ScanActionButton(
     onClick: () -> Unit,
     onSwap: () -> Unit
 ) {
+    val isSunmi = ScannerModeDetector.isSunmi()
+
     Box(
         modifier = modifier
             .height(96.dp)
             .background(
                 color = Color(0xFF1B5E20),
                 shape = RoundedCornerShape(18.dp)
+            )
+            .then(
+                if (isSunmi) {
+                    Modifier
+                } else {
+                    Modifier.clickable(onClick = onClick)
+                }
             ),
         contentAlignment = Alignment.Center
     ) {
@@ -1277,7 +1318,12 @@ private fun ScanActionButton(
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text(
-                text = "🟢 SCANNER ATTIVO",
+                text =
+                    if (isSunmi) {
+                        "🟢 SCANNER ATTIVO"
+                    } else {
+                        "📷 SCANSIONA"
+                    },
                 color = Color.White,
                 fontSize = 18.sp,
                 fontWeight = FontWeight.Bold
@@ -1288,7 +1334,12 @@ private fun ScanActionButton(
             )
 
             Text(
-                text = "Premi il grilletto",
+                text =
+                    if (isSunmi) {
+                        "Premi il grilletto"
+                    } else {
+                        "Tocca per aprire la fotocamera"
+                    },
                 color = Color.White,
                 fontSize = 13.sp
             )

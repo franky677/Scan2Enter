@@ -85,6 +85,17 @@
         <service
             android:name=".overlay.OverlayService"
             android:exported="false" />
+        <receiver
+            android:name=".sunmi.SunmiManifestReceiver"
+            android:exported="true">
+
+            <intent-filter>
+                <action android:name="com.honeywell.tools.action.scan_result" />
+            </intent-filter>
+
+        </receiver>
+
+
 
     </application>
 

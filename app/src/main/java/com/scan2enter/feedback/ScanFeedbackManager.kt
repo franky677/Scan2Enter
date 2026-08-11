@@ -45,7 +45,7 @@ object ScanFeedbackManager {
             ).coerceIn(0f, 1f)
 
             val attributes = AudioAttributes.Builder()
-                .setUsage(AudioAttributes.USAGE_ALARM)
+                .setUsage(AudioAttributes.USAGE_MEDIA)
                 .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
                 .build()
 
@@ -147,8 +147,8 @@ object ScanFeedbackManager {
 
         pool.play(
             soundId,
-            volume,
-            volume,
+            1.0f,
+            1.0f,
             1,
             0,
             1f

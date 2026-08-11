@@ -4,22 +4,38 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.graphics.Color
+import android.graphics.PixelFormat
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import android.view.Gravity
+import android.view.View
+import android.view.WindowManager
+import android.widget.FrameLayout
+import android.widget.TextView
+import androidx.camera.view.PreviewView
 import com.scan2enter.MainActivity
+import com.scan2enter.overlay.camera.OverlayCameraManager
+import com.scan2enter.overlay.camera.OverlayLifecycleOwner
+import com.scan2enter.scanner.ScanConfig
 import com.scan2enter.scanner.ScanSession
+import com.scan2enter.scanner.ScannerMode
+import com.scan2enter.scanner.ScannerModeDetector
 
 class ScanOverlay(
     private val context: Context
 ) {
+    private val windowManager =
+        context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
 
-    private val scanSession =
-        ScanSession(context)
+    private val cameraManager = OverlayCameraManager(context)
+    private val scanSession = ScanSession(context)
+    private val handler = Handler(Looper.getMainLooper())
 
-    private val handler =
-        Handler(Looper.getMainLooper())
-
+    private var lifecycleOwner: OverlayLifecycleOwner? = null
+    private var container: FrameLayout? = null
+    private var previewView: PreviewView? = null
     private var scannerActive = false
 
     @Volatile
@@ -29,6 +45,7 @@ class ScanOverlay(
     private var rapidRescan = false
     private var godexMode = false
     private var a4Mode = false
+    private var directToSession = false
 
     private companion object {
         const val TAG = "Scan2Enter"
@@ -42,51 +59,75 @@ class ScanOverlay(
         const val MODE_LABELS_A4 = "ETICHETTE_A4"
     }
 
+    private val timeoutRunnable = Runnable {
+        if (ScannerModeDetector.current() != ScannerMode.CAMERA) {
+            return@Runnable
+        }
+
+        Log.d(TAG, "CAMERA timeout rapidRescan=$rapidRescan")
+
+        if (!rapidRescan) {
+            context.startService(
+                Intent(
+                    context,
+                    OverlayService::class.java
+                ).apply {
+                    action = OverlayService.ACTION_SHOW_SCAN_ERROR
+                    putExtra(
+                        OverlayService.EXTRA_SCAN_ERROR_MESSAGE,
+                        "Nessun codice letto. Riprovare."
+                    )
+                }
+            )
+        }
+
+        hide()
+    }
+
     private val sunmiReceiver =
         object : BroadcastReceiver() {
             override fun onReceive(
                 receiverContext: Context?,
                 intent: Intent?
             ) {
-                if (intent?.action != SUNMI_SCAN_ACTION) {
-                    return
-                }
+                if (intent?.action != SUNMI_SCAN_ACTION) return
 
                 val barcode =
                     intent.getStringExtra(SUNMI_BARCODE_EXTRA)
                         ?.trim()
                         .orEmpty()
 
-                Log.d(
-                    TAG,
-                    "SUNMI BROADCAST barcode=$barcode"
-                )
+                Log.d(TAG, "SUNMI BROADCAST barcode=$barcode")
 
-                if (barcode.isBlank()) {
-                    return
-                }
+                if (barcode.isBlank()) return
 
                 onHardwareBarcode(barcode)
             }
         }
 
     fun show(
-        rapidRescan: Boolean = false
+        rapidRescan: Boolean = false,
+        directToSession: Boolean = false
     ) {
-        if (scannerActive) {
-            Log.d(
-                TAG,
-                "SUNMI SCANNER GIÀ ATTIVO"
-            )
-            return
-        }
-
         closing = false
         this.rapidRescan = rapidRescan
+        this.directToSession = directToSession
 
         val currentMode = loadCurrentMode()
         godexMode = currentMode == MODE_LABELS_GODEX
         a4Mode = currentMode == MODE_LABELS_A4
+
+        when (ScannerModeDetector.current()) {
+            ScannerMode.SUNMI_LASER -> showSunmiScanner()
+            ScannerMode.CAMERA -> showCameraScanner()
+        }
+    }
+
+    private fun showSunmiScanner() {
+        if (scannerActive) {
+            Log.d(TAG, "SUNMI SCANNER GIÀ ATTIVO")
+            return
+        }
 
         scanSession.start()
 
@@ -106,6 +147,7 @@ class ScanOverlay(
         } catch (error: Exception) {
             receiverRegistered = false
             scannerActive = false
+            scanSession.stop()
 
             Log.e(
                 TAG,
@@ -115,9 +157,173 @@ class ScanOverlay(
         }
     }
 
+    private fun showCameraScanner() {
+        if (container != null) {
+            Log.d(TAG, "CAMERA SCANNER GIÀ ATTIVO")
+            return
+        }
+
+        scanSession.start()
+        scannerActive = true
+
+        if (!godexMode && !a4Mode) {
+            handler.postDelayed(
+                timeoutRunnable,
+                if (rapidRescan) 2_000L else ScanConfig.SCAN_TIMEOUT
+            )
+        }
+
+        val frame = FrameLayout(context)
+
+        val closeScanner = View.OnClickListener {
+            Log.d(
+                TAG,
+                "CAMERA chiusa con tocco godexMode=$godexMode a4Mode=$a4Mode"
+            )
+
+            if (godexMode || a4Mode) {
+                exitSpecialModeToHome()
+            } else {
+                hide()
+            }
+        }
+
+        frame.setOnClickListener(closeScanner)
+
+        val preview = PreviewView(context).apply {
+            scaleType = PreviewView.ScaleType.FILL_CENTER
+            setOnClickListener(closeScanner)
+        }
+
+        frame.addView(
+            preview,
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+            )
+        )
+
+        val overlayView = ScanOverlayView(context).apply {
+            setOnClickListener(closeScanner)
+        }
+
+        frame.addView(
+            overlayView,
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+            )
+        )
+
+        if (godexMode || a4Mode) {
+            val message = TextView(context).apply {
+                text =
+                    if (a4Mode) {
+                        "MODALITÀ ETICHETTE A4\nTocca lo scanner per tornare alla pagina A4"
+                    } else {
+                        "MODALITÀ ETICHETTE GODEX\nTocca lo scanner per tornare alla Home"
+                    }
+
+                setTextColor(Color.WHITE)
+                textSize = 14f
+                gravity = Gravity.CENTER
+                setPadding(dp(10), dp(7), dp(10), dp(7))
+                setBackgroundColor(0xCC000000.toInt())
+                setOnClickListener(closeScanner)
+            }
+
+            frame.addView(
+                message,
+                FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    gravity = Gravity.BOTTOM
+                }
+            )
+        }
+
+        val params = WindowManager.LayoutParams(
+            dp(ScanConfig.OVERLAY_WIDTH_DP),
+            dp(ScanConfig.OVERLAY_HEIGHT_DP),
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.CENTER
+        }
+
+        windowManager.addView(frame, params)
+
+        container = frame
+        previewView = preview
+
+        lifecycleOwner =
+            OverlayLifecycleOwner().also {
+                it.start()
+            }
+
+        cameraManager.start(
+            previewView = preview,
+            lifecycleOwner = lifecycleOwner!!,
+            onBarcodeDetected = { barcode ->
+                if (closing) return@start
+
+                closing = true
+
+                if (directToSession) {
+                    Log.d(
+                        TAG,
+                        "CAMERA BARCODE -> SESSIONE DIRETTA = $barcode"
+                    )
+
+                    context.startService(
+                        Intent(
+                            context,
+                            OverlayService::class.java
+                        ).apply {
+                            action =
+                                OverlayService.ACTION_OPEN_SEARCH_ARTICLE
+
+                            putExtra(
+                                OverlayService.EXTRA_CURRENT_ARTICLE_BARCODE,
+                                barcode
+                            )
+
+                            putExtra(
+                                OverlayService.EXTRA_SUPPRESS_PRODUCT_POPUP,
+                                true
+                            )
+                        }
+                    )
+
+                    hide()
+                } else {
+                    Log.d(
+                        TAG,
+                        "CAMERA BARCODE -> SCANSESSION = $barcode"
+                    )
+
+                    scanSession.onBarcodeRead(barcode) {
+                        hide()
+                    }
+                }
+            }
+        )
+
+        Log.d(TAG, "CAMERA SCANNER ATTIVO")
+    }
+
     fun onHardwareBarcode(
         barcode: String
     ) {
+        if (
+            ScannerModeDetector.current() !=
+            ScannerMode.SUNMI_LASER
+        ) {
+            return
+        }
+
         if (!scannerActive) {
             Log.d(
                 TAG,
@@ -135,10 +341,7 @@ class ScanOverlay(
         }
 
         val normalized = barcode.trim()
-
-        if (normalized.isBlank()) {
-            return
-        }
+        if (normalized.isBlank()) return
 
         Log.d(
             TAG,
@@ -153,28 +356,43 @@ class ScanOverlay(
     }
 
     fun hide() {
+        handler.removeCallbacks(timeoutRunnable)
+
         scanSession.stop()
 
         if (receiverRegistered) {
             try {
-                context.unregisterReceiver(
-                    sunmiReceiver
-                )
+                context.unregisterReceiver(sunmiReceiver)
             } catch (_: Exception) {
             }
 
             receiverRegistered = false
         }
 
+        cameraManager.stop()
+
+        lifecycleOwner?.stop()
+        lifecycleOwner = null
+
+        container?.let { current ->
+            runCatching {
+                windowManager.removeView(current)
+            }
+        }
+
+        container = null
+        previewView = null
+
         scannerActive = false
         rapidRescan = false
         godexMode = false
         a4Mode = false
+        directToSession = false
         closing = false
 
         Log.d(
             TAG,
-            "SUNMI SCANNER DISATTIVATO"
+            "SCANNER DISATTIVATO device=${ScannerModeDetector.current()}"
         )
     }
 
@@ -241,4 +459,10 @@ class ScanOverlay(
         )
     }
 
+    private fun dp(value: Int): Int {
+        return (
+                value *
+                        context.resources.displayMetrics.density
+                ).toInt()
+    }
 }

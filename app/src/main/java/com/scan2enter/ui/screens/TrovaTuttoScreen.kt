@@ -50,7 +50,8 @@ import java.util.Locale
 @Composable
 fun TrovaTuttoScreen(
     onBack: () -> Unit,
-    onArticleOpened: (() -> Unit)? = null
+    onArticleOpened: (() -> Unit)? = null,
+    onArticleSelected: ((String) -> Unit)? = null
 ) {
     val context = LocalContext.current
     val client = remember { GatewaySearchClient() }
@@ -214,22 +215,26 @@ fun TrovaTuttoScreen(
                                             Toast.LENGTH_SHORT
                                         ).show()
                                     } else {
-                                        context.startService(
-                                            Intent(
-                                                context,
-                                                OverlayService::class.java
-                                            ).apply {
-                                                action =
-                                                    OverlayService.ACTION_OPEN_SEARCH_ARTICLE
+                                        if (onArticleSelected != null) {
+                                            onArticleSelected(item.barcode)
+                                        } else {
+                                            context.startService(
+                                                Intent(
+                                                    context,
+                                                    OverlayService::class.java
+                                                ).apply {
+                                                    action =
+                                                        OverlayService.ACTION_OPEN_SEARCH_ARTICLE
 
-                                                putExtra(
-                                                    OverlayService.EXTRA_CURRENT_ARTICLE_BARCODE,
-                                                    item.barcode
-                                                )
-                                            }
-                                        )
+                                                    putExtra(
+                                                        OverlayService.EXTRA_CURRENT_ARTICLE_BARCODE,
+                                                        item.barcode
+                                                    )
+                                                }
+                                            )
 
-                                        onArticleOpened?.invoke()
+                                            onArticleOpened?.invoke()
+                                        }
                                     }
                                 }
                             )
