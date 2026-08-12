@@ -16,7 +16,6 @@ import android.view.WindowManager
 import android.widget.Button
 import android.widget.EditText
 import android.widget.FrameLayout
-import android.widget.RadioButton
 import android.widget.TextView
 import android.widget.Toast
 import com.scan2enter.R
@@ -24,6 +23,7 @@ import com.scan2enter.api.GatewayApiClient
 import com.scan2enter.model.ProductInfo
 import kotlin.math.max
 import kotlin.math.min
+import java.util.Locale
 
 class LabelPrintPopup(
     private val context: Context,
@@ -65,16 +65,16 @@ class LabelPrintPopup(
         val articleText = dialogView.findViewById<TextView>(
             R.id.labelPrintArticleText
         )
-        val standard = dialogView.findViewById<RadioButton>(
+        val standard = dialogView.findViewById<TextView>(
             R.id.standardLabelRadioButton
         )
-        val image = dialogView.findViewById<RadioButton>(
+        val image = dialogView.findViewById<TextView>(
             R.id.imageLabelRadioButton
         )
-        val price = dialogView.findViewById<RadioButton>(
+        val price = dialogView.findViewById<TextView>(
             R.id.priceLabelRadioButton
         )
-        val note = dialogView.findViewById<RadioButton>(
+        val note = dialogView.findViewById<TextView>(
             R.id.noteLabelRadioButton
         )
         val noteEditorContainer = dialogView.findViewById<View>(
@@ -114,12 +114,8 @@ class LabelPrintPopup(
             Context.MODE_PRIVATE
         )
 
-        when (preferences.getString(PREF_TEMPLATE, "STANDARD")) {
-            "IMAGE" -> image.isChecked = true
-            "PRICE" -> price.isChecked = true
-            "NOTE" -> note.isChecked = true
-            else -> standard.isChecked = true
-        }
+        var currentTemplate =
+            preferences.getString(PREF_TEMPLATE, "STANDARD") ?: "STANDARD"
 
         quantityEdit.setText(
             preferences.getInt(PREF_QUANTITY, 1)
@@ -133,12 +129,7 @@ class LabelPrintPopup(
         )
         noteEditText.setSelection(noteEditText.text.length)
 
-        fun selectedTemplate(): String = when {
-            image.isChecked -> "IMAGE"
-            price.isChecked -> "PRICE"
-            note.isChecked -> "NOTE"
-            else -> "STANDARD"
-        }
+        fun selectedTemplate(): String = currentTemplate
 
         fun savePreferences() {
             val editor = preferences.edit()
@@ -165,7 +156,7 @@ class LabelPrintPopup(
             if (product == null) {
                 previewCode.text = "SELEZIONA UN ARTICOLO"
                 previewDescription.text =
-                    "Usa SCANSIONA oppure CERCA per caricare l'etichetta"
+                    "Usa il lettore oppure CERCA ARTICOLO"
                 previewBarcode.text = "|||| ||||| ||||"
                 previewExtra.text = ""
                 return
@@ -186,11 +177,31 @@ class LabelPrintPopup(
 
             previewExtra.text = when (selectedTemplate()) {
                 "PRICE" -> {
-                    val value = product.publicPrice.trim()
-                    if (value.isBlank()) "PREZZO —" else "€ $value"
+                    val rawValue = product.publicPrice.trim()
+
+                    val numericValue =
+                        rawValue
+                            .replace("€", "")
+                            .replace(" ", "")
+                            .replace(",", ".")
+                            .toDoubleOrNull()
+
+                    if (numericValue == null) {
+                        if (rawValue.isBlank()) {
+                            "PREZZO —"
+                        } else {
+                            "€ $rawValue"
+                        }
+                    } else {
+                        String.format(
+                            Locale.ITALY,
+                            "€ %.2f",
+                            numericValue
+                        )
+                    }
                 }
 
-                "IMAGE" -> "▣  IMMAGINE ARTICOLO"
+                "IMAGE" -> "▣  IMMAGINE"
                 "NOTE" -> noteEditText.text.toString()
                     .trim()
                     .ifBlank { "NOTA PERSONALIZZATA" }
@@ -201,7 +212,38 @@ class LabelPrintPopup(
 
         fun updateNoteEditorVisibility() {
             noteEditorContainer.visibility =
-                if (note.isChecked) View.VISIBLE else View.GONE
+                if (currentTemplate == "NOTE") View.VISIBLE else View.GONE
+        }
+
+        fun styleTemplateCard(view: TextView, selected: Boolean) {
+            view.background = GradientDrawable().apply {
+                setColor(
+                    if (selected) Color.parseColor("#F4D000")
+                    else Color.parseColor("#F1F3F2")
+                )
+                cornerRadius = 14 * density
+                setStroke(
+                    if (selected) (2 * density).toInt() else (1 * density).toInt(),
+                    if (selected) Color.BLACK else Color.parseColor("#CCD3CF")
+                )
+            }
+            view.setTextColor(Color.BLACK)
+            view.alpha = if (selected) 1.0f else 0.72f
+        }
+
+        fun updateTemplateCards() {
+            styleTemplateCard(standard, currentTemplate == "STANDARD")
+            styleTemplateCard(price, currentTemplate == "PRICE")
+            styleTemplateCard(image, currentTemplate == "IMAGE")
+            styleTemplateCard(note, currentTemplate == "NOTE")
+        }
+
+        fun selectTemplate(template: String) {
+            currentTemplate = template
+            updateTemplateCards()
+            updateNoteEditorVisibility()
+            updatePreview()
+            savePreferences()
         }
 
         val hardwareScanKeyListener = View.OnKeyListener { _, keyCode, event ->
@@ -247,17 +289,10 @@ class LabelPrintPopup(
         root.requestFocus()
 
 
-        val optionChanged =
-            android.widget.CompoundButton.OnCheckedChangeListener { _, _ ->
-                updateNoteEditorVisibility()
-                updatePreview()
-                savePreferences()
-            }
-
-        standard.setOnCheckedChangeListener(optionChanged)
-        image.setOnCheckedChangeListener(optionChanged)
-        price.setOnCheckedChangeListener(optionChanged)
-        note.setOnCheckedChangeListener(optionChanged)
+        standard.setOnClickListener { selectTemplate("STANDARD") }
+        price.setOnClickListener { selectTemplate("PRICE") }
+        image.setOnClickListener { selectTemplate("IMAGE") }
+        note.setOnClickListener { selectTemplate("NOTE") }
 
         noteEditText.addTextChangedListener(
             object : TextWatcher {
@@ -282,6 +317,7 @@ class LabelPrintPopup(
             }
         )
 
+        updateTemplateCards()
         updateNoteEditorVisibility()
         updatePreview()
 
@@ -355,6 +391,15 @@ class LabelPrintPopup(
                     printButton.isEnabled = true
 
                     result.onSuccess {
+                        val normalText = "STAMPA ETICHETTA"
+                        printButton.text = "✓  INVIATA ALLA GODEX"
+                        printButton.postDelayed(
+                            {
+                                printButton.text = normalText
+                            },
+                            900L
+                        )
+
                         Toast.makeText(
                             context,
                             "$quantity etichette inviate alla GoDEX",

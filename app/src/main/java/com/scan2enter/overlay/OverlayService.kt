@@ -48,7 +48,9 @@ import com.scan2enter.model.ProductInfo
 import com.scan2enter.model.ProductInfoStore
 import com.scan2enter.labels.a4.A4LabelsPopup
 import com.scan2enter.labels.a4.A4LabelStore
+import com.scan2enter.labels.a4.A4LabelItem
 import com.scan2enter.labels.a4.packaging.PackagingOptions
+import com.scan2enter.labels.a4.packaging.PackagingPdfGenerator
 import com.scan2enter.labels.a4.packaging.PackagingSelectionStore
 import com.scan2enter.labels.a4.packaging.PackagingType
 import com.scan2enter.overlay.popup.LocationManagementPopup
@@ -89,6 +91,9 @@ class OverlayService : Service() {
 
         const val ACTION_SHOW_A4_LABELS =
             "com.scan2enter.action.SHOW_A4_LABELS"
+
+        const val ACTION_OPEN_A4_SEARCH_RESULT =
+            "com.scan2enter.action.OPEN_A4_SEARCH_RESULT"
 
         const val ACTION_UPDATE_PRODUCT_INFO =
             "com.scan2enter.action.UPDATE_PRODUCT_INFO"
@@ -140,6 +145,9 @@ class OverlayService : Service() {
 
         const val EXTRA_DIRECT_TO_SESSION =
             "com.scan2enter.extra.DIRECT_TO_SESSION"
+
+        const val EXTRA_A4_INITIAL_SCAN_REQUEST =
+            "com.scan2enter.extra.A4_INITIAL_SCAN_REQUEST"
 
         const val EXTRA_CURRENT_ARTICLE_YEAR =
             "com.scan2enter.extra.CURRENT_ARTICLE_YEAR"
@@ -244,7 +252,19 @@ class OverlayService : Service() {
     private val popupHandler = Handler(Looper.getMainLooper())
 
     private var godexSunmiReceiverRegistered = false
+    private var a4SunmiReceiverRegistered = false
 
+    /*
+     * Solo per SCAFFALE A4:
+     * true dal momento in cui l'operatore apre lo scanner fino a quando
+     * la lettura termina con successo oppure viene annullata.
+     */
+    private var a4ShelfScanInProgress = false
+
+    /*
+     * Percorso GoDEX Sunmi lasciato IDENTICO alla versione stabile
+     * confermata prima dell'intervento A4.
+     */
     private val godexSunmiReceiver =
         object : BroadcastReceiver() {
             override fun onReceive(
@@ -285,6 +305,65 @@ class OverlayService : Service() {
                 labelPrintPopupController.remove()
 
                 openGodexBarcodeDirect(barcode)
+            }
+        }
+
+    /*
+     * A4 ha un receiver proprio: non modifica e non condivide
+     * la logica GoDEX già collaudata.
+     */
+    private val a4SunmiReceiver =
+        object : BroadcastReceiver() {
+            override fun onReceive(
+                receiverContext: Context?,
+                intent: Intent?
+            ) {
+                if (
+                    intent?.action !=
+                    "com.honeywell.tools.action.scan_result"
+                ) {
+                    return
+                }
+
+                val currentMode = loadCurrentScanMode()
+
+                if (
+                    currentMode != MODE_LABELS_A4 &&
+                    currentMode != MODE_LABELS_BLISTER
+                ) {
+                    return
+                }
+
+                val barcode =
+                    intent.getStringExtra("barcode_data")
+                        ?.trim()
+                        .orEmpty()
+                        .ifBlank {
+                            intent.getByteArrayExtra("source_byte")
+                                ?.toString(Charsets.UTF_8)
+                                ?.trim()
+                                .orEmpty()
+                        }
+
+                if (barcode.isBlank()) {
+                    return
+                }
+
+                android.util.Log.d(
+                    "Scan2Enter",
+                    "SUNMI A4/BLISTER RECEIVER " +
+                            "mode=$currentMode barcode=$barcode"
+                )
+
+                a4LabelsPopupController.remove(
+                    preserveSection = true
+                )
+
+                if (currentMode == MODE_LABELS_BLISTER) {
+                    openBlisterBarcodeDirect(barcode)
+                } else {
+                    openA4BarcodeDirect(barcode)
+                }
             }
         }
 
@@ -465,9 +544,11 @@ class OverlayService : Service() {
 
         when (intent?.action) {
             ACTION_SHOW_A4_LABELS -> {
+                a4ShelfScanInProgress = false
+
                 android.util.Log.d(
                     "OverlayService",
-                    "RICHIESTA APERTURA ETICHETTE A4"
+                    "RICHIESTA APERTURA HUB ETICHETTE A4"
                 )
 
                 applicationContext
@@ -478,19 +559,14 @@ class OverlayService : Service() {
                     .edit()
                     .putString(
                         WORKFLOW_MODE_KEY,
-                        MODE_LABELS_A4
+                        MODE_INFO
                     )
                     .apply()
 
-                /*
-                 * Quando si apre ETICHETTE A4 lo scanner resta fermo.
-                 * Verrà aperto soltanto da un comando di scansione
-                 * richiesto dentro la finestra A4.
-                 */
                 scanOverlay.hide()
 
                 a4LabelsPopupController.show(
-                    onScanRequested = {
+                    onSearchRequested = {
                         applicationContext
                             .getSharedPreferences(
                                 WORKFLOW_PREFS,
@@ -503,25 +579,37 @@ class OverlayService : Service() {
                             )
                             .apply()
 
-                        popupHandler.postDelayed(
-                            {
-                                startService(
-                                    Intent(
-                                        this,
-                                        OverlayService::class.java
-                                    ).apply {
-                                        action = ACTION_OPEN_SCANNER
-                                    }
-                                )
-                            },
-                            180L
-                        )
+                        openA4ArticleSearch()
                     },
-                    onBlisterScanRequested = { type, includeHook, showPrice ->
+                    onHardwareScanRequested = {
+                        applicationContext
+                            .getSharedPreferences(
+                                WORKFLOW_PREFS,
+                                Context.MODE_PRIVATE
+                            )
+                            .edit()
+                            .putString(
+                                WORKFLOW_MODE_KEY,
+                                MODE_LABELS_A4
+                            )
+                            .apply()
+
+                        reopenA4ScannerIfNeeded()
+                    },
+                    onBlisterScanRequested = {
+                            type,
+                            includeHook,
+                            showPrice ->
+
                         val packagingType = when (type) {
-                            "BLISTER_LONG" -> PackagingType.BLISTER_LONG
-                            "BLISTER_BIG" -> PackagingType.BLISTER_BIG
-                            else -> PackagingType.BLISTER_LARGE
+                            "BLISTER_LONG" ->
+                                PackagingType.BLISTER_LONG
+
+                            "BLISTER_BIG" ->
+                                PackagingType.BLISTER_BIG
+
+                            else ->
+                                PackagingType.BLISTER_LARGE
                         }
 
                         PackagingSelectionStore.save(
@@ -547,21 +635,41 @@ class OverlayService : Service() {
 
                         popupHandler.postDelayed(
                             {
-                                startService(
-                                    Intent(
-                                        this,
-                                        OverlayService::class.java
-                                    ).apply {
-                                        action = ACTION_OPEN_SCANNER
-                                    }
+                                scanOverlay.show(
+                                    rapidRescan = false
                                 )
                             },
                             180L
                         )
                     },
-                    onClosed = {
-                        scanOverlay.hide()
-
+                    onShelfActivated = {
+                        applicationContext
+                            .getSharedPreferences(
+                                WORKFLOW_PREFS,
+                                Context.MODE_PRIVATE
+                            )
+                            .edit()
+                            .putString(
+                                WORKFLOW_MODE_KEY,
+                                MODE_LABELS_A4
+                            )
+                            .apply()
+                    },
+                    onBlisterActivated = {
+                        applicationContext
+                            .getSharedPreferences(
+                                WORKFLOW_PREFS,
+                                Context.MODE_PRIVATE
+                            )
+                            .edit()
+                            .putString(
+                                WORKFLOW_MODE_KEY,
+                                MODE_LABELS_BLISTER
+                            )
+                            .apply()
+                    },
+                    onHubActivated = {
+                        a4ShelfScanInProgress = false
                         applicationContext
                             .getSharedPreferences(
                                 WORKFLOW_PREFS,
@@ -573,8 +681,47 @@ class OverlayService : Service() {
                                 MODE_INFO
                             )
                             .apply()
-                    }
+                    },
+                    onClosed = {
+                        applicationContext
+                            .getSharedPreferences(
+                                WORKFLOW_PREFS,
+                                Context.MODE_PRIVATE
+                            )
+                            .edit()
+                            .putString(
+                                WORKFLOW_MODE_KEY,
+                                MODE_INFO
+                            )
+                            .apply()
+
+                        scanOverlay.hide()
+                    },
+                    startAtHub = true
                 )
+
+                bringQuickScanDockToFront()
+            }
+
+            ACTION_OPEN_A4_SEARCH_RESULT -> {
+                val barcode = intent.getStringExtra(
+                    EXTRA_CURRENT_ARTICLE_BARCODE
+                ).orEmpty()
+
+                applicationContext
+                    .getSharedPreferences(
+                        WORKFLOW_PREFS,
+                        Context.MODE_PRIVATE
+                    )
+                    .edit()
+                    .putString(
+                        WORKFLOW_MODE_KEY,
+                        MODE_LABELS_A4
+                    )
+                    .apply()
+
+                a4LabelsPopupController.remove()
+                openA4BarcodeDirect(barcode)
             }
 
             ACTION_SHOW_GODEX_SETUP -> {
@@ -801,6 +948,32 @@ class OverlayService : Service() {
                 ) ?: "Lettura errata\nRiprovare"
 
                 showScanErrorPopup(message)
+
+                if (
+                    loadCurrentScanMode() == MODE_LABELS_A4 &&
+                    a4ShelfScanInProgress
+                ) {
+                    /*
+                     * SCAFFALE A4 è l'unico flusso "retry finché valido":
+                     * dopo il breve messaggio d'errore riproponiamo CameraX.
+                     */
+                    popupHandler.postDelayed(
+                        {
+                            if (
+                                loadCurrentScanMode() == MODE_LABELS_A4 &&
+                                a4ShelfScanInProgress
+                            ) {
+                                removeScanErrorPopup()
+                                sessionRecordedForCurrentScan = false
+                                scanOverlay.show(
+                                    rapidRescan = false,
+                                    directToSession = false
+                                )
+                            }
+                        },
+                        SCAN_ERROR_DURATION_MS + 120L
+                    )
+                }
             }
 
             ACTION_OPEN_SCANNER -> {
@@ -815,7 +988,35 @@ class OverlayService : Service() {
                             0L
                         )
 
-                if (System.currentTimeMillis() < blockUntil) {
+                val a4InitialRequest =
+                    intent.getBooleanExtra(
+                        EXTRA_A4_INITIAL_SCAN_REQUEST,
+                        false
+                    )
+
+                /*
+                 * Il vecchio ScanSession, dopo una lettura A4 riuscita,
+                 * invia ACTION_OPEN_SCANNER. Prima significava "continua a
+                 * scansionare". Nel nuovo SCAFFALE significa invece:
+                 * lettura OK -> chiudi CameraX e torna subito alla lista.
+                 *
+                 * La PRIMA apertura dello scanner dalla dock è marcata
+                 * EXTRA_A4_INITIAL_SCAN_REQUEST=true e non entra qui.
+                 */
+                if (
+                    loadCurrentScanMode() == MODE_LABELS_A4 &&
+                    a4ShelfScanInProgress &&
+                    !a4InitialRequest
+                ) {
+                    android.util.Log.d(
+                        "OverlayService",
+                        "A4 SCAFFALE LETTURA OK -> RITORNO ALLA LISTA"
+                    )
+
+                    a4ShelfScanInProgress = false
+                    scanOverlay.hide()
+                    showA4ShelfAfterSuccessfulScan()
+                } else if (System.currentTimeMillis() < blockUntil) {
                     android.util.Log.d(
                         "OverlayService",
                         "APERTURA SCANNER AUTOMATICA BLOCCATA DURANTE STARTUP"
@@ -831,9 +1032,17 @@ class OverlayService : Service() {
                             false
                         )
 
+                    if (
+                        loadCurrentScanMode() == MODE_LABELS_A4 &&
+                        a4InitialRequest
+                    ) {
+                        a4ShelfScanInProgress = true
+                    }
+
                     android.util.Log.d(
                         "OverlayService",
-                        "APRO SCANNER directToSession=$directToSession"
+                        "APRO SCANNER directToSession=$directToSession " +
+                                "a4Initial=$a4InitialRequest"
                     )
 
                     scanOverlay.show(
@@ -1106,6 +1315,394 @@ class OverlayService : Service() {
         }.start()
     }
 
+    private fun openBlisterBarcodeDirect(
+        barcode: String
+    ) {
+        openCurrentArticleFromApi(
+            rawBarcode = barcode,
+            uiYear = "",
+            uiSeason = "",
+            uiLocation = "",
+            addToHistory = false,
+            addToReorder = false,
+            addToSession = false,
+            showPopup = false,
+            onLoaded = { loadedProduct ->
+                val options =
+                    PackagingSelectionStore.load(
+                        applicationContext
+                    )
+
+                val result =
+                    PackagingPdfGenerator.generateAndOpen(
+                        context = applicationContext,
+                        product = loadedProduct,
+                        options = options
+                    )
+
+                result.onFailure { error ->
+                    Toast.makeText(
+                        this,
+                        error.message
+                            ?: "Errore generazione blister",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+
+                applicationContext
+                    .getSharedPreferences(
+                        WORKFLOW_PREFS,
+                        Context.MODE_PRIVATE
+                    )
+                    .edit()
+                    .putString(
+                        WORKFLOW_MODE_KEY,
+                        MODE_INFO
+                    )
+                    .apply()
+            }
+        )
+    }
+
+    private fun showA4ShelfAfterSuccessfulScan() {
+        applicationContext
+            .getSharedPreferences(
+                WORKFLOW_PREFS,
+                Context.MODE_PRIVATE
+            )
+            .edit()
+            .putString(
+                WORKFLOW_MODE_KEY,
+                MODE_LABELS_A4
+            )
+            .apply()
+
+        a4LabelsPopupController.show(
+            onSearchRequested = {
+                openA4ArticleSearch()
+            },
+            onHardwareScanRequested = {
+                reopenA4ScannerIfNeeded()
+            },
+            onBlisterScanRequested = {
+                    type,
+                    includeHook,
+                    showPrice ->
+
+                val packagingType = when (type) {
+                    "BLISTER_LONG" ->
+                        PackagingType.BLISTER_LONG
+
+                    "BLISTER_BIG" ->
+                        PackagingType.BLISTER_BIG
+
+                    else ->
+                        PackagingType.BLISTER_LARGE
+                }
+
+                PackagingSelectionStore.save(
+                    applicationContext,
+                    PackagingOptions(
+                        type = packagingType,
+                        includeHook = includeHook,
+                        showPrice = showPrice
+                    )
+                )
+
+                applicationContext
+                    .getSharedPreferences(
+                        WORKFLOW_PREFS,
+                        Context.MODE_PRIVATE
+                    )
+                    .edit()
+                    .putString(
+                        WORKFLOW_MODE_KEY,
+                        MODE_LABELS_BLISTER
+                    )
+                    .apply()
+
+                scanOverlay.show(
+                    rapidRescan = false
+                )
+            },
+            onShelfActivated = {
+                applicationContext
+                    .getSharedPreferences(
+                        WORKFLOW_PREFS,
+                        Context.MODE_PRIVATE
+                    )
+                    .edit()
+                    .putString(
+                        WORKFLOW_MODE_KEY,
+                        MODE_LABELS_A4
+                    )
+                    .apply()
+            },
+            onBlisterActivated = {
+                applicationContext
+                    .getSharedPreferences(
+                        WORKFLOW_PREFS,
+                        Context.MODE_PRIVATE
+                    )
+                    .edit()
+                    .putString(
+                        WORKFLOW_MODE_KEY,
+                        MODE_LABELS_BLISTER
+                    )
+                    .apply()
+            },
+            onHubActivated = {
+                applicationContext
+                    .getSharedPreferences(
+                        WORKFLOW_PREFS,
+                        Context.MODE_PRIVATE
+                    )
+                    .edit()
+                    .putString(
+                        WORKFLOW_MODE_KEY,
+                        MODE_INFO
+                    )
+                    .apply()
+            },
+            onClosed = {
+                a4ShelfScanInProgress = false
+
+                applicationContext
+                    .getSharedPreferences(
+                        WORKFLOW_PREFS,
+                        Context.MODE_PRIVATE
+                    )
+                    .edit()
+                    .putString(
+                        WORKFLOW_MODE_KEY,
+                        MODE_INFO
+                    )
+                    .apply()
+
+                scanOverlay.hide()
+            },
+            startAtHub = false
+        )
+
+        bringQuickScanDockToFront()
+    }
+
+    private fun openA4BarcodeDirect(
+        barcode: String
+    ) {
+        applicationContext
+            .getSharedPreferences(
+                WORKFLOW_PREFS,
+                Context.MODE_PRIVATE
+            )
+            .edit()
+            .putString(
+                WORKFLOW_MODE_KEY,
+                MODE_LABELS_A4
+            )
+            .apply()
+
+        scanOverlay.hide()
+
+        openCurrentArticleFromApi(
+            rawBarcode = barcode,
+            uiYear = "",
+            uiSeason = "",
+            uiLocation = "",
+            addToHistory = false,
+            addToReorder = false,
+            addToSession = false,
+            showPopup = false,
+            onLoaded = { loadedProduct ->
+                A4LabelStore.initialize(applicationContext)
+
+                when (
+                    A4LabelStore.add(
+                        A4LabelItem.fromProduct(loadedProduct)
+                    )
+                ) {
+                    A4LabelStore.AddResult.DUPLICATE -> {
+                        Toast.makeText(
+                            this,
+                            "Articolo già presente nella pagina",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
+
+                    A4LabelStore.AddResult.PAGE_FULL -> {
+                        Toast.makeText(
+                            this,
+                            "Pagina A4 completa",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
+
+                    else -> Unit
+                }
+
+                a4LabelsPopupController.show(
+                    onSearchRequested = {
+                        openA4ArticleSearch()
+                    },
+                    onHardwareScanRequested = {
+                        reopenA4ScannerIfNeeded()
+                    },
+                    onBlisterScanRequested = {
+                            type,
+                            includeHook,
+                            showPrice ->
+
+                        val packagingType = when (type) {
+                            "BLISTER_LONG" ->
+                                PackagingType.BLISTER_LONG
+
+                            "BLISTER_BIG" ->
+                                PackagingType.BLISTER_BIG
+
+                            else ->
+                                PackagingType.BLISTER_LARGE
+                        }
+
+                        PackagingSelectionStore.save(
+                            applicationContext,
+                            PackagingOptions(
+                                type = packagingType,
+                                includeHook = includeHook,
+                                showPrice = showPrice
+                            )
+                        )
+
+                        applicationContext
+                            .getSharedPreferences(
+                                WORKFLOW_PREFS,
+                                Context.MODE_PRIVATE
+                            )
+                            .edit()
+                            .putString(
+                                WORKFLOW_MODE_KEY,
+                                MODE_LABELS_BLISTER
+                            )
+                            .apply()
+
+                        scanOverlay.show(
+                            rapidRescan = false
+                        )
+                    },
+                    onShelfActivated = {
+                        applicationContext
+                            .getSharedPreferences(
+                                WORKFLOW_PREFS,
+                                Context.MODE_PRIVATE
+                            )
+                            .edit()
+                            .putString(
+                                WORKFLOW_MODE_KEY,
+                                MODE_LABELS_A4
+                            )
+                            .apply()
+                    },
+                    onBlisterActivated = {
+                        applicationContext
+                            .getSharedPreferences(
+                                WORKFLOW_PREFS,
+                                Context.MODE_PRIVATE
+                            )
+                            .edit()
+                            .putString(
+                                WORKFLOW_MODE_KEY,
+                                MODE_LABELS_BLISTER
+                            )
+                            .apply()
+                    },
+                    onHubActivated = {
+                        a4ShelfScanInProgress = false
+                        applicationContext
+                            .getSharedPreferences(
+                                WORKFLOW_PREFS,
+                                Context.MODE_PRIVATE
+                            )
+                            .edit()
+                            .putString(
+                                WORKFLOW_MODE_KEY,
+                                MODE_INFO
+                            )
+                            .apply()
+                    },
+                    onClosed = {
+                        applicationContext
+                            .getSharedPreferences(
+                                WORKFLOW_PREFS,
+                                Context.MODE_PRIVATE
+                            )
+                            .edit()
+                            .putString(
+                                WORKFLOW_MODE_KEY,
+                                MODE_INFO
+                            )
+                            .apply()
+
+                        scanOverlay.hide()
+                    },
+                    startAtHub = false
+                )
+
+                bringQuickScanDockToFront()
+            }
+        )
+    }
+
+    private fun openA4ArticleSearch() {
+        scanOverlay.hide()
+
+        applicationContext
+            .getSharedPreferences(
+                WORKFLOW_PREFS,
+                Context.MODE_PRIVATE
+            )
+            .edit()
+            .putString(
+                WORKFLOW_MODE_KEY,
+                MODE_LABELS_A4
+            )
+            .apply()
+
+        startActivity(
+            Intent(
+                this,
+                MainActivity::class.java
+            ).apply {
+                addFlags(
+                    Intent.FLAG_ACTIVITY_NEW_TASK or
+                            Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                            Intent.FLAG_ACTIVITY_SINGLE_TOP
+                )
+                putExtra(
+                    MainActivity.EXTRA_OPEN_A4_SEARCH,
+                    true
+                )
+            }
+        )
+    }
+
+    private fun reopenA4ScannerIfNeeded() {
+        if (loadCurrentScanMode() != MODE_LABELS_A4) {
+            return
+        }
+
+        a4ShelfScanInProgress = true
+
+        popupHandler.postDelayed(
+            {
+                sessionRecordedForCurrentScan = false
+                scanOverlay.show(
+                    rapidRescan = false,
+                    directToSession = false
+                )
+            },
+            250L
+        )
+    }
+
     private fun openGodexBarcodeDirect(
         barcode: String
     ) {
@@ -1259,6 +1856,24 @@ class OverlayService : Service() {
             android.util.Log.d(
                 "Scan2Enter",
                 "SUNMI GODEX SERVICE RECEIVER REGISTRATO"
+            )
+        }
+
+        if (!a4SunmiReceiverRegistered) {
+            ContextCompat.registerReceiver(
+                this,
+                a4SunmiReceiver,
+                IntentFilter(
+                    "com.honeywell.tools.action.scan_result"
+                ),
+                ContextCompat.RECEIVER_EXPORTED
+            )
+
+            a4SunmiReceiverRegistered = true
+
+            android.util.Log.d(
+                "Scan2Enter",
+                "SUNMI A4 SERVICE RECEIVER REGISTRATO"
             )
         }
 
@@ -4973,6 +5588,8 @@ class OverlayService : Service() {
     }
 
     private fun openScannerFromQuickDock() {
+        val currentScanMode = loadCurrentScanMode()
+
         /*
          * In modalità GoDEX la finestra corrente deve essere rimossa PRIMA
          * di aprire CameraX. Altrimenti, dopo la lettura, ACTION_SHOW_GODEX_PRINT
@@ -4983,8 +5600,15 @@ class OverlayService : Service() {
          * rimuovono il popup e poi aprono lo scanner.
          * La dock deve seguire esattamente lo stesso percorso.
          */
-        if (loadCurrentScanMode() == MODE_LABELS_GODEX) {
-            labelPrintPopupController.remove()
+        when (currentScanMode) {
+            MODE_LABELS_GODEX ->
+                labelPrintPopupController.remove()
+
+            MODE_LABELS_A4,
+            MODE_LABELS_BLISTER ->
+                a4LabelsPopupController.remove(
+                    preserveSection = true
+                )
         }
 
         /*
@@ -5013,6 +5637,10 @@ class OverlayService : Service() {
          */
         keepQuickScanDockAlive()
 
+        if (currentScanMode == MODE_LABELS_A4) {
+            a4ShelfScanInProgress = true
+        }
+
         startService(
             Intent(
                 this,
@@ -5024,6 +5652,13 @@ class OverlayService : Service() {
                     EXTRA_DIRECT_TO_SESSION,
                     directToSession
                 )
+
+                if (currentScanMode == MODE_LABELS_A4) {
+                    putExtra(
+                        EXTRA_A4_INITIAL_SCAN_REQUEST,
+                        true
+                    )
+                }
             }
         )
 
@@ -5114,6 +5749,13 @@ class OverlayService : Service() {
                 unregisterReceiver(godexSunmiReceiver)
             }
             godexSunmiReceiverRegistered = false
+        }
+
+        if (a4SunmiReceiverRegistered) {
+            runCatching {
+                unregisterReceiver(a4SunmiReceiver)
+            }
+            a4SunmiReceiverRegistered = false
         }
 
         popupHandler.removeCallbacks(

@@ -94,7 +94,10 @@ class MainActivity : ComponentActivity() {
                         )
                         ?: "INFO"
 
-                if (workflowMode == "ETICHETTE_GODEX") {
+                if (
+                    workflowMode == "ETICHETTE_GODEX" ||
+                    workflowMode == "ETICHETTE_A4"
+                ) {
                     return
                 }
 
@@ -186,8 +189,12 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        if (intent?.getBooleanExtra(EXTRA_OPEN_GODEX_SEARCH, false) == true) {
-            requestedScreen = "TROVATUTTO_GODEX"
+        when {
+            intent?.getBooleanExtra(EXTRA_OPEN_A4_SEARCH, false) == true ->
+                requestedScreen = "TROVATUTTO_A4"
+
+            intent?.getBooleanExtra(EXTRA_OPEN_GODEX_SEARCH, false) == true ->
+                requestedScreen = "TROVATUTTO_GODEX"
         }
 
         Log.d("DueRetailApi", "MAIN ACTIVITY AVVIATA")
@@ -350,6 +357,41 @@ class MainActivity : ComponentActivity() {
                         )
                     }
 
+
+                    "TROVATUTTO_A4" -> {
+                        TrovaTuttoScreen(
+                            onBack = {
+                                currentScreen = "HOME"
+                                startService(
+                                    Intent(
+                                        this@MainActivity,
+                                        OverlayService::class.java
+                                    ).apply {
+                                        action = OverlayService.ACTION_SHOW_A4_LABELS
+                                    }
+                                )
+                            },
+                            onArticleSelected = { barcode ->
+                                currentScreen = "HOME"
+
+                                startService(
+                                    Intent(
+                                        this@MainActivity,
+                                        OverlayService::class.java
+                                    ).apply {
+                                        action =
+                                            OverlayService.ACTION_OPEN_A4_SEARCH_RESULT
+
+                                        putExtra(
+                                            OverlayService.EXTRA_CURRENT_ARTICLE_BARCODE,
+                                            barcode
+                                        )
+                                    }
+                                )
+                            }
+                        )
+                    }
+
                     "SESSIONE" -> {
                         SessionScreen(
                             onBack = {
@@ -394,14 +436,21 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
 
-        if (intent.getBooleanExtra(EXTRA_OPEN_GODEX_SEARCH, false)) {
-            requestedScreen = "TROVATUTTO_GODEX"
+        when {
+            intent.getBooleanExtra(EXTRA_OPEN_A4_SEARCH, false) ->
+                requestedScreen = "TROVATUTTO_A4"
+
+            intent.getBooleanExtra(EXTRA_OPEN_GODEX_SEARCH, false) ->
+                requestedScreen = "TROVATUTTO_GODEX"
         }
     }
 
     companion object {
         const val EXTRA_OPEN_GODEX_SEARCH =
             "com.scan2enter.extra.OPEN_GODEX_SEARCH"
+
+        const val EXTRA_OPEN_A4_SEARCH =
+            "com.scan2enter.extra.OPEN_A4_SEARCH"
     }
 
     override fun onKeyDown(
