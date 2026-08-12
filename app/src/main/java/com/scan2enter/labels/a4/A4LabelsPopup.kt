@@ -30,6 +30,7 @@ class A4LabelsPopup(
     private companion object {
         const val PDF_PREFS = "a4_pdf_preferences"
         const val SHOW_PREFIX_KEY = "show_article_prefix"
+        const val SHOW_SHELF_PRICE_KEY = "show_shelf_price"
 
         const val PACKAGING_PREFS = "a4_packaging_preferences"
         const val PACKAGING_TYPE_KEY = "packaging_type"
@@ -56,6 +57,7 @@ class A4LabelsPopup(
     private var previewPrice: TextView? = null
     private var previewDate: TextView? = null
     private var showPrefixCheckBox: CheckBox? = null
+    private var showPriceCheckBox: CheckBox? = null
 
     /*
      * Mantiene la sezione corrente quando il popup viene temporaneamente
@@ -366,6 +368,27 @@ class A4LabelsPopup(
             }
             panel.addView(showPrefixCheckBox)
 
+            showPriceCheckBox = CheckBox(context).apply {
+                text = "Mostra prezzo"
+                textSize = 14f
+                setTextColor(Color.BLACK)
+                isChecked = pdfPreferences.getBoolean(
+                    SHOW_SHELF_PRICE_KEY,
+                    true
+                )
+                setPadding(dp(2), 0, 0, dp(2))
+                setOnCheckedChangeListener { _, checked ->
+                    pdfPreferences.edit()
+                        .putBoolean(
+                            SHOW_SHELF_PRICE_KEY,
+                            checked
+                        )
+                        .apply()
+                    refreshPreview()
+                }
+            }
+            panel.addView(showPriceCheckBox)
+
             val previewTitleRow = LinearLayout(context).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
@@ -553,6 +576,11 @@ class A4LabelsPopup(
                         return@setOnClickListener
                     }
 
+                    val showArticlePrefix =
+                        showPrefixCheckBox?.isChecked ?: false
+                    val showPrice =
+                        showPriceCheckBox?.isChecked ?: true
+
                     isEnabled = false
                     remove()
 
@@ -560,8 +588,8 @@ class A4LabelsPopup(
                         val result = A4PdfGenerator.generateAndOpen(
                             context = context,
                             items = items,
-                            showArticlePrefix =
-                                showPrefixCheckBox?.isChecked ?: false
+                            showArticlePrefix = showArticlePrefix,
+                            showPrice = showPrice
                         )
 
                         post {
@@ -973,6 +1001,7 @@ class A4LabelsPopup(
         previewPrice = null
         previewDate = null
         showPrefixCheckBox = null
+        showPriceCheckBox = null
 
         A4LabelStore.removeListener(storeListener)
 
@@ -985,8 +1014,28 @@ class A4LabelsPopup(
         val container = listContainer ?: return
         val items = A4LabelStore.getItems()
 
+        val pageCapacity = A4LabelStore.PAGE_CAPACITY
+        val pageCount =
+            if (items.isEmpty()) {
+                1
+            } else {
+                ((items.size - 1) / pageCapacity) + 1
+            }
+
+        val itemsOnLastPage =
+            if (items.isEmpty()) {
+                0
+            } else {
+                ((items.size - 1) % pageCapacity) + 1
+            }
+
         countText?.text =
-            "Pagina 1  •  ${items.size}/${A4LabelStore.PAGE_CAPACITY} etichette"
+            "Pagina $pageCount  •  $itemsOnLastPage/$pageCapacity etichette" +
+                    if (pageCount > 1) {
+                        "  •  Totale ${items.size}"
+                    } else {
+                        ""
+                    }
 
         container.removeAllViews()
 
@@ -1073,6 +1122,12 @@ class A4LabelsPopup(
             previewDescription?.text =
                 "L'ultima etichetta inserita verrà mostrata qui"
             previewBarcode?.text = "|||| ||||| ||||"
+            previewPrice?.visibility =
+                if (showPriceCheckBox?.isChecked != false) {
+                    View.VISIBLE
+                } else {
+                    View.GONE
+                }
             previewPrice?.text = ""
             previewDate?.text = currentMonthYear()
             return
@@ -1087,7 +1142,14 @@ class A4LabelsPopup(
             } else {
                 "|||| ||||| ||||   ${item.barcode}"
             }
-        previewPrice?.text = formatPrice(item.publicPrice)
+        val showPrice =
+            showPriceCheckBox?.isChecked ?: true
+
+        previewPrice?.visibility =
+            if (showPrice) View.VISIBLE else View.GONE
+        previewPrice?.text =
+            if (showPrice) formatPrice(item.publicPrice) else ""
+
         previewDate?.text = currentMonthYear()
     }
 

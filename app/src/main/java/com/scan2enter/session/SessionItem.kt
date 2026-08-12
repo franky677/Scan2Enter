@@ -12,10 +12,15 @@ data class SessionItem(
     val listPrice: String = "",
     val discount1: Double = 0.0,
     val finalPrice: String = "",
-    val manualPrice: String = ""
+    val manualPrice: String = "",
+    val roundingPrice: String = "",
+    val roundingAdjustment: String = ""
 ) {
-    val effectivePrice: String
+    val basePrice: String
         get() = manualPrice.ifBlank {
             finalPrice.ifBlank { publicPrice }
         }
+
+    val effectivePrice: String
+        get() = roundingPrice.ifBlank { basePrice }
 }

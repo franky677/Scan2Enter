@@ -60,7 +60,9 @@ object SessionStore {
                     listPrice = effectiveListPrice,
                     discount1 = discount1,
                     finalPrice = effectiveFinalPrice,
-                    manualPrice = manualPrice
+                    manualPrice = manualPrice,
+                    roundingPrice = "",
+                    roundingAdjustment = ""
                 )
             } else {
                 old.copy(
@@ -83,7 +85,9 @@ object SessionStore {
                     finalPrice =
                         effectiveFinalPrice.ifBlank { old.finalPrice },
                     manualPrice =
-                        manualPrice.ifBlank { old.manualPrice }
+                        manualPrice.ifBlank { old.manualPrice },
+                    roundingPrice = "",
+                    roundingAdjustment = ""
                 )
             }
 
@@ -96,6 +100,7 @@ object SessionStore {
             items.remove(product.articleId)
             items[product.articleId] = updated
 
+            recalculateCommercialRoundingLocked()
             saveLocked()
         }
 
@@ -116,6 +121,7 @@ object SessionStore {
                     )
             }
 
+            recalculateCommercialRoundingLocked()
             saveLocked()
         }
 
@@ -131,9 +137,12 @@ object SessionStore {
 
             items[articleId] =
                 old.copy(
-                    manualPrice = manualPrice.trim()
+                    manualPrice = manualPrice.trim(),
+                    roundingPrice = "",
+                    roundingAdjustment = ""
                 )
 
+            recalculateCommercialRoundingLocked()
             saveLocked()
         }
 
@@ -154,10 +163,13 @@ object SessionStore {
                 items[articleId] =
                     old.copy(
                         quantity = quantity.coerceAtMost(9999),
-                        manualPrice = manualPrice.trim()
+                        manualPrice = manualPrice.trim(),
+                        roundingPrice = "",
+                        roundingAdjustment = ""
                     )
             }
 
+            recalculateCommercialRoundingLocked()
             saveLocked()
         }
 
@@ -167,6 +179,7 @@ object SessionStore {
     fun remove(articleId: Long) {
         synchronized(lock) {
             if (items.remove(articleId) == null) return
+            recalculateCommercialRoundingLocked()
             saveLocked()
         }
 
@@ -184,10 +197,15 @@ object SessionStore {
                     item.articleId > 0L &&
                     item.quantity > 0
                 ) {
-                    items[item.articleId] = item
+                    items[item.articleId] =
+                        item.copy(
+                            roundingPrice = "",
+                            roundingAdjustment = ""
+                        )
                 }
             }
 
+            recalculateCommercialRoundingLocked()
             saveLocked()
         }
 
@@ -205,7 +223,11 @@ object SessionStore {
 
     fun getItems(): List<SessionItem> =
         synchronized(lock) {
-            items.values.toList()
+            /*
+             * La LinkedHashMap conserva in coda l'articolo letto/selezionato
+             * più di recente. La UI deve invece mostrarlo in testa.
+             */
+            items.values.toList().asReversed()
         }
 
     fun quantityFor(articleId: Long): Int =
@@ -318,12 +340,133 @@ object SessionStore {
                             ),
                         finalPrice = finalPrice,
                         manualPrice =
-                            obj.optString("manualPrice")
+                            obj.optString("manualPrice"),
+                        roundingPrice = "",
+                        roundingAdjustment = ""
                     )
             }
         }.onFailure {
             items.clear()
         }
+
+        recalculateCommercialRoundingLocked()
+    }
+
+    private fun recalculateCommercialRoundingLocked() {
+        if (items.isEmpty()) return
+
+        // Ogni ricalcolo parte sempre dai prezzi reali/manuali, mai
+        // dall'arrotondamento precedente.
+        val cleanItems =
+            items.mapValues { (_, value) ->
+                value.copy(
+                    roundingPrice = "",
+                    roundingAdjustment = ""
+                )
+            }
+
+        items.clear()
+        items.putAll(cleanItems)
+
+        fun priceToCents(value: String): Int? {
+            val normalized =
+                value.trim()
+                    .replace("€", "")
+                    .replace(" ", "")
+                    .replace(",", ".")
+
+            val number = normalized.toBigDecimalOrNull()
+                ?: return null
+
+            return runCatching {
+                number
+                    .movePointRight(2)
+                    .setScale(
+                        0,
+                        java.math.RoundingMode.HALF_UP
+                    )
+                    .intValueExact()
+            }.getOrNull()
+        }
+
+        val rows =
+            items.values.mapNotNull { row ->
+                val unitCents =
+                    priceToCents(row.basePrice)
+                        ?: return@mapNotNull null
+
+                if (unitCents < 0) {
+                    return@mapNotNull null
+                }
+
+                Triple(
+                    row,
+                    unitCents,
+                    unitCents * row.quantity
+                )
+            }
+
+        if (rows.isEmpty()) return
+
+        val totalCents =
+            rows.sumOf { it.third }
+
+        val remainder =
+            ((totalCents % 10) + 10) % 10
+
+        if (remainder == 0) return
+
+        // Al decimo più vicino. A 5 centesimi arrotondiamo verso l'alto.
+        val totalAdjustment =
+            if (remainder < 5) {
+                -remainder
+            } else {
+                10 - remainder
+            }
+
+        /*
+         * Usiamo solo una riga il cui prezzo non sia già "tondo"
+         * ai 10 centesimi. Prima preferiamo quantità 1; altrimenti
+         * accettiamo una quantità > 1 solo quando la correzione totale
+         * è divisibile esattamente per la quantità.
+         */
+        val eligible =
+            rows.filter { (row, unitCents, _) ->
+                unitCents % 10 != 0 &&
+                        row.quantity > 0 &&
+                        totalAdjustment % row.quantity == 0
+            }
+
+        val chosen =
+            eligible.firstOrNull { it.first.quantity == 1 }
+                ?: eligible.firstOrNull()
+                ?: return
+
+        val row = chosen.first
+        val originalUnitCents = chosen.second
+        val unitAdjustment =
+            totalAdjustment / row.quantity
+        val roundedUnitCents =
+            originalUnitCents + unitAdjustment
+
+        if (roundedUnitCents < 0) return
+
+        fun centsToPrice(cents: Int): String =
+            java.math.BigDecimal(cents)
+                .movePointLeft(2)
+                .setScale(2)
+                .toPlainString()
+
+        val sign =
+            if (unitAdjustment >= 0) "+" else ""
+
+        items[row.articleId] =
+            row.copy(
+                roundingPrice =
+                    centsToPrice(roundedUnitCents),
+                roundingAdjustment =
+                    "$sign${centsToPrice(unitAdjustment)}"
+            )
     }
 
     private fun saveLocked() {
@@ -346,6 +489,8 @@ object SessionStore {
                     put("discount1", item.discount1)
                     put("finalPrice", item.finalPrice)
                     put("manualPrice", item.manualPrice)
+                    put("roundingPrice", item.roundingPrice)
+                    put("roundingAdjustment", item.roundingAdjustment)
                 }
             )
         }

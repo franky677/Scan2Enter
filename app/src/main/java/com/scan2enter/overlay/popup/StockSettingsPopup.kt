@@ -5,6 +5,7 @@ import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.drawable.GradientDrawable
 import android.view.Gravity
+import android.view.KeyEvent
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewOutlineProvider
@@ -53,10 +54,25 @@ class StockSettingsPopup(
         val density = context.resources.displayMetrics.density
         val screenWidth = context.resources.displayMetrics.widthPixels
 
-        val root = FrameLayout(context).apply {
-            setBackgroundColor(Color.BLACK)
-            alpha = 1.0f
-        }
+        val root =
+            object : FrameLayout(context) {
+                override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+                    if (
+                        event.keyCode == KeyEvent.KEYCODE_BACK &&
+                        event.action == KeyEvent.ACTION_DOWN &&
+                        event.repeatCount == 0
+                    ) {
+                        onClose()
+                        return true
+                    }
+                    return super.dispatchKeyEvent(event)
+                }
+            }.apply {
+                setBackgroundColor(Color.BLACK)
+                alpha = 1.0f
+                isFocusable = true
+                isFocusableInTouchMode = true
+            }
 
         val dialogView = LayoutInflater.from(context)
             .inflate(R.layout.stock_edit_dialog, root, false)
@@ -257,6 +273,7 @@ class StockSettingsPopup(
 
         overlayRoot = root
         windowManager.addView(root, windowParams)
+        root.requestFocus()
     }
 
     fun remove() {

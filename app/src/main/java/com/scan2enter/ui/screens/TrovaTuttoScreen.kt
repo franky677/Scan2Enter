@@ -230,6 +230,18 @@ fun TrovaTuttoScreen(
                                                         OverlayService.EXTRA_CURRENT_ARTICLE_BARCODE,
                                                         item.barcode
                                                     )
+
+                                                    /*
+                                                     * Se TrovaTutto è stato aperto dalla Sessione,
+                                                     * l'articolo deve essere accodato senza mostrare
+                                                     * il popup informazioni.
+                                                     */
+                                                    if (onArticleOpened != null) {
+                                                        putExtra(
+                                                            OverlayService.EXTRA_SUPPRESS_PRODUCT_POPUP,
+                                                            true
+                                                        )
+                                                    }
                                                 }
                                             )
 

@@ -42,8 +42,8 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -57,6 +57,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.scan2enter.overlay.OverlayService
@@ -73,6 +74,7 @@ import kotlin.math.abs
 import com.scan2enter.scanner.ScannerModeDetector
 private const val SESSION_UI_PREFS = "session_ui_prefs"
 private const val KEY_SEARCH_ON_LEFT = "search_on_left"
+private const val KEY_SESSION_BUTTON_POSITION = "session_button_position"
 
 @Composable
 fun SessionScreen(
@@ -89,14 +91,13 @@ fun SessionScreen(
     val sessionListState =
         rememberLazyListState()
 
-    /*
-     * Ogni aggiornamento della Sessione porta automaticamente
-     * in vista il primo elemento, che con l'ordinamento attuale
-     * corrisponde all'ultimo articolo letto.
-     */
-    LaunchedEffect(sessionItems) {
+    LaunchedEffect(
+        sessionItems.firstOrNull()?.articleId,
+        sessionItems.firstOrNull()?.quantity,
+        sessionItems.size
+    ) {
         if (sessionItems.isNotEmpty()) {
-            sessionListState.animateScrollToItem(0)
+            sessionListState.scrollToItem(0)
         }
     }
 
@@ -110,6 +111,18 @@ fun SessionScreen(
                 SESSION_UI_PREFS,
                 Context.MODE_PRIVATE
             ).getBoolean(KEY_SEARCH_ON_LEFT, false)
+        )
+    }
+
+    var sessionButtonPosition by remember {
+        mutableStateOf(
+            context.getSharedPreferences(
+                SESSION_UI_PREFS,
+                Context.MODE_PRIVATE
+            ).getInt(
+                KEY_SESSION_BUTTON_POSITION,
+                2
+            ).coerceIn(0, 2)
         )
     }
 
@@ -191,92 +204,81 @@ fun SessionScreen(
     }
 
     DisposableEffect(Unit) {
-        var lastBarcode = ""
-        var lastScanAt = 0L
+        if (!ScannerModeDetector.isSunmi()) {
+            onDispose { }
+        } else {
+            var lastBarcode = ""
+            var lastScanAt = 0L
 
-        val sunmiReceiver =
-            object : BroadcastReceiver() {
-                override fun onReceive(
-                    receiverContext: Context?,
-                    intent: Intent?
-                ) {
-                    if (
-                        intent?.action !=
-                        "com.honeywell.tools.action.scan_result"
+            val sunmiReceiver =
+                object : BroadcastReceiver() {
+                    override fun onReceive(
+                        receiverContext: Context?,
+                        intent: Intent?
                     ) {
-                        return
-                    }
-
-                    val barcode =
-                        intent.getStringExtra("barcode_data")
-                            ?.trim()
-                            .orEmpty()
-
-                    if (barcode.isBlank()) {
-                        return
-                    }
-
-                    val now =
-                        android.os.SystemClock.elapsedRealtime()
-
-                    if (
-                        barcode == lastBarcode &&
-                        now - lastScanAt < 600L
-                    ) {
-                        android.util.Log.d(
-                            "SessionScreen",
-                            "DOPPIA LETTURA IGNORATA barcode=$barcode"
-                        )
-                        return
-                    }
-
-                    lastBarcode = barcode
-                    lastScanAt = now
-
-                    context.startService(
-                        Intent(
-                            context,
-                            OverlayService::class.java
-                        ).apply {
-                            action =
-                                OverlayService.ACTION_OPEN_SEARCH_ARTICLE
-
-                            putExtra(
-                                OverlayService.EXTRA_CURRENT_ARTICLE_BARCODE,
-                                barcode
-                            )
-
-                            putExtra(
-                                OverlayService.EXTRA_SUPPRESS_PRODUCT_POPUP,
-                                true
-                            )
+                        if (
+                            intent?.action !=
+                            "com.honeywell.tools.action.scan_result"
+                        ) {
+                            return
                         }
-                    )
-                }
-            }
 
-        if (ScannerModeDetector.isSunmi()) {
-            val filter = IntentFilter(
-                "com.honeywell.tools.action.scan_result"
+                        val barcode =
+                            intent.getStringExtra("barcode_data")
+                                ?.trim()
+                                .orEmpty()
+
+                        if (barcode.isBlank()) {
+                            return
+                        }
+
+                        val now =
+                            android.os.SystemClock.elapsedRealtime()
+
+                        if (
+                            barcode == lastBarcode &&
+                            now - lastScanAt < 600L
+                        ) {
+                            android.util.Log.d(
+                                "SessionScreen",
+                                "DOPPIA LETTURA IGNORATA barcode=$barcode"
+                            )
+                            return
+                        }
+
+                        lastBarcode = barcode
+                        lastScanAt = now
+
+                        context.startService(
+                            Intent(
+                                context,
+                                OverlayService::class.java
+                            ).apply {
+                                action =
+                                    OverlayService.ACTION_OPEN_SEARCH_ARTICLE
+
+                                putExtra(
+                                    OverlayService.EXTRA_CURRENT_ARTICLE_BARCODE,
+                                    barcode
+                                )
+
+                                putExtra(
+                                    OverlayService.EXTRA_SUPPRESS_PRODUCT_POPUP,
+                                    true
+                                )
+                            }
+                        )
+                    }
+                }
+
+            context.registerReceiver(
+                sunmiReceiver,
+                IntentFilter(
+                    "com.honeywell.tools.action.scan_result"
+                )
             )
 
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
-                context.registerReceiver(
-                    sunmiReceiver,
-                    filter,
-                    Context.RECEIVER_EXPORTED
-                )
-            } else {
-                @Suppress("DEPRECATION")
-                context.registerReceiver(
-                    sunmiReceiver,
-                    filter
-                )
-            }
-        }
-
-        onDispose {
-            if (ScannerModeDetector.isSunmi()) {
+            onDispose {
                 runCatching {
                     context.unregisterReceiver(
                         sunmiReceiver
@@ -306,6 +308,7 @@ fun SessionScreen(
 
                 SessionBottomBar(
                     searchOnLeft = searchOnLeft,
+                    sessionButtonPosition = sessionButtonPosition,
                     sessionCount = sessionItems.size,
                     onSessionClick = {
                         actionPanelOpen = !actionPanelOpen
@@ -320,6 +323,23 @@ fun SessionScreen(
                             .putBoolean(
                                 KEY_SEARCH_ON_LEFT,
                                 searchOnLeft
+                            )
+                            .apply()
+
+                        vibrateSwap(context)
+                    },
+                    onMoveSessionButton = { direction ->
+                        sessionButtonPosition =
+                            (sessionButtonPosition + direction)
+                                .coerceIn(0, 2)
+
+                        context.getSharedPreferences(
+                            SESSION_UI_PREFS,
+                            Context.MODE_PRIVATE
+                        ).edit()
+                            .putInt(
+                                KEY_SESSION_BUTTON_POSITION,
+                                sessionButtonPosition
                             )
                             .apply()
 
@@ -444,7 +464,7 @@ fun SessionScreen(
                     contentPadding = PaddingValues(bottom = 12.dp)
                 ) {
                     items(
-                        sessionItems.asReversed(),
+                        sessionItems,
                         key = { it.articleId }
                     ) { item ->
                         SessionRow(
@@ -466,6 +486,20 @@ fun SessionScreen(
                                             item.barcode
                                         )
                                     }
+                                )
+                            },
+                            onDecrease = {
+                                if (item.quantity > 1) {
+                                    SessionStore.setQuantity(
+                                        item.articleId,
+                                        item.quantity - 1
+                                    )
+                                }
+                            },
+                            onIncrease = {
+                                SessionStore.setQuantity(
+                                    item.articleId,
+                                    (item.quantity + 1).coerceAtMost(9999)
                                 )
                             },
                             onRemove = {
@@ -640,9 +674,11 @@ fun SessionScreen(
 @Composable
 private fun SessionBottomBar(
     searchOnLeft: Boolean,
+    sessionButtonPosition: Int,
     sessionCount: Int,
     onSessionClick: () -> Unit,
     onSwap: () -> Unit,
+    onMoveSessionButton: (Int) -> Unit,
     onScan: () -> Unit,
     onSearch: () -> Unit
 ) {
@@ -657,37 +693,78 @@ private fun SessionBottomBar(
                 .padding(8.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            if (searchOnLeft) {
-                SearchActionButton(
-                    modifier = Modifier.weight(4.5f),
-                    onClick = onSearch,
-                    onSwap = onSwap
-                )
+            val leftAction: @Composable (Modifier) -> Unit =
+                { modifier ->
+                    if (searchOnLeft) {
+                        SearchActionButton(
+                            modifier = modifier,
+                            onClick = onSearch,
+                            onSwap = onSwap
+                        )
+                    } else {
+                        ScanActionButton(
+                            modifier = modifier,
+                            onClick = onScan,
+                            onSwap = onSwap
+                        )
+                    }
+                }
 
-                ScanActionButton(
-                    modifier = Modifier.weight(4.5f),
-                    onClick = onScan,
-                    onSwap = onSwap
-                )
-            } else {
-                ScanActionButton(
-                    modifier = Modifier.weight(4.5f),
-                    onClick = onScan,
-                    onSwap = onSwap
-                )
+            val rightAction: @Composable (Modifier) -> Unit =
+                { modifier ->
+                    if (searchOnLeft) {
+                        ScanActionButton(
+                            modifier = modifier,
+                            onClick = onScan,
+                            onSwap = onSwap
+                        )
+                    } else {
+                        SearchActionButton(
+                            modifier = modifier,
+                            onClick = onSearch,
+                            onSwap = onSwap
+                        )
+                    }
+                }
 
-                SearchActionButton(
-                    modifier = Modifier.weight(4.5f),
-                    onClick = onSearch,
-                    onSwap = onSwap
-                )
+            when (sessionButtonPosition.coerceIn(0, 2)) {
+                0 -> {
+                    SessionActionButton(
+                        modifier = Modifier.weight(1f),
+                        count = sessionCount,
+                        onClick = onSessionClick,
+                        onMove = onMoveSessionButton
+                    )
+
+                    leftAction(Modifier.weight(4.5f))
+                    rightAction(Modifier.weight(4.5f))
+                }
+
+                1 -> {
+                    leftAction(Modifier.weight(4.5f))
+
+                    SessionActionButton(
+                        modifier = Modifier.weight(1f),
+                        count = sessionCount,
+                        onClick = onSessionClick,
+                        onMove = onMoveSessionButton
+                    )
+
+                    rightAction(Modifier.weight(4.5f))
+                }
+
+                else -> {
+                    leftAction(Modifier.weight(4.5f))
+                    rightAction(Modifier.weight(4.5f))
+
+                    SessionActionButton(
+                        modifier = Modifier.weight(1f),
+                        count = sessionCount,
+                        onClick = onSessionClick,
+                        onMove = onMoveSessionButton
+                    )
+                }
             }
-
-            SessionActionButton(
-                modifier = Modifier.weight(1f),
-                count = sessionCount,
-                onClick = onSessionClick
-            )
         }
     }
 }
@@ -696,8 +773,13 @@ private fun SessionBottomBar(
 private fun SessionActionButton(
     modifier: Modifier,
     count: Int,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onMove: (Int) -> Unit
 ) {
+    var accumulatedDragX by remember {
+        mutableFloatStateOf(0f)
+    }
+
     Box(
         modifier = modifier
             .height(96.dp)
@@ -705,6 +787,31 @@ private fun SessionActionButton(
                 color = Color(0xFF424242),
                 shape = RoundedCornerShape(18.dp)
             )
+            .pointerInput(Unit) {
+                detectDragGesturesAfterLongPress(
+                    onDragStart = {
+                        accumulatedDragX = 0f
+                    },
+                    onDrag = { change, dragAmount ->
+                        change.consume()
+                        accumulatedDragX += dragAmount.x
+                    },
+                    onDragEnd = {
+                        when {
+                            accumulatedDragX > 70f ->
+                                onMove(1)
+
+                            accumulatedDragX < -70f ->
+                                onMove(-1)
+                        }
+
+                        accumulatedDragX = 0f
+                    },
+                    onDragCancel = {
+                        accumulatedDragX = 0f
+                    }
+                )
+            }
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
@@ -1296,21 +1403,12 @@ private fun ScanActionButton(
     onClick: () -> Unit,
     onSwap: () -> Unit
 ) {
-    val isSunmi = ScannerModeDetector.isSunmi()
-
     Box(
         modifier = modifier
             .height(96.dp)
             .background(
                 color = Color(0xFF1B5E20),
                 shape = RoundedCornerShape(18.dp)
-            )
-            .then(
-                if (isSunmi) {
-                    Modifier
-                } else {
-                    Modifier.clickable(onClick = onClick)
-                }
             ),
         contentAlignment = Alignment.Center
     ) {
@@ -1318,12 +1416,7 @@ private fun ScanActionButton(
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text(
-                text =
-                    if (isSunmi) {
-                        "🟢 SCANNER ATTIVO"
-                    } else {
-                        "📷 SCANSIONA"
-                    },
+                text = "🟢 SCANNER ATTIVO",
                 color = Color.White,
                 fontSize = 18.sp,
                 fontWeight = FontWeight.Bold
@@ -1334,12 +1427,7 @@ private fun ScanActionButton(
             )
 
             Text(
-                text =
-                    if (isSunmi) {
-                        "Premi il grilletto"
-                    } else {
-                        "Tocca per aprire la fotocamera"
-                    },
+                text = "Premi il grilletto",
                 color = Color.White,
                 fontSize = 13.sp
             )
@@ -1423,6 +1511,8 @@ private fun SessionRow(
     item: SessionItem,
     onClick: () -> Unit,
     onDoubleClick: () -> Unit,
+    onDecrease: () -> Unit,
+    onIncrease: () -> Unit,
     onRemove: () -> Unit
 ) {
     Surface(
@@ -1441,76 +1531,127 @@ private fun SessionRow(
         shape = RoundedCornerShape(14.dp),
         tonalElevation = 2.dp
     ) {
-        Row(
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(14.dp),
-            verticalAlignment = Alignment.CenterVertically
+                .padding(14.dp)
         ) {
-            Column(
-                modifier = Modifier.weight(1f)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.Top
             ) {
+                Column(
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text(
+                        text = item.description.ifBlank {
+                            "Articolo senza descrizione"
+                        },
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+
+                    if (item.articleCode.isNotBlank()) {
+                        Text(
+                            text = item.articleCode,
+                            fontSize = 14.sp
+                        )
+                    }
+                }
+
                 Text(
-                    text = item.description.ifBlank {
-                        "Articolo senza descrizione"
-                    },
-                    fontSize = 17.sp,
-                    fontWeight = FontWeight.Bold
+                    text = "✕",
+                    fontSize = 24.sp,
+                    modifier = Modifier
+                        .clickable(onClick = onRemove)
+                        .padding(
+                            start = 12.dp,
+                            end = 4.dp,
+                            top = 0.dp,
+                            bottom = 8.dp
+                        )
                 )
+            }
 
-                if (item.articleCode.isNotBlank()) {
+            val finalPriceValue =
+                item.effectivePrice
+                    .replace(",", ".")
+                    .toDoubleOrNull()
+
+            val listPriceValue =
+                item.listPrice
+                    .ifBlank { item.publicPrice }
+                    .replace(",", ".")
+                    .toDoubleOrNull()
+
+            val finalPriceText =
+                finalPriceValue?.let {
+                    String.format(
+                        Locale.ITALY,
+                        "%.2f €",
+                        it
+                    )
+                } ?: "—"
+
+            val listPriceText =
+                listPriceValue?.let {
+                    String.format(
+                        Locale.ITALY,
+                        "%.2f €",
+                        it
+                    )
+                } ?: "—"
+
+            if (item.priceListName.isNotBlank()) {
+                Text(
+                    text = "🏷️ ${item.priceListName}",
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color =
+                        MaterialTheme
+                            .colorScheme
+                            .onSurfaceVariant
+                )
+            }
+
+            val hasDiscount =
+                item.discount1 > 0.0 &&
+                        listPriceValue != null &&
+                        finalPriceValue != null
+
+            if (item.roundingPrice.isNotBlank()) {
+                val originalPriceText =
+                    formatPriceText(item.basePrice)
+                val roundedPriceText =
+                    formatPriceText(item.roundingPrice)
+
+                Row(
+                    horizontalArrangement =
+                        Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Text(
-                        text = item.articleCode,
-                        fontSize = 14.sp
+                        text = "💰 $originalPriceText",
+                        fontSize = 14.sp,
+                        textDecoration =
+                            TextDecoration.LineThrough
+                    )
+
+                    Text(
+                        text = roundedPriceText,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold
                     )
                 }
 
-                val finalPriceValue =
-                    item.effectivePrice
-                        .replace(",", ".")
-                        .toDoubleOrNull()
-
-                val listPriceValue =
-                    item.listPrice
-                        .ifBlank { item.publicPrice }
-                        .replace(",", ".")
-                        .toDoubleOrNull()
-
-                val finalPriceText =
-                    finalPriceValue?.let {
-                        String.format(
-                            Locale.ITALY,
-                            "%.2f €",
-                            it
-                        )
-                    } ?: "—"
-
-                val listPriceText =
-                    listPriceValue?.let {
-                        String.format(
-                            Locale.ITALY,
-                            "%.2f €",
-                            it
-                        )
-                    } ?: "—"
-
-                if (item.priceListName.isNotBlank()) {
-                    Text(
-                        text = "🏷️ ${item.priceListName}",
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color =
-                            MaterialTheme
-                                .colorScheme
-                                .onSurfaceVariant
-                    )
-                }
-
-                val hasDiscount =
-                    item.discount1 > 0.0 &&
-                            listPriceValue != null &&
-                            finalPriceValue != null
-
+                Text(
+                    text =
+                        "${item.roundingAdjustment.replace(".", ",")} €",
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.Red
+                )
+            } else {
                 Text(
                     text =
                         if (hasDiscount) {
@@ -1540,39 +1681,73 @@ private fun SessionRow(
                             FontWeight.Normal
                         }
                 )
+            }
 
-                if (item.manualPrice.isNotBlank()) {
-                    Text(
-                        text = "✏️ Prezzo manuale",
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                }
-
+            if (item.manualPrice.isNotBlank()) {
                 Text(
-                    text =
-                        "📦 Giacenza: " +
-                                item.stock.ifBlank { "—" },
-                    fontSize = 13.sp
+                    text = "✏️ Prezzo manuale",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.primary
                 )
             }
 
             Text(
-                text = "x${item.quantity}",
-                fontSize = 24.sp,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(
-                    horizontal = 12.dp
-                )
+                text =
+                    "📦 Giacenza: " +
+                            item.stock.ifBlank { "—" },
+                fontSize = 13.sp
             )
 
-            Text(
-                text = "✕",
-                fontSize = 24.sp,
-                modifier = Modifier
-                    .clickable(onClick = onRemove)
-                    .padding(8.dp)
+            Spacer(
+                modifier = Modifier.height(6.dp)
             )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "−",
+                    fontSize = 24.sp,
+                    fontWeight = FontWeight.Bold,
+                    color =
+                        if (item.quantity > 1) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                    modifier = Modifier
+                        .clickable(
+                            enabled = item.quantity > 1,
+                            onClick = onDecrease
+                        )
+                        .padding(
+                            horizontal = 10.dp,
+                            vertical = 6.dp
+                        )
+                )
+
+                Text(
+                    text = item.quantity.toString(),
+                    fontSize = 24.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(horizontal = 4.dp)
+                )
+
+                Text(
+                    text = "+",
+                    fontSize = 24.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier
+                        .clickable(onClick = onIncrease)
+                        .padding(
+                            horizontal = 10.dp,
+                            vertical = 6.dp
+                        )
+                )
+            }
         }
     }
 }

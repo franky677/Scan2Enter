@@ -41,10 +41,10 @@ object A4LabelStore {
             return AddResult.DUPLICATE
         }
 
-        if (items.size >= PAGE_CAPACITY) {
-            return AddResult.PAGE_FULL
-        }
-
+        /*
+         * 18 è la capacità di una singola pagina A4,
+         * non il limite complessivo della lista.
+         */
         items.add(item)
         save()
         notifyListeners()

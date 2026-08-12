@@ -289,6 +289,23 @@ class MainActivity : ComponentActivity() {
                      * (Volume Su/Giù, quick dock o pulsante SCANSIONA).
                      */
                     if (currentScreen == "HOME") {
+                        /*
+                         * HOME deve essere sempre uno stato neutro.
+                         * Questo evita che un vecchio workflow A4/BLISTER/GODEX
+                         * faccia ignorare il grilletto Sunmi o sporchi SESSIONE.
+                         */
+                        applicationContext
+                            .getSharedPreferences(
+                                "scan_workflow",
+                                MODE_PRIVATE
+                            )
+                            .edit()
+                            .putString(
+                                "mode",
+                                "INFO"
+                            )
+                            .apply()
+
                         startService(
                             Intent(
                                 this@MainActivity,

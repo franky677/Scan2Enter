@@ -46,7 +46,8 @@ object A4PdfGenerator {
     fun generateAndOpen(
         context: Context,
         items: List<A4LabelItem>,
-        showArticlePrefix: Boolean = false
+        showArticlePrefix: Boolean = false,
+        showPrice: Boolean = true
     ): Result<Uri> = runCatching {
         require(items.isNotEmpty()) {
             "Nessun articolo da stampare"
@@ -58,14 +59,18 @@ object A4PdfGenerator {
             val pageWidth = mm(PAGE_WIDTH_MM).toInt()
             val pageHeight = mm(PAGE_HEIGHT_MM).toInt()
 
-            val pageInfo = PdfDocument.PageInfo.Builder(
-                pageWidth,
-                pageHeight,
-                1
-            ).create()
+            val pageChunks =
+                items.chunked(LABELS_PER_PAGE)
 
-            val page = document.startPage(pageInfo)
-            val canvas = page.canvas
+            pageChunks.forEachIndexed { pageIndex, pageItems ->
+                val pageInfo = PdfDocument.PageInfo.Builder(
+                    pageWidth,
+                    pageHeight,
+                    pageIndex + 1
+                ).create()
+
+                val page = document.startPage(pageInfo)
+                val canvas = page.canvas
 
             canvas.drawColor(Color.WHITE)
 
@@ -171,7 +176,7 @@ object A4PdfGenerator {
                     numberPaint
                 )
 
-                val item = items.getOrNull(index) ?: continue
+                val item = pageItems.getOrNull(index) ?: continue
 
                 /*
                  * Layout vicino alle etichette già presenti in negozio.
@@ -257,15 +262,18 @@ object A4PdfGenerator {
                     minTextSize = mm(1.7f)
                 )
 
-                canvas.drawText(
-                    formatPrice(item.publicPrice),
-                    right - padding,
-                    top + mm(29.1f),
-                    pricePaint
-                )
+                if (showPrice) {
+                    canvas.drawText(
+                        formatPrice(item.publicPrice),
+                        right - padding,
+                        top + mm(29.1f),
+                        pricePaint
+                    )
+                }
             }
 
-            document.finishPage(page)
+                document.finishPage(page)
+            }
 
             val pdfFile = createDownloadFile(context)
             pdfFile.outputStream().use { output ->

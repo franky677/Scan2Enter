@@ -15,6 +15,7 @@ import android.os.IBinder
 import android.os.Looper
 import androidx.core.content.ContextCompat
 import android.view.Gravity
+import android.view.KeyEvent
 import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.View
@@ -1079,6 +1080,28 @@ class OverlayService : Service() {
                         false
                     )
 
+                val currentUiScreen =
+                    applicationContext
+                        .getSharedPreferences(
+                            "scan_ui_state",
+                            Context.MODE_PRIVATE
+                        )
+                        .getString(
+                            "current_screen",
+                            "HOME"
+                        )
+                        ?: "HOME"
+
+                val addToSessionFromSearch =
+                    currentUiScreen == "SESSIONE" ||
+                            currentUiScreen == "TROVATUTTO_SESSIONE"
+
+                android.util.Log.d(
+                    "OverlayService",
+                    "TROVATUTTO ROUTING screen=$currentUiScreen " +
+                            "addToSession=$addToSessionFromSearch"
+                )
+
                 openCurrentArticleFromApi(
                     rawBarcode = barcode,
                     uiYear = "",
@@ -1086,7 +1109,7 @@ class OverlayService : Service() {
                     uiLocation = "",
                     addToHistory = false,
                     addToReorder = false,
-                    addToSession = true,
+                    addToSession = addToSessionFromSearch,
                     showPopup = !suppressPopup
                 )
             }
@@ -1124,12 +1147,25 @@ class OverlayService : Service() {
                     uiYear = intent.getStringExtra(EXTRA_CURRENT_ARTICLE_YEAR).orEmpty(),
                     uiSeason = intent.getStringExtra(EXTRA_CURRENT_ARTICLE_SEASON).orEmpty(),
                     uiLocation = intent.getStringExtra(EXTRA_CURRENT_ARTICLE_LOCATION).orEmpty(),
+                    addToSession = false,
                     forceStockSound = forceStockSound
                 )
             }
         }
 
         return START_STICKY
+    }
+
+    private fun playSessionAppendBeep() {
+        if (
+            ScanFeedbackManager.isEnabled(
+                applicationContext
+            )
+        ) {
+            ScanFeedbackManager.playSuccess(
+                applicationContext
+            )
+        }
     }
 
     private fun addProductToSessionWithCustomerPrice(
@@ -1140,6 +1176,7 @@ class OverlayService : Service() {
 
         if (barcode.isBlank()) {
             SessionStore.addOrIncrement(product)
+            playSessionAppendBeep()
             return
         }
 
@@ -1194,6 +1231,8 @@ class OverlayService : Service() {
                             finalPrice = finalPriceText
                         )
 
+                        playSessionAppendBeep()
+
                         android.util.Log.d(
                             "OverlayService",
                             "SESSIONE +1 cliente=${customer.id} " +
@@ -1220,6 +1259,7 @@ class OverlayService : Service() {
                     popupHandler.post {
                         keepQuickScanDockAlive()
                         SessionStore.addOrIncrement(product)
+                        playSessionAppendBeep()
                     }
                 }
         }.start()
@@ -2143,11 +2183,28 @@ class OverlayService : Service() {
         val screenWidth = resources.displayMetrics.widthPixels
         val screenHeight = resources.displayMetrics.heightPixels
 
-        val overlayRoot = FrameLayout(this).apply {
-            setBackgroundColor(Color.BLACK)
-            isClickable = true
-            isFocusable = true
-        }
+        val overlayRoot =
+            object : FrameLayout(this) {
+                override fun dispatchKeyEvent(
+                    event: KeyEvent
+                ): Boolean {
+                    if (
+                        event.keyCode == KeyEvent.KEYCODE_BACK &&
+                        event.action == KeyEvent.ACTION_DOWN &&
+                        event.repeatCount == 0
+                    ) {
+                        removeReorderListPopup()
+                        return true
+                    }
+
+                    return super.dispatchKeyEvent(event)
+                }
+            }.apply {
+                setBackgroundColor(Color.BLACK)
+                isClickable = true
+                isFocusable = true
+                isFocusableInTouchMode = true
+            }
 
         val card = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -4017,9 +4074,22 @@ class OverlayService : Service() {
     ) {
         val product = ProductInfoStore.current
 
+        val currentUiScreen =
+            applicationContext
+                .getSharedPreferences(
+                    "scan_ui_state",
+                    Context.MODE_PRIVATE
+                )
+                .getString(
+                    "current_screen",
+                    "HOME"
+                )
+                ?: "HOME"
+
         if (
             workflowCompleted &&
             !manualOpen &&
+            currentUiScreen == "SESSIONE" &&
             !sessionRecordedForCurrentScan &&
             product != null &&
             product.articleId > 0L

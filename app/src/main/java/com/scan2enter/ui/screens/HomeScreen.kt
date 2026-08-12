@@ -95,18 +95,28 @@ fun HomeScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
 
-            Text(
-                text = "Scan2Enter",
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(
                         top = 8.dp,
                         bottom = 4.dp
                     ),
-                textAlign = TextAlign.Center,
-                fontSize = 28.sp,
-                fontWeight = FontWeight.Bold
-            )
+                horizontalArrangement = Arrangement.Start
+            ) {
+                Text(
+                    text = "Scan2Enter",
+                    fontSize = 28.sp,
+                    fontWeight = FontWeight.Bold
+                )
+
+                Text(
+                    text = "  By De Pieri Franco Production",
+                    modifier = Modifier.padding(top = 11.dp),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Normal
+                )
+            }
 
             HomeModuleButton(
                 text = "🔎\nTROVATUTTO",
