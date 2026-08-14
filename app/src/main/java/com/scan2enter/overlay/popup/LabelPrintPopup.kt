@@ -48,7 +48,8 @@ class LabelPrintPopup(
         product: ProductInfo?,
         onSearchRequested: () -> Unit = {},
         onHardwareScanRequested: () -> Unit = {},
-        onClosed: () -> Unit = {}
+        onClosed: () -> Unit = {},
+        onPrintSuccess: () -> Unit = {}
     ) {
         if (overlayRoot != null) return
 
@@ -405,6 +406,9 @@ class LabelPrintPopup(
                             "$quantity etichette inviate alla GoDEX",
                             Toast.LENGTH_SHORT
                         ).show()
+
+                        remove()
+                        onPrintSuccess()
                     }.onFailure { error ->
                         Toast.makeText(
                             context,

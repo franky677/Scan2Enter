@@ -28,7 +28,6 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -43,7 +42,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -84,19 +82,6 @@ fun SessionScreen(
 
     var sessionItems by remember {
         mutableStateOf(SessionStore.getItems())
-    }
-
-    val sessionListState =
-        rememberLazyListState()
-
-    LaunchedEffect(
-        sessionItems.firstOrNull()?.articleId,
-        sessionItems.firstOrNull()?.quantity,
-        sessionItems.size
-    ) {
-        if (sessionItems.isNotEmpty()) {
-            sessionListState.scrollToItem(0)
-        }
     }
 
     var editingItem by remember {
@@ -254,12 +239,14 @@ fun SessionScreen(
                 }
             }
 
-        context.registerReceiver(
-            sunmiReceiver,
-            IntentFilter(
-                "com.honeywell.tools.action.scan_result"
+        if (ScannerModeDetector.isSunmi()) {
+            context.registerReceiver(
+                sunmiReceiver,
+                IntentFilter(
+                    "com.honeywell.tools.action.scan_result"
+                )
             )
-        )
+        }
 
         onDispose {
             if (ScannerModeDetector.isSunmi()) {
@@ -424,7 +411,6 @@ fun SessionScreen(
                 )
             } else {
                 LazyColumn(
-                    state = sessionListState,
                     modifier = Modifier.fillMaxSize(),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                     contentPadding = PaddingValues(bottom = 12.dp)
@@ -881,8 +867,6 @@ private fun SessionActionPanel(
 
                                 colloLabelMessage = null
                                 createdCollo = created
-
-                                SessionCustomerStore.useBanco()
                             }.onFailure { error ->
                                 sendError =
                                     error.message

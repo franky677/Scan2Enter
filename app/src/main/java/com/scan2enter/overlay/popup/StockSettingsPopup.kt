@@ -180,7 +180,13 @@ class StockSettingsPopup(
 
         dialogView.findViewById<View>(R.id.printLabelButton)
             .setOnClickListener {
-                labelPrintPopup.show(product)
+                labelPrintPopup.show(
+                    product = product,
+                    onPrintSuccess = {
+                        remove()
+                        onClose()
+                    }
+                )
             }
 
         val saveButton = dialogView.findViewById<View>(R.id.saveStockEditButton)
