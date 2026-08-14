@@ -17,6 +17,7 @@ import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -27,6 +28,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -42,6 +44,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -84,7 +87,25 @@ fun SessionScreen(
         mutableStateOf(SessionStore.getItems())
     }
 
+    val sessionListState = rememberLazyListState()
+
+    val firstSessionArticleId =
+        sessionItems.firstOrNull()?.articleId
+
+    LaunchedEffect(firstSessionArticleId) {
+        if (
+            firstSessionArticleId != null &&
+            sessionItems.isNotEmpty()
+        ) {
+            sessionListState.animateScrollToItem(0)
+        }
+    }
+
     var editingItem by remember {
+        mutableStateOf<SessionItem?>(null)
+    }
+
+    var itemPendingDelete by remember {
         mutableStateOf<SessionItem?>(null)
     }
 
@@ -411,6 +432,7 @@ fun SessionScreen(
                 )
             } else {
                 LazyColumn(
+                    state = sessionListState,
                     modifier = Modifier.fillMaxSize(),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                     contentPadding = PaddingValues(bottom = 12.dp)
@@ -440,8 +462,25 @@ fun SessionScreen(
                                     }
                                 )
                             },
+                            onIncrement = {
+                                SessionStore.setQuantity(
+                                    articleId = item.articleId,
+                                    quantity = (item.quantity + 1)
+                                        .coerceAtMost(9999)
+                                )
+                            },
+                            onDecrement = {
+                                if (item.quantity <= 1) {
+                                    itemPendingDelete = item
+                                } else {
+                                    SessionStore.setQuantity(
+                                        articleId = item.articleId,
+                                        quantity = item.quantity - 1
+                                    )
+                                }
+                            },
                             onRemove = {
-                                SessionStore.remove(item.articleId)
+                                itemPendingDelete = item
                             }
                         )
                     }
@@ -591,6 +630,83 @@ fun SessionScreen(
         )
     }
 
+    itemPendingDelete?.let { item ->
+        AlertDialog(
+            onDismissRequest = {
+                itemPendingDelete = null
+            },
+            containerColor = Color(0xFFFFDADA),
+            title = {
+                Text(
+                    text = "⚠ ELIMINAZIONE ARTICOLO",
+                    color = Color(0xFFB00020),
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text(
+                        text = "Sto per eliminare dalla sessione:",
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF111111)
+                    )
+
+                    Text(
+                        text = item.articleCode.ifBlank {
+                            "Articolo ${item.articleId}"
+                        },
+                        fontSize = 19.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFFB00020)
+                    )
+
+                    if (item.description.isNotBlank()) {
+                        Text(
+                            text = item.description,
+                            fontSize = 16.sp,
+                            color = Color(0xFF111111)
+                        )
+                    }
+
+                    Text(
+                        text = "Vuoi proseguire?",
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF111111)
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        itemPendingDelete = null
+                    }
+                ) {
+                    Text(
+                        text = "ANNULLA",
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF111111)
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        SessionStore.remove(item.articleId)
+                        itemPendingDelete = null
+                    }
+                ) {
+                    Text(
+                        text = "ELIMINA",
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+        )
+    }
+
     editingItem?.let { item ->
         QuantityDialog(
             item = item,
@@ -729,6 +845,10 @@ private fun SessionActionPanel(
 
     var colloLabelMessage by remember {
         mutableStateOf<String?>(null)
+    }
+
+    var clearSessionConfirmOpen by remember {
+        mutableStateOf(false)
     }
 
     val gatewayApiClient = remember {
@@ -919,7 +1039,88 @@ private fun SessionActionPanel(
             ) {
                 Text("💾  SALVA LISTA")
             }
+
+            TextButton(
+                onClick = {
+                    clearSessionConfirmOpen = true
+                },
+                enabled = items.isNotEmpty(),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    text = "🗑️  SVUOTA TUTTA LA SESSIONE",
+                    color = Color(0xFFB00020),
+                    fontWeight = FontWeight.Bold
+                )
+            }
         }
+    }
+
+    if (clearSessionConfirmOpen) {
+        AlertDialog(
+            onDismissRequest = {
+                clearSessionConfirmOpen = false
+            },
+            containerColor = Color(0xFFFFDADA),
+            title = {
+                Text(
+                    text = "⚠ SVUOTA SESSIONE",
+                    color = Color(0xFFB00020),
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text(
+                        text = "Stai per eliminare TUTTI gli articoli della sessione.",
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF111111)
+                    )
+
+                    Text(
+                        text = "${items.size} articoli • ${items.sumOf { it.quantity }} pezzi",
+                        fontSize = 17.sp,
+                        color = Color(0xFF111111)
+                    )
+
+                    Text(
+                        text = "Questa operazione non può essere annullata.",
+                        color = Color(0xFFB00020),
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        clearSessionConfirmOpen = false
+                    }
+                ) {
+                    Text(
+                        text = "ANNULLA",
+                        color = Color(0xFF111111),
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        SessionStore.clear()
+                        clearSessionConfirmOpen = false
+                        onClose()
+                    }
+                ) {
+                    Text(
+                        text = "SVUOTA TUTTO",
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+        )
     }
 
     createdCollo?.let { created ->
@@ -1376,6 +1577,8 @@ private fun SessionRow(
     item: SessionItem,
     onClick: () -> Unit,
     onDoubleClick: () -> Unit,
+    onIncrement: () -> Unit,
+    onDecrement: () -> Unit,
     onRemove: () -> Unit
 ) {
     Surface(
@@ -1394,138 +1597,216 @@ private fun SessionRow(
         shape = RoundedCornerShape(14.dp),
         tonalElevation = 2.dp
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(14.dp),
-            verticalAlignment = Alignment.CenterVertically
+        Box(
+            modifier = Modifier.fillMaxWidth()
         ) {
-            Column(
-                modifier = Modifier.weight(1f)
-            ) {
-                Text(
-                    text = item.description.ifBlank {
-                        "Articolo senza descrizione"
-                    },
-                    fontSize = 17.sp,
-                    fontWeight = FontWeight.Bold
-                )
-
-                if (item.articleCode.isNotBlank()) {
-                    Text(
-                        text = item.articleCode,
-                        fontSize = 14.sp
-                    )
-                }
-
-                val finalPriceValue =
-                    item.effectivePrice
-                        .replace(",", ".")
-                        .toDoubleOrNull()
-
-                val listPriceValue =
-                    item.listPrice
-                        .ifBlank { item.publicPrice }
-                        .replace(",", ".")
-                        .toDoubleOrNull()
-
-                val finalPriceText =
-                    finalPriceValue?.let {
-                        String.format(
-                            Locale.ITALY,
-                            "%.2f €",
-                            it
-                        )
-                    } ?: "—"
-
-                val listPriceText =
-                    listPriceValue?.let {
-                        String.format(
-                            Locale.ITALY,
-                            "%.2f €",
-                            it
-                        )
-                    } ?: "—"
-
-                if (item.priceListName.isNotBlank()) {
-                    Text(
-                        text = "🏷️ ${item.priceListName}",
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color =
-                            MaterialTheme
-                                .colorScheme
-                                .onSurfaceVariant
-                    )
-                }
-
-                val hasDiscount =
-                    item.discount1 > 0.0 &&
-                            listPriceValue != null &&
-                            finalPriceValue != null
-
-                Text(
-                    text =
-                        if (hasDiscount) {
-                            val discountText =
-                                if (item.discount1 % 1.0 == 0.0) {
-                                    item.discount1
-                                        .toInt()
-                                        .toString()
-                                } else {
-                                    String.format(
-                                        Locale.ITALY,
-                                        "%.1f",
-                                        item.discount1
-                                    )
-                                }
-
-                            "💰 $listPriceText → " +
-                                    "$finalPriceText (-$discountText%)"
-                        } else {
-                            "💰 $finalPriceText"
-                        },
-                    fontSize = 14.sp,
-                    fontWeight =
-                        if (hasDiscount || item.manualPrice.isNotBlank()) {
-                            FontWeight.SemiBold
-                        } else {
-                            FontWeight.Normal
-                        }
-                )
-
-                if (item.manualPrice.isNotBlank()) {
-                    Text(
-                        text = "✏️ Prezzo manuale",
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                }
-
-                Text(
-                    text =
-                        "📦 Giacenza: " +
-                                item.stock.ifBlank { "—" },
-                    fontSize = 13.sp
-                )
-            }
-
-            Text(
-                text = "x${item.quantity}",
-                fontSize = 24.sp,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(
-                    horizontal = 12.dp
-                )
-            )
-
             Text(
                 text = "✕",
-                fontSize = 24.sp,
+                fontSize = 23.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color(0xFFB00020),
                 modifier = Modifier
+                    .align(Alignment.TopEnd)
                     .clickable(onClick = onRemove)
-                    .padding(8.dp)
+                    .padding(
+                        start = 12.dp,
+                        end = 12.dp,
+                        top = 8.dp,
+                        bottom = 10.dp
+                    )
             )
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(
+                        start = 14.dp,
+                        end = 46.dp,
+                        top = 14.dp,
+                        bottom = 14.dp
+                    ),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (item.manualPrice.isNotBlank()) {
+                    Box(
+                        modifier = Modifier
+                            .width(7.dp)
+                            .height(92.dp)
+                            .background(
+                                color = Color(0xFFD50000),
+                                shape = RoundedCornerShape(4.dp)
+                            )
+                    )
+
+                    Spacer(
+                        modifier = Modifier.width(10.dp)
+                    )
+                }
+
+                Column(
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text(
+                        text = item.description.ifBlank {
+                            "Articolo senza descrizione"
+                        },
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+
+                    if (item.articleCode.isNotBlank()) {
+                        Text(
+                            text = item.articleCode,
+                            fontSize = 14.sp
+                        )
+                    }
+
+                    val finalPriceValue =
+                        item.effectivePrice
+                            .replace(",", ".")
+                            .toDoubleOrNull()
+
+                    val listPriceValue =
+                        item.listPrice
+                            .ifBlank { item.publicPrice }
+                            .replace(",", ".")
+                            .toDoubleOrNull()
+
+                    val finalPriceText =
+                        finalPriceValue?.let {
+                            String.format(
+                                Locale.ITALY,
+                                "%.2f €",
+                                it
+                            )
+                        } ?: "—"
+
+                    val listPriceText =
+                        listPriceValue?.let {
+                            String.format(
+                                Locale.ITALY,
+                                "%.2f €",
+                                it
+                            )
+                        } ?: "—"
+
+                    if (item.priceListName.isNotBlank()) {
+                        Text(
+                            text = "🏷️ ${item.priceListName}",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color =
+                                MaterialTheme
+                                    .colorScheme
+                                    .onSurfaceVariant
+                        )
+                    }
+
+                    val hasDiscount =
+                        item.discount1 > 0.0 &&
+                                listPriceValue != null &&
+                                finalPriceValue != null
+
+                    Text(
+                        text =
+                            if (hasDiscount) {
+                                val discountText =
+                                    if (item.discount1 % 1.0 == 0.0) {
+                                        item.discount1
+                                            .toInt()
+                                            .toString()
+                                    } else {
+                                        String.format(
+                                            Locale.ITALY,
+                                            "%.1f",
+                                            item.discount1
+                                        )
+                                    }
+
+                                "💰 $listPriceText → " +
+                                        "$finalPriceText (-$discountText%)"
+                            } else {
+                                "💰 $finalPriceText"
+                            },
+                        fontSize = 14.sp,
+                        fontWeight =
+                            if (hasDiscount || item.manualPrice.isNotBlank()) {
+                                FontWeight.SemiBold
+                            } else {
+                                FontWeight.Normal
+                            }
+                    )
+
+                    if (item.manualPrice.isNotBlank()) {
+                        Text(
+                            text = "⚠ PREZZO MODIFICATO",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFFD50000)
+                        )
+                    }
+
+                    Text(
+                        text =
+                            "📦 Giacenza: " +
+                                    item.stock.ifBlank { "—" },
+                        fontSize = 13.sp
+                    )
+                }
+
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        text = "x${item.quantity}",
+                        fontSize = 24.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+
+                    Spacer(
+                        modifier = Modifier.height(4.dp)
+                    )
+
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Surface(
+                            modifier = Modifier
+                                .clickable(onClick = onDecrement),
+                            shape = RoundedCornerShape(8.dp),
+                            tonalElevation = 4.dp
+                        ) {
+                            Text(
+                                text = "−",
+                                fontSize = 24.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(
+                                    horizontal = 12.dp,
+                                    vertical = 3.dp
+                                )
+                            )
+                        }
+
+                        Surface(
+                            modifier = Modifier
+                                .clickable(onClick = onIncrement),
+                            shape = RoundedCornerShape(8.dp),
+                            tonalElevation = 4.dp
+                        ) {
+                            Text(
+                                text = "+",
+                                fontSize = 24.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(
+                                    horizontal = 12.dp,
+                                    vertical = 3.dp
+                                )
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 }

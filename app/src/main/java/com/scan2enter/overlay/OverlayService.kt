@@ -948,9 +948,34 @@ class OverlayService : Service() {
                     EXTRA_SCAN_ERROR_MESSAGE
                 ) ?: "Lettura errata\nRiprovare"
 
-                showScanErrorPopup(message)
+                val currentUiScreen =
+                    applicationContext
+                        .getSharedPreferences(
+                            "scan_ui_state",
+                            Context.MODE_PRIVATE
+                        )
+                        .getString(
+                            "current_screen",
+                            "HOME"
+                        )
+                        ?: "HOME"
+
+                val suppressScanErrorPopup =
+                    currentUiScreen == "SESSIONE" ||
+                            currentUiScreen == "TROVATUTTO_SESSIONE"
+
+                if (suppressScanErrorPopup) {
+                    android.util.Log.d(
+                        "OverlayService",
+                        "ERRORE LETTURA SOPPRESSO IN SESSIONE screen=$currentUiScreen"
+                    )
+                    removeScanErrorPopup()
+                } else {
+                    showScanErrorPopup(message)
+                }
 
                 if (
+                    !suppressScanErrorPopup &&
                     loadCurrentScanMode() == MODE_LABELS_A4 &&
                     a4ShelfScanInProgress
                 ) {
@@ -1282,9 +1307,19 @@ class OverlayService : Service() {
             .filter(Char::isDigit)
 
         if (barcode.length !in 8..14) {
-            showScanErrorPopup(
-                "Barcode articolo non valido"
-            )
+            val suppressSessionError =
+                addToSession && !showPopup
+
+            if (!suppressSessionError) {
+                showScanErrorPopup(
+                    "Barcode articolo non valido"
+                )
+            } else {
+                android.util.Log.d(
+                    "OverlayService",
+                    "ERRORE BARCODE SOPPRESSO IN SESSIONE barcode=$barcode"
+                )
+            }
             return
         }
 
@@ -1341,9 +1376,19 @@ class OverlayService : Service() {
                         "ARTICOLO APERTO CARICATO VIA API EAN=$barcode"
                     )
                 }.onFailure { error ->
-                    showScanErrorPopup(
-                        "Impossibile caricare l'articolo"
-                    )
+                    val suppressSessionError =
+                        addToSession && !showPopup
+
+                    if (!suppressSessionError) {
+                        showScanErrorPopup(
+                            "Impossibile caricare l'articolo"
+                        )
+                    } else {
+                        android.util.Log.d(
+                            "OverlayService",
+                            "ERRORE CARICAMENTO SOPPRESSO IN SESSIONE EAN=$barcode"
+                        )
+                    }
 
                     android.util.Log.e(
                         "OverlayService",
