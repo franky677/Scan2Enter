@@ -392,7 +392,9 @@ fun SessionScreen(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column {
+                    Column(
+                        modifier = Modifier.weight(1f)
+                    ) {
                         Text(
                             text = "👤 Cliente",
                             fontSize = 13.sp
@@ -401,9 +403,14 @@ fun SessionScreen(
                         Text(
                             text = currentCustomer.name,
                             fontSize = 18.sp,
-                            fontWeight = FontWeight.Bold
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1
                         )
                     }
+
+                    Spacer(
+                        modifier = Modifier.width(10.dp)
+                    )
 
                     Button(
                         onClick = {
@@ -413,7 +420,10 @@ fun SessionScreen(
                             customerError = null
                         }
                     ) {
-                        Text("CAMBIA")
+                        Text(
+                            text = "CAMBIA",
+                            fontWeight = FontWeight.Bold
+                        )
                     }
                 }
             }
@@ -507,6 +517,9 @@ fun SessionScreen(
                             .clickable {
                                 SessionCustomerStore.useBanco()
                                 customerDialogOpen = false
+                                customerQuery = ""
+                                customerResults = emptyList()
+                                customerError = null
                             },
                         shape = RoundedCornerShape(10.dp),
                         tonalElevation = 2.dp
@@ -592,6 +605,9 @@ fun SessionScreen(
                                                 name = customer.name
                                             )
                                             customerDialogOpen = false
+                                            customerQuery = ""
+                                            customerResults = emptyList()
+                                            customerError = null
                                         },
                                     shape = RoundedCornerShape(10.dp),
                                     tonalElevation = 2.dp
@@ -622,6 +638,9 @@ fun SessionScreen(
                 TextButton(
                     onClick = {
                         customerDialogOpen = false
+                        customerQuery = ""
+                        customerResults = emptyList()
+                        customerError = null
                     }
                 ) {
                     Text("CHIUDI")
@@ -1108,6 +1127,7 @@ private fun SessionActionPanel(
             confirmButton = {
                 Button(
                     onClick = {
+                        SessionCustomerStore.useBanco()
                         SessionStore.clear()
                         clearSessionConfirmOpen = false
                         onClose()
@@ -1275,6 +1295,7 @@ private fun SessionActionPanel(
                 Button(
                     onClick = {
                         createdCollo = null
+                        SessionCustomerStore.useBanco()
                         SessionStore.clear()
                         onClose()
                     }
