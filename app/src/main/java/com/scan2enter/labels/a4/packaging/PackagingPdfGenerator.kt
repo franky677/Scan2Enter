@@ -1283,25 +1283,56 @@ object PackagingPdfGenerator {
     private fun loadProductImage(barcode: String): Bitmap? {
         val clean = barcode.trim().filter(Char::isDigit)
         if (clean.isBlank()) return null
-        val encoded = URLEncoder.encode(clean, StandardCharsets.UTF_8.name())
-        val connection = (
-                URL("$GATEWAY_BASE_URL/api/product/$encoded/image")
-                    .openConnection() as HttpURLConnection
-                ).apply {
-                requestMethod = "GET"
-                connectTimeout = 5_000
-                readTimeout = 15_000
-                setRequestProperty("Accept", "image/*")
-            }
 
-        return try {
-            if (connection.responseCode !in 200..299) null
-            else connection.inputStream.use(BitmapFactory::decodeStream)
-        } catch (_: Exception) {
-            null
-        } finally {
-            connection.disconnect()
+        var result: Bitmap? = null
+
+        val worker = Thread {
+            result = try {
+                val encoded =
+                    URLEncoder.encode(
+                        clean,
+                        StandardCharsets.UTF_8.name()
+                    )
+
+                val connection = (
+                        URL("$GATEWAY_BASE_URL/api/product/$encoded/image")
+                            .openConnection() as HttpURLConnection
+                        ).apply {
+                        requestMethod = "GET"
+                        connectTimeout = 5_000
+                        readTimeout = 30_000
+                        setRequestProperty("Accept", "image/*")
+                    }
+
+                try {
+                    if (connection.responseCode !in 200..299) {
+                        null
+                    } else {
+                        connection.inputStream.use(BitmapFactory::decodeStream)
+                    }
+                } finally {
+                    connection.disconnect()
+                }
+            } catch (_: Throwable) {
+                null
+            }
         }
+
+        worker.start()
+
+        try {
+            worker.join(35_000)
+        } catch (_: InterruptedException) {
+            Thread.currentThread().interrupt()
+            return null
+        }
+
+        if (worker.isAlive) {
+            worker.interrupt()
+            return null
+        }
+
+        return result
     }
 
     private fun drawBitmapFitCenter(canvas: Canvas, bitmap: Bitmap, bounds: RectF) {

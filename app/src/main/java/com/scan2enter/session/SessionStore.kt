@@ -13,6 +13,17 @@ object SessionStore {
     private val listeners = mutableSetOf<(List<SessionItem>) -> Unit>()
     private val items = LinkedHashMap<Long, SessionItem>()
 
+    /*
+     * Protezione contro la stessa lettura hardware instradata due volte
+     * (per esempio receiver dinamico + receiver legacy Sunmi).
+     *
+     * Non coinvolge i pulsanti +/- della Sessione, che usano setQuantity().
+     */
+    private const val SCAN_DUPLICATE_WINDOW_MS = 700L
+    private var lastAddedArticleId = -1L
+    private var lastAddedBarcode = ""
+    private var lastAddedAtMs = 0L
+
     private var applicationContext: Context? = null
     private var initialized = false
 
@@ -45,6 +56,38 @@ object SessionStore {
         val updated: SessionItem
 
         synchronized(lock) {
+            val now =
+                android.os.SystemClock.elapsedRealtime()
+
+            val normalizedBarcode =
+                product.barcode.trim()
+
+            val isDuplicateScan =
+                product.articleId == lastAddedArticleId &&
+                        normalizedBarcode == lastAddedBarcode &&
+                        now - lastAddedAtMs <
+                        SCAN_DUPLICATE_WINDOW_MS
+
+            if (isDuplicateScan) {
+                android.util.Log.d(
+                    "SessionStore",
+                    "DOPPIA LETTURA IGNORATA " +
+                            "articleId=${product.articleId} " +
+                            "barcode=$normalizedBarcode"
+                )
+
+                return items[product.articleId]
+            }
+
+            /*
+             * Registriamo subito la lettura valida: se un secondo percorso
+             * dello stesso barcode arriva mentre il primo è ancora in corso,
+             * verrà scartato.
+             */
+            lastAddedArticleId = product.articleId
+            lastAddedBarcode = normalizedBarcode
+            lastAddedAtMs = now
+
             val old = items[product.articleId]
 
             updated = if (old == null) {

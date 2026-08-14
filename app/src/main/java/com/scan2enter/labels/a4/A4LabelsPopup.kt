@@ -10,6 +10,7 @@ import android.view.View
 import android.view.WindowManager
 import android.widget.Button
 import android.widget.CheckBox
+import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.RadioButton
@@ -37,6 +38,11 @@ class A4LabelsPopup(
         const val INCLUDE_HOOK_KEY = "include_hook_label"
         const val SHOW_PRICE_KEY = "show_blister_price"
 
+        const val OFFER_PREFS = "a4_offer_preferences"
+        const val OFFER_FORMAT_KEY = "offer_format"
+        const val OFFER_SHOW_OLD_PRICE_KEY = "offer_show_old_price"
+        const val OFFER_SHOW_BARCODE_KEY = "offer_show_barcode"
+
         const val TYPE_BLISTER_LARGE = "BLISTER_LARGE"
         const val TYPE_BLISTER_LONG = "BLISTER_LONG"
         const val TYPE_BLISTER_BIG = "BLISTER_BIG"
@@ -45,7 +51,8 @@ class A4LabelsPopup(
     private enum class Section {
         HUB,
         SHELF,
-        BLISTER
+        BLISTER,
+        OFFER
     }
 
     private var root: View? = null
@@ -255,14 +262,11 @@ class A4LabelsPopup(
 
             val offerCard = makeHubCard(
                 title = "OFFERTE",
-                subtitle = "Cartelli prezzo e promozioni • prossimo modulo",
+                subtitle = "7 × 10 • 15 × 20 • A4 pieno",
                 accent = Color.rgb(230, 180, 0)
             ) {
-                Toast.makeText(
-                    context,
-                    "Modulo OFFERTE: prossimo lavoro",
-                    Toast.LENGTH_SHORT
-                ).show()
+                currentSection = Section.OFFER
+                rebuildCurrentSection()
             }
 
             hub.addView(
@@ -619,6 +623,477 @@ class A4LabelsPopup(
             return panel
         }
 
+        fun buildOfferPanel(): View {
+            val offerPreferences =
+                context.getSharedPreferences(
+                    OFFER_PREFS,
+                    Context.MODE_PRIVATE
+                )
+
+            val panel = LinearLayout(context).apply {
+                orientation = LinearLayout.VERTICAL
+            }
+
+            panel.addView(
+                TextView(context).apply {
+                    text = "OFFERTE"
+                    textSize = 20f
+                    setTextColor(Color.BLACK)
+                    setTypeface(
+                        typeface,
+                        android.graphics.Typeface.BOLD
+                    )
+                }
+            )
+
+            panel.addView(
+                TextView(context).apply {
+                    text =
+                        "Scegli il formato, acquisisci l'articolo " +
+                                "e imposta il prezzo promozionale."
+                    textSize = 13f
+                    setTextColor(Color.DKGRAY)
+                    setPadding(0, dp(3), 0, dp(8))
+                }
+            )
+
+            val acquireButton = Button(context).apply {
+                text = "⌕  CERCA / ACQUISISCI ARTICOLO"
+                textSize = 14f
+                setTypeface(
+                    typeface,
+                    android.graphics.Typeface.BOLD
+                )
+                setOnClickListener {
+                    currentSection = Section.OFFER
+                    remove(preserveSection = true)
+                    onSearchRequested()
+                }
+            }
+
+            panel.addView(
+                acquireButton,
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    dp(50)
+                )
+            )
+
+            val selectedItem =
+                A4LabelStore.getItems().lastOrNull()
+
+            val articleCard =
+                LinearLayout(context).apply {
+                    orientation = LinearLayout.VERTICAL
+                    setPadding(
+                        dp(12),
+                        dp(10),
+                        dp(12),
+                        dp(10)
+                    )
+                    background = GradientDrawable().apply {
+                        setColor(Color.rgb(247, 249, 248))
+                        cornerRadius = dp(12).toFloat()
+                        setStroke(
+                            dp(1),
+                            Color.rgb(215, 220, 217)
+                        )
+                    }
+                }
+
+            articleCard.addView(
+                TextView(context).apply {
+                    text =
+                        selectedItem?.articleCode
+                            ?.ifBlank { "NESSUN ARTICOLO" }
+                            ?: "NESSUN ARTICOLO"
+                    textSize = 15f
+                    setTextColor(Color.BLACK)
+                    setTypeface(
+                        typeface,
+                        android.graphics.Typeface.BOLD
+                    )
+                }
+            )
+
+            articleCard.addView(
+                TextView(context).apply {
+                    text =
+                        selectedItem?.description
+                            ?.ifBlank {
+                                "Usa CERCA / ACQUISISCI ARTICOLO"
+                            }
+                            ?: "Usa CERCA / ACQUISISCI ARTICOLO"
+                    textSize = 13f
+                    setTextColor(Color.DKGRAY)
+                    setPadding(0, dp(2), 0, 0)
+                }
+            )
+
+            panel.addView(
+                articleCard,
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    topMargin = dp(8)
+                }
+            )
+
+            panel.addView(
+                TextView(context).apply {
+                    text = "FORMATO"
+                    textSize = 11f
+                    setTextColor(Color.rgb(95, 112, 103))
+                    setTypeface(
+                        typeface,
+                        android.graphics.Typeface.BOLD
+                    )
+                    setPadding(0, dp(10), 0, dp(4))
+                }
+            )
+
+            val formatGroup = RadioGroup(context).apply {
+                orientation = RadioGroup.HORIZONTAL
+                gravity = Gravity.CENTER
+            }
+
+            val savedFormat =
+                offerPreferences.getString(
+                    OFFER_FORMAT_KEY,
+                    OfferFormat.SMALL_7X10.name
+                ) ?: OfferFormat.SMALL_7X10.name
+
+            fun addFormatChoice(
+                label: String,
+                format: OfferFormat
+            ) {
+                formatGroup.addView(
+                    RadioButton(context).apply {
+                        id = View.generateViewId()
+                        text = label
+                        textSize = 14f
+                        tag = format.name
+                        isChecked = savedFormat == format.name
+                    },
+                    RadioGroup.LayoutParams(
+                        0,
+                        RadioGroup.LayoutParams.WRAP_CONTENT,
+                        1f
+                    )
+                )
+            }
+
+            addFormatChoice(
+                "7×10",
+                OfferFormat.SMALL_7X10
+            )
+            addFormatChoice(
+                "15×20",
+                OfferFormat.MEDIUM_15X20
+            )
+            addFormatChoice(
+                "A4",
+                OfferFormat.A4_FULL
+            )
+
+            panel.addView(formatGroup)
+
+            panel.addView(
+                TextView(context).apply {
+                    text = "PREZZO OFFERTO"
+                    textSize = 11f
+                    setTextColor(Color.rgb(95, 112, 103))
+                    setTypeface(
+                        typeface,
+                        android.graphics.Typeface.BOLD
+                    )
+                    setPadding(0, dp(8), 0, dp(3))
+                }
+            )
+
+            val offerPriceInput =
+                EditText(context).apply {
+                    textSize = 24f
+                    setTextColor(Color.BLACK)
+                    gravity = Gravity.CENTER
+                    hint = "0,00"
+                    inputType =
+                        android.text.InputType.TYPE_CLASS_NUMBER or
+                                android.text.InputType
+                                    .TYPE_NUMBER_FLAG_DECIMAL
+
+                    setText(
+                        selectedItem?.publicPrice
+                            ?.replace("€", "")
+                            ?.trim()
+                            .orEmpty()
+                    )
+                }
+
+            panel.addView(
+                offerPriceInput,
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    dp(58)
+                )
+            )
+
+            val oldPriceCheck =
+                CheckBox(context).apply {
+                    text = "Mostra prezzo precedente barrato"
+                    textSize = 14f
+                    setTextColor(Color.BLACK)
+                    isChecked =
+                        offerPreferences.getBoolean(
+                            OFFER_SHOW_OLD_PRICE_KEY,
+                            true
+                        )
+                }
+
+            val barcodeCheck =
+                CheckBox(context).apply {
+                    text = "Mostra barcode grafico + numerico"
+                    textSize = 14f
+                    setTextColor(Color.BLACK)
+                    isChecked =
+                        offerPreferences.getBoolean(
+                            OFFER_SHOW_BARCODE_KEY,
+                            true
+                        )
+                }
+
+            panel.addView(oldPriceCheck)
+            panel.addView(barcodeCheck)
+
+            val preview =
+                LinearLayout(context).apply {
+                    orientation = LinearLayout.VERTICAL
+                    gravity = Gravity.CENTER
+                    setPadding(
+                        dp(10),
+                        dp(8),
+                        dp(10),
+                        dp(8)
+                    )
+                    background = GradientDrawable().apply {
+                        setColor(Color.WHITE)
+                        setStroke(dp(2), Color.BLACK)
+                        cornerRadius = dp(8).toFloat()
+                    }
+
+                    addView(
+                        TextView(context).apply {
+                            text = "OFFERTA"
+                            textSize = 18f
+                            gravity = Gravity.CENTER
+                            setTextColor(Color.WHITE)
+                            setBackgroundColor(Color.BLACK)
+                            setTypeface(
+                                typeface,
+                                android.graphics.Typeface.BOLD
+                            )
+                            setPadding(
+                                dp(8),
+                                dp(5),
+                                dp(8),
+                                dp(5)
+                            )
+                        },
+                        LinearLayout.LayoutParams(
+                            LinearLayout.LayoutParams.MATCH_PARENT,
+                            LinearLayout.LayoutParams.WRAP_CONTENT
+                        )
+                    )
+
+                    addView(
+                        TextView(context).apply {
+                            text =
+                                selectedItem?.description
+                                    ?: "DESCRIZIONE ARTICOLO"
+                            textSize = 14f
+                            gravity = Gravity.CENTER
+                            setTextColor(Color.BLACK)
+                            setTypeface(
+                                typeface,
+                                android.graphics.Typeface.BOLD
+                            )
+                            maxLines = 2
+                            setPadding(
+                                dp(4),
+                                dp(7),
+                                dp(4),
+                                dp(4)
+                            )
+                        }
+                    )
+
+                    addView(
+                        TextView(context).apply {
+                            text =
+                                selectedItem?.publicPrice
+                                    ?.let { formatPrice(it) }
+                                    ?.ifBlank { "€ 0,00" }
+                                    ?: "€ 0,00"
+                            textSize = 30f
+                            gravity = Gravity.CENTER
+                            setTextColor(Color.BLACK)
+                            setTypeface(
+                                typeface,
+                                android.graphics.Typeface.BOLD
+                            )
+                        }
+                    )
+
+                    addView(
+                        TextView(context).apply {
+                            text =
+                                selectedItem?.articleCode
+                                    ?: "CODICE"
+                            textSize = 11f
+                            gravity = Gravity.CENTER
+                            setTextColor(Color.DKGRAY)
+                            setPadding(0, dp(3), 0, 0)
+                        }
+                    )
+                }
+
+            panel.addView(
+                preview,
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    dp(150)
+                ).apply {
+                    topMargin = dp(8)
+                }
+            )
+
+            val printButton =
+                Button(context).apply {
+                    text = "ANTEPRIMA / STAMPA"
+                    textSize = 16f
+                    setTypeface(
+                        typeface,
+                        android.graphics.Typeface.BOLD
+                    )
+
+                    setOnClickListener {
+                        val item =
+                            A4LabelStore
+                                .getItems()
+                                .lastOrNull()
+
+                        if (item == null) {
+                            Toast.makeText(
+                                context,
+                                "Seleziona prima un articolo",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                            return@setOnClickListener
+                        }
+
+                        val price =
+                            offerPriceInput.text
+                                .toString()
+                                .trim()
+
+                        val numericPrice =
+                            price
+                                .replace("€", "")
+                                .replace(" ", "")
+                                .replace(",", ".")
+                                .toDoubleOrNull()
+
+                        if (numericPrice == null) {
+                            Toast.makeText(
+                                context,
+                                "Inserisci un prezzo offerta valido",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                            return@setOnClickListener
+                        }
+
+                        val checked =
+                            formatGroup.findViewById<RadioButton>(
+                                formatGroup.checkedRadioButtonId
+                            )
+
+                        val format =
+                            runCatching {
+                                OfferFormat.valueOf(
+                                    checked?.tag
+                                        ?.toString()
+                                        ?: OfferFormat
+                                            .SMALL_7X10
+                                            .name
+                                )
+                            }.getOrDefault(
+                                OfferFormat.SMALL_7X10
+                            )
+
+                        val showOldPrice =
+                            oldPriceCheck.isChecked
+                        val showBarcode =
+                            barcodeCheck.isChecked
+
+                        offerPreferences.edit()
+                            .putString(
+                                OFFER_FORMAT_KEY,
+                                format.name
+                            )
+                            .putBoolean(
+                                OFFER_SHOW_OLD_PRICE_KEY,
+                                showOldPrice
+                            )
+                            .putBoolean(
+                                OFFER_SHOW_BARCODE_KEY,
+                                showBarcode
+                            )
+                            .apply()
+
+                        isEnabled = false
+                        remove()
+
+                        Thread {
+                            val result =
+                                OfferPdfGenerator
+                                    .generateAndOpen(
+                                        context = context,
+                                        item = item,
+                                        format = format,
+                                        offerPrice = price,
+                                        showOldPrice =
+                                            showOldPrice,
+                                        showBarcode =
+                                            showBarcode
+                                    )
+
+                            post {
+                                result.onFailure { error ->
+                                    Toast.makeText(
+                                        context,
+                                        "Errore PDF offerta: ${error.message}",
+                                        Toast.LENGTH_LONG
+                                    ).show()
+                                }
+                            }
+                        }.start()
+                    }
+                }
+
+            panel.addView(
+                printButton,
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    dp(58)
+                ).apply {
+                    topMargin = dp(8)
+                }
+            )
+
+            return panel
+        }
+
         fun buildBlisterPanel(): View {
             val packagingPreferences = context.getSharedPreferences(
                 PACKAGING_PREFS,
@@ -885,6 +1360,18 @@ class A4LabelsPopup(
                         )
                     )
                 }
+
+                Section.OFFER -> {
+                    backOrClose.text = "‹"
+                    backOrClose.textSize = 36f
+                    content.addView(
+                        buildOfferPanel(),
+                        FrameLayout.LayoutParams(
+                            FrameLayout.LayoutParams.MATCH_PARENT,
+                            FrameLayout.LayoutParams.MATCH_PARENT
+                        )
+                    )
+                }
             }
         }
 
@@ -940,6 +1427,12 @@ class A4LabelsPopup(
                                     panel?.tag as? (() -> Unit)
 
                                 scanAction?.invoke()
+                            }
+
+                            Section.OFFER -> {
+                                currentSection = Section.OFFER
+                                remove(preserveSection = true)
+                                onHardwareScanRequested()
                             }
 
                             Section.HUB -> Unit
