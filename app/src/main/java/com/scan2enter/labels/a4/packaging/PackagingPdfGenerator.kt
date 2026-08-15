@@ -88,7 +88,7 @@ object PackagingPdfGenerator {
                             context = context,
                             canvas = canvas,
                             product = product,
-                            left = mm(116f),
+                            left = mm(79f),
                             top = mm(28f),
                             showPrice = options.showPrice
                         )
@@ -110,7 +110,7 @@ object PackagingPdfGenerator {
                             context = context,
                             canvas = canvas,
                             product = product,
-                            left = mm(116f),
+                            left = mm(92f),
                             top = mm(28f),
                             showPrice = options.showPrice
                         )
@@ -138,8 +138,8 @@ object PackagingPdfGenerator {
                             context = context,
                             canvas = canvas,
                             product = product,
-                            left = mm(140f),
-                            top = mm(28f),
+                            left = mm(130f),
+                            top = bigTop,
                             showPrice = options.showPrice
                         )
                     }
