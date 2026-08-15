@@ -182,6 +182,11 @@ class OverlayService : Service() {
         private const val MODE_LABELS_GODEX = "ETICHETTE_GODEX"
         private const val MODE_LABELS_A4 = "ETICHETTE_A4"
         private const val MODE_LABELS_BLISTER = "ETICHETTE_BLISTER"
+
+        private const val A4_SEARCH_ORIGIN_KEY = "a4_search_origin"
+        private const val A4_SEARCH_ORIGIN_SHELF = "SHELF"
+        private const val A4_SEARCH_ORIGIN_BLISTER = "BLISTER"
+        private const val A4_SEARCH_ORIGIN_OFFER = "OFFER"
     }
 
     private lateinit var windowManager: WindowManager
@@ -547,22 +552,31 @@ class OverlayService : Service() {
             ACTION_SHOW_A4_LABELS -> {
                 a4ShelfScanInProgress = false
 
+                val previousA4Mode = loadCurrentScanMode()
+                val searchOrigin = loadA4SearchOrigin()
+                val resumeA4Section =
+                    searchOrigin.isNotBlank() ||
+                            previousA4Mode == MODE_LABELS_A4 ||
+                            previousA4Mode == MODE_LABELS_BLISTER
+
                 android.util.Log.d(
                     "OverlayService",
                     "RICHIESTA APERTURA HUB ETICHETTE A4"
                 )
 
-                applicationContext
-                    .getSharedPreferences(
-                        WORKFLOW_PREFS,
-                        Context.MODE_PRIVATE
-                    )
-                    .edit()
-                    .putString(
-                        WORKFLOW_MODE_KEY,
-                        MODE_INFO
-                    )
-                    .apply()
+                if (!resumeA4Section) {
+                    applicationContext
+                        .getSharedPreferences(
+                            WORKFLOW_PREFS,
+                            Context.MODE_PRIVATE
+                        )
+                        .edit()
+                        .putString(
+                            WORKFLOW_MODE_KEY,
+                            MODE_INFO
+                        )
+                        .apply()
+                }
 
                 scanOverlay.hide()
 
@@ -582,7 +596,18 @@ class OverlayService : Service() {
 
                         openA4ArticleSearch()
                     },
-                    onHardwareScanRequested = {
+                    onBlisterSearchRequested = {
+                            type,
+                            includeHook,
+                            showPrice ->
+
+                        openBlisterArticleSearch(
+                            type = type,
+                            includeHook = includeHook,
+                            showPrice = showPrice
+                        )
+                    },
+            onHardwareScanRequested = {
                         applicationContext
                             .getSharedPreferences(
                                 WORKFLOW_PREFS,
@@ -698,8 +723,12 @@ class OverlayService : Service() {
 
                         scanOverlay.hide()
                     },
-                    startAtHub = true
+                    startAtHub = !resumeA4Section
                 )
+
+                if (searchOrigin.isNotBlank()) {
+                    clearA4SearchOrigin()
+                }
 
                 bringQuickScanDockToFront()
             }
@@ -709,20 +738,35 @@ class OverlayService : Service() {
                     EXTRA_CURRENT_ARTICLE_BARCODE
                 ).orEmpty()
 
-                applicationContext
-                    .getSharedPreferences(
-                        WORKFLOW_PREFS,
-                        Context.MODE_PRIVATE
-                    )
-                    .edit()
-                    .putString(
-                        WORKFLOW_MODE_KEY,
-                        MODE_LABELS_A4
-                    )
-                    .apply()
+                val searchOrigin = loadA4SearchOrigin()
+                clearA4SearchOrigin()
 
-                a4LabelsPopupController.remove()
-                openA4BarcodeDirect(barcode)
+                a4LabelsPopupController.remove(
+                    preserveSection = true
+                )
+
+                if (searchOrigin == A4_SEARCH_ORIGIN_BLISTER) {
+                    android.util.Log.d(
+                        "OverlayService",
+                        "TROVATUTTO A4 -> RISULTATO BLISTER ean=$barcode"
+                    )
+
+                    openBlisterBarcodeDirect(barcode)
+                } else {
+                    applicationContext
+                        .getSharedPreferences(
+                            WORKFLOW_PREFS,
+                            Context.MODE_PRIVATE
+                        )
+                        .edit()
+                        .putString(
+                            WORKFLOW_MODE_KEY,
+                            MODE_LABELS_A4
+                        )
+                        .apply()
+
+                    openA4BarcodeDirect(barcode)
+                }
             }
 
             ACTION_SHOW_GODEX_SETUP -> {
@@ -1400,6 +1444,118 @@ class OverlayService : Service() {
         }.start()
     }
 
+    private fun saveA4SearchOrigin(origin: String) {
+        applicationContext
+            .getSharedPreferences(
+                WORKFLOW_PREFS,
+                Context.MODE_PRIVATE
+            )
+            .edit()
+            .putString(
+                A4_SEARCH_ORIGIN_KEY,
+                origin
+            )
+            .apply()
+    }
+
+    private fun loadA4SearchOrigin(): String {
+        return applicationContext
+            .getSharedPreferences(
+                WORKFLOW_PREFS,
+                Context.MODE_PRIVATE
+            )
+            .getString(
+                A4_SEARCH_ORIGIN_KEY,
+                ""
+            )
+            .orEmpty()
+    }
+
+    private fun clearA4SearchOrigin() {
+        applicationContext
+            .getSharedPreferences(
+                WORKFLOW_PREFS,
+                Context.MODE_PRIVATE
+            )
+            .edit()
+            .remove(A4_SEARCH_ORIGIN_KEY)
+            .apply()
+    }
+
+    private fun saveBlisterSelection(
+        type: String,
+        includeHook: Boolean,
+        showPrice: Boolean
+    ) {
+        val packagingType =
+            when (type) {
+                "BLISTER_LONG" ->
+                    PackagingType.BLISTER_LONG
+
+                "BLISTER_BIG" ->
+                    PackagingType.BLISTER_BIG
+
+                else ->
+                    PackagingType.BLISTER_LARGE
+            }
+
+        PackagingSelectionStore.save(
+            applicationContext,
+            PackagingOptions(
+                type = packagingType,
+                includeHook = includeHook,
+                showPrice = showPrice
+            )
+        )
+
+        applicationContext
+            .getSharedPreferences(
+                WORKFLOW_PREFS,
+                Context.MODE_PRIVATE
+            )
+            .edit()
+            .putString(
+                WORKFLOW_MODE_KEY,
+                MODE_LABELS_BLISTER
+            )
+            .apply()
+    }
+
+    private fun openBlisterArticleSearch(
+        type: String,
+        includeHook: Boolean,
+        showPrice: Boolean
+    ) {
+        saveBlisterSelection(
+            type = type,
+            includeHook = includeHook,
+            showPrice = showPrice
+        )
+
+        saveA4SearchOrigin(
+            A4_SEARCH_ORIGIN_BLISTER
+        )
+
+        scanOverlay.hide()
+
+        startActivity(
+            Intent(
+                this,
+                MainActivity::class.java
+            ).apply {
+                addFlags(
+                    Intent.FLAG_ACTIVITY_NEW_TASK or
+                            Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                            Intent.FLAG_ACTIVITY_SINGLE_TOP
+                )
+                putExtra(
+                    MainActivity.EXTRA_OPEN_A4_SEARCH,
+                    true
+                )
+            }
+        )
+    }
+
     private fun openBlisterBarcodeDirect(
         barcode: String
     ) {
@@ -1465,6 +1621,17 @@ class OverlayService : Service() {
         a4LabelsPopupController.show(
             onSearchRequested = {
                 openA4ArticleSearch()
+            },
+            onBlisterSearchRequested = {
+                    type,
+                    includeHook,
+                    showPrice ->
+
+                openBlisterArticleSearch(
+                    type = type,
+                    includeHook = includeHook,
+                    showPrice = showPrice
+                )
             },
             onHardwareScanRequested = {
                 reopenA4ScannerIfNeeded()
@@ -1629,6 +1796,17 @@ class OverlayService : Service() {
                     onSearchRequested = {
                         openA4ArticleSearch()
                     },
+                    onBlisterSearchRequested = {
+                            type,
+                            includeHook,
+                            showPrice ->
+
+                        openBlisterArticleSearch(
+                            type = type,
+                            includeHook = includeHook,
+                            showPrice = showPrice
+                        )
+                    },
                     onHardwareScanRequested = {
                         reopenA4ScannerIfNeeded()
                     },
@@ -1737,6 +1915,10 @@ class OverlayService : Service() {
     }
 
     private fun openA4ArticleSearch() {
+        saveA4SearchOrigin(
+            A4_SEARCH_ORIGIN_SHELF
+        )
+
         scanOverlay.hide()
 
         applicationContext

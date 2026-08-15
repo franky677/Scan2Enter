@@ -2,6 +2,8 @@ package com.scan2enter.labels.a4
 
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.RectF
@@ -11,6 +13,10 @@ import android.net.Uri
 import android.os.Environment
 import androidx.core.content.FileProvider
 import java.io.File
+import java.net.HttpURLConnection
+import java.net.URL
+import java.net.URLEncoder
+import java.nio.charset.StandardCharsets
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -28,6 +34,7 @@ enum class OfferFormat(
 object OfferPdfGenerator {
 
     private const val POINTS_PER_MM = 72f / 25.4f
+    private const val GATEWAY_BASE_URL = "http://192.168.1.30:5055"
 
     fun generateAndOpen(
         context: Context,
@@ -35,13 +42,27 @@ object OfferPdfGenerator {
         format: OfferFormat,
         offerPrice: String,
         showOldPrice: Boolean = true,
-        showBarcode: Boolean = true
+        showBarcode: Boolean = true,
+        showImage: Boolean = true,
+        showArticlePrefix: Boolean = true
     ): Result<Uri> = runCatching {
         val document = PdfDocument()
 
         try {
-            val pageWidth = mm(format.widthMm).toInt()
-            val pageHeight = mm(format.heightMm).toInt()
+            /*
+             * IMPORTANTE:
+             * il PDF viene sempre creato come foglio A4 fisico.
+             *
+             * Se creassimo una pagina PDF 70x100 o 150x200 mm, molti
+             * visualizzatori/servizi di stampa Android la adatterebbero
+             * automaticamente al foglio A4, facendo risultare tutti i
+             * formati grandi uguali.
+             *
+             * Qui invece il foglio resta A4 e il cartello viene disegnato
+             * nelle sue reali dimensioni fisiche, centrato sul foglio.
+             */
+            val pageWidth = mm(210f).toInt()
+            val pageHeight = mm(297f).toInt()
 
             val pageInfo = PdfDocument.PageInfo.Builder(
                 pageWidth,
@@ -62,11 +83,31 @@ object OfferPdfGenerator {
 
             val margin = mm(marginMm)
 
+            val offerWidth =
+                when (format) {
+                    OfferFormat.SMALL_7X10 -> mm(70f)
+                    OfferFormat.MEDIUM_15X20 -> mm(150f)
+                    OfferFormat.A4_FULL -> pageWidth.toFloat()
+                }
+
+            val offerHeight =
+                when (format) {
+                    OfferFormat.SMALL_7X10 -> mm(100f)
+                    OfferFormat.MEDIUM_15X20 -> mm(200f)
+                    OfferFormat.A4_FULL -> pageHeight.toFloat()
+                }
+
+            val offerLeft =
+                (pageWidth.toFloat() - offerWidth) / 2f
+
+            val offerTop =
+                (pageHeight.toFloat() - offerHeight) / 2f
+
             val inner = RectF(
-                margin,
-                margin,
-                pageWidth - margin,
-                pageHeight - margin
+                offerLeft + margin,
+                offerTop + margin,
+                offerLeft + offerWidth - margin,
+                offerTop + offerHeight - margin
             )
 
             val borderPaint =
@@ -142,6 +183,48 @@ object OfferPdfGenerator {
                 offerPaint
             )
 
+            val displayArticleCode =
+                if (showArticlePrefix) {
+                    item.articleCode.trim()
+                } else {
+                    item.articleCode
+                        .trim()
+                        .drop(3)
+                }
+
+            val topCodePaint =
+                Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = Color.BLACK
+                    textAlign = Paint.Align.LEFT
+                    typeface =
+                        Typeface.create(
+                            Typeface.DEFAULT,
+                            Typeface.BOLD
+                        )
+                    textSize =
+                        when (format) {
+                            OfferFormat.SMALL_7X10 ->
+                                mm(2.8f) + 1f
+                            OfferFormat.MEDIUM_15X20 ->
+                                mm(5f) + 1f
+                            OfferFormat.A4_FULL ->
+                                mm(6.5f) + 1f
+                        }
+                }
+
+            canvas.drawText(
+                displayArticleCode,
+                inner.left + mm(11f),
+                inner.top +
+                        headerHeight +
+                        when (format) {
+                            OfferFormat.SMALL_7X10 -> mm(9f)
+                            OfferFormat.MEDIUM_15X20 -> mm(14f)
+                            OfferFormat.A4_FULL -> mm(17f)
+                        },
+                topCodePaint
+            )
+
             val descriptionPaint =
                 Paint(Paint.ANTI_ALIAS_FLAG).apply {
                     color = Color.BLACK
@@ -174,11 +257,11 @@ object OfferPdfGenerator {
                             headerHeight +
                             when (format) {
                                 OfferFormat.SMALL_7X10 ->
-                                    mm(7f)
+                                    mm(11f)
                                 OfferFormat.MEDIUM_15X20 ->
-                                    mm(13f)
+                                    mm(21f)
                                 OfferFormat.A4_FULL ->
-                                    mm(18f)
+                                    mm(28f)
                             },
                 maxWidth =
                     inner.width() -
@@ -191,11 +274,11 @@ object OfferPdfGenerator {
                         inner.height() *
                         when (format) {
                             OfferFormat.SMALL_7X10 ->
-                                0.61f
+                                0.55f
                             OfferFormat.MEDIUM_15X20 ->
-                                0.59f
+                                0.53f
                             OfferFormat.A4_FULL ->
-                                0.57f
+                                0.51f
                         }
 
             val newPrice =
@@ -299,64 +382,149 @@ object OfferPdfGenerator {
                 inner.bottom -
                         when (format) {
                             OfferFormat.SMALL_7X10 ->
-                                mm(24f)
+                                mm(25f)
                             OfferFormat.MEDIUM_15X20 ->
-                                mm(42f)
+                                mm(48f)
                             OfferFormat.A4_FULL ->
-                                mm(58f)
+                                mm(66f)
                         }
 
-            val codePaint =
-                Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                    color = Color.BLACK
-                    typeface =
-                        Typeface.create(
-                            Typeface.DEFAULT,
-                            Typeface.BOLD
-                        )
-                    textSize =
-                        when (format) {
-                            OfferFormat.SMALL_7X10 ->
-                                mm(2.8f)
-                            OfferFormat.MEDIUM_15X20 ->
-                                mm(5f)
-                            OfferFormat.A4_FULL ->
-                                mm(6.5f)
-                        }
+            val footerGap =
+                when (format) {
+                    OfferFormat.SMALL_7X10 -> mm(2f)
+                    OfferFormat.MEDIUM_15X20 -> mm(4f)
+                    OfferFormat.A4_FULL -> mm(6f)
                 }
 
-            canvas.drawText(
-                item.articleCode.trim(),
-                inner.left + margin * 0.55f,
+            val footerWidth = inner.width()
+            val halfFooterWidth =
+                (footerWidth - footerGap) / 2f
+
+            val leftFooter = RectF(
+                inner.left,
                 footerTop,
-                codePaint
+                inner.left + halfFooterWidth,
+                inner.bottom
             )
 
+            val rightFooter = RectF(
+                leftFooter.right + footerGap,
+                footerTop,
+                inner.right,
+                inner.bottom
+            )
+
+            /*
+             * FOTO: parte bassa sinistra.
+             * Se disattivata, non lasciamo cornici o segnaposto.
+             */
+            if (showImage) {
+                val imagePadding =
+                    when (format) {
+                        OfferFormat.SMALL_7X10 -> mm(1.5f)
+                        OfferFormat.MEDIUM_15X20 -> mm(3f)
+                        OfferFormat.A4_FULL -> mm(4f)
+                    }
+
+                val originalLeft =
+                    leftFooter.left + imagePadding
+
+                val originalTop =
+                    leftFooter.top + imagePadding
+
+                val originalRight =
+                    leftFooter.right - imagePadding
+
+                val originalBottom =
+                    leftFooter.bottom - imagePadding
+
+                val originalWidth =
+                    originalRight - originalLeft
+
+                val originalHeight =
+                    originalBottom - originalTop
+
+                val imageWidth =
+                    originalWidth * 1.35f
+
+                val imageHeight =
+                    originalHeight * 1.35f
+
+                val centerX =
+                    (originalLeft + originalRight) / 2f -
+                            when (format) {
+                                OfferFormat.SMALL_7X10 -> mm(5f)
+                                OfferFormat.MEDIUM_15X20 -> mm(10f)
+                                OfferFormat.A4_FULL -> mm(10f)
+                            }
+
+                val centerY =
+                    (originalTop + originalBottom) / 2f - mm(2f)
+
+                val desiredLeft =
+                    centerX - imageWidth / 2f
+
+                val desiredRight =
+                    centerX + imageWidth / 2f
+
+                val minImageLeft =
+                    inner.left + mm(1f)
+
+                val correctionX =
+                    maxOf(
+                        0f,
+                        minImageLeft - desiredLeft
+                    )
+
+                val imageBounds = RectF(
+                    desiredLeft + correctionX,
+                    centerY - imageHeight / 2f,
+                    desiredRight + correctionX,
+                    centerY + imageHeight / 2f
+                )
+
+                val bitmap =
+                    loadProductImage(
+                        item.barcode
+                    )
+
+                if (bitmap != null) {
+                    drawBitmapFitCenter(
+                        canvas = canvas,
+                        bitmap = bitmap,
+                        bounds = imageBounds
+                    )
+                    bitmap.recycle()
+                }
+            }
+
+            /*
+             * EAN: parte bassa destra, circa metà larghezza rispetto al
+             * vecchio barcode a tutta pagina.
+             */
             if (showBarcode) {
+                val barcodeSidePadding =
+                    when (format) {
+                        OfferFormat.SMALL_7X10 -> mm(1.5f)
+                        OfferFormat.MEDIUM_15X20 -> mm(3f)
+                        OfferFormat.A4_FULL -> mm(4f)
+                    }
+
+                val numericHeight =
+                    when (format) {
+                        OfferFormat.SMALL_7X10 -> mm(4.2f)
+                        OfferFormat.MEDIUM_15X20 -> mm(7f)
+                        OfferFormat.A4_FULL -> mm(9f)
+                    }
+
                 val barcodeBounds =
                     RectF(
-                        inner.left +
-                                margin * 0.55f,
-                        footerTop +
-                                when (format) {
-                                    OfferFormat.SMALL_7X10 ->
-                                        mm(3f)
-                                    OfferFormat.MEDIUM_15X20 ->
-                                        mm(6f)
-                                    OfferFormat.A4_FULL ->
-                                        mm(8f)
-                                },
-                        inner.right -
-                                margin * 0.55f,
-                        inner.bottom -
-                                when (format) {
-                                    OfferFormat.SMALL_7X10 ->
-                                        mm(7f)
-                                    OfferFormat.MEDIUM_15X20 ->
-                                        mm(12f)
-                                    OfferFormat.A4_FULL ->
-                                        mm(16f)
-                                }
+                        rightFooter.left + barcodeSidePadding,
+                        rightFooter.top + barcodeSidePadding,
+                        rightFooter.right - barcodeSidePadding,
+                        rightFooter.bottom -
+                                numericHeight -
+                                barcodeSidePadding
                     )
 
                 drawEan13(
@@ -364,6 +532,10 @@ object OfferPdfGenerator {
                     rawBarcode = item.barcode,
                     bounds = barcodeBounds
                 )
+
+                val eanText =
+                    item.barcode
+                        .filter(Char::isDigit)
 
                 val eanPaint =
                     Paint(
@@ -380,31 +552,50 @@ object OfferPdfGenerator {
                         textSize =
                             when (format) {
                                 OfferFormat.SMALL_7X10 ->
-                                    mm(2.4f)
+                                    mm(3f)
                                 OfferFormat.MEDIUM_15X20 ->
-                                    mm(4.5f)
-                                OfferFormat.A4_FULL ->
                                     mm(5.5f)
+                                OfferFormat.A4_FULL ->
+                                    mm(7f)
                             }
                     }
 
-                canvas.drawText(
-                    item.barcode
-                        .filter(Char::isDigit),
-                    inner.centerX(),
-                    inner.bottom -
+                val maxEanWidth =
+                    rightFooter.width() -
+                            barcodeSidePadding * 2f
+
+                while (
+                    eanPaint.textSize > mm(1.7f) &&
+                    eanPaint.measureText(eanText) >
+                    maxEanWidth
+                ) {
+                    eanPaint.textSize -= 0.5f
+                }
+
+                val eanMetrics =
+                    eanPaint.fontMetrics
+
+                val eanBaseline =
+                    barcodeBounds.bottom -
+                            eanMetrics.ascent +
                             when (format) {
-                                OfferFormat.SMALL_7X10 ->
-                                    mm(2.2f)
-                                OfferFormat.MEDIUM_15X20 ->
-                                    mm(4f)
-                                OfferFormat.A4_FULL ->
-                                    mm(5f)
-                            },
+                                OfferFormat.SMALL_7X10 -> mm(0.4f)
+                                OfferFormat.MEDIUM_15X20 -> mm(0.8f)
+                                OfferFormat.A4_FULL -> mm(1.0f)
+                            }
+
+                canvas.drawText(
+                    eanText,
+                    rightFooter.centerX(),
+                    eanBaseline,
                     eanPaint
                 )
             }
-
+// Ridisegna il bordo per ultimo, così resta sopra immagine ed EAN
+            canvas.drawRect(
+                inner,
+                borderPaint
+            )
             document.finishPage(page)
 
             val file =
@@ -516,6 +707,107 @@ object OfferPdfGenerator {
             }
     }
 
+    private fun loadProductImage(
+        barcode: String
+    ): Bitmap? {
+        val cleanBarcode =
+            barcode
+                .trim()
+                .filter(Char::isDigit)
+
+        if (cleanBarcode.isBlank()) {
+            return null
+        }
+
+        val encoded =
+            URLEncoder.encode(
+                cleanBarcode,
+                StandardCharsets.UTF_8.name()
+            )
+
+        val connection =
+            (
+                    URL(
+                        "$GATEWAY_BASE_URL/api/product/$encoded/image"
+                    ).openConnection() as HttpURLConnection
+                    ).apply {
+                    requestMethod = "GET"
+                    connectTimeout = 5_000
+                    readTimeout = 15_000
+                    setRequestProperty(
+                        "Accept",
+                        "image/*"
+                    )
+                }
+
+        return try {
+            if (
+                connection.responseCode !in
+                200..299
+            ) {
+                null
+            } else {
+                connection.inputStream.use(
+                    BitmapFactory::decodeStream
+                )
+            }
+        } catch (_: Exception) {
+            null
+        } finally {
+            connection.disconnect()
+        }
+    }
+
+    private fun drawBitmapFitCenter(
+        canvas: android.graphics.Canvas,
+        bitmap: Bitmap,
+        bounds: RectF
+    ) {
+        if (
+            bitmap.width <= 0 ||
+            bitmap.height <= 0
+        ) {
+            return
+        }
+
+        val scale =
+            minOf(
+                bounds.width() /
+                        bitmap.width.toFloat(),
+                bounds.height() /
+                        bitmap.height.toFloat()
+            )
+
+        val width =
+            bitmap.width *
+                    scale
+        val height =
+            bitmap.height *
+                    scale
+
+        val destination =
+            RectF(
+                bounds.centerX() -
+                        width / 2f,
+                bounds.centerY() -
+                        height / 2f,
+                bounds.centerX() +
+                        width / 2f,
+                bounds.centerY() +
+                        height / 2f
+            )
+
+        canvas.drawBitmap(
+            bitmap,
+            null,
+            destination,
+            Paint(
+                Paint.ANTI_ALIAS_FLAG or
+                        Paint.FILTER_BITMAP_FLAG
+            )
+        )
+    }
+
     private fun drawEan13(
         canvas: android.graphics.Canvas,
         rawBarcode: String,
@@ -562,9 +854,9 @@ object OfferPdfGenerator {
         val moduleWidth =
             bounds.width() /
                     (
-                        modules.length +
-                                quietModules * 2
-                        )
+                            modules.length +
+                                    quietModules * 2
+                            )
 
         val startX =
             bounds.left +
@@ -627,10 +919,10 @@ object OfferPdfGenerator {
         }
 
         return (
-            10 -
-                    sum %
-                    10
-            ) % 10 ==
+                10 -
+                        sum %
+                        10
+                ) % 10 ==
                 expected
     }
 

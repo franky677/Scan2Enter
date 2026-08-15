@@ -42,6 +42,8 @@ class A4LabelsPopup(
         const val OFFER_FORMAT_KEY = "offer_format"
         const val OFFER_SHOW_OLD_PRICE_KEY = "offer_show_old_price"
         const val OFFER_SHOW_BARCODE_KEY = "offer_show_barcode"
+        const val OFFER_SHOW_IMAGE_KEY = "offer_show_image"
+        const val OFFER_SHOW_PREFIX_KEY = "offer_show_prefix"
 
         const val TYPE_BLISTER_LARGE = "BLISTER_LARGE"
         const val TYPE_BLISTER_LONG = "BLISTER_LONG"
@@ -79,6 +81,7 @@ class A4LabelsPopup(
     fun show(
         onSearchRequested: () -> Unit = {},
         onHardwareScanRequested: () -> Unit = {},
+        onBlisterSearchRequested: ((String, Boolean, Boolean) -> Unit)? = null,
         onBlisterScanRequested: ((String, Boolean, Boolean) -> Unit)? = null,
         onShelfActivated: () -> Unit = {},
         onBlisterActivated: () -> Unit = {},
@@ -863,8 +866,34 @@ class A4LabelsPopup(
                         )
                 }
 
+            val imageCheck =
+                CheckBox(context).apply {
+                    text = "Mostra immagine articolo"
+                    textSize = 14f
+                    setTextColor(Color.BLACK)
+                    isChecked =
+                        offerPreferences.getBoolean(
+                            OFFER_SHOW_IMAGE_KEY,
+                            true
+                        )
+                }
+
+            val prefixCheck =
+                CheckBox(context).apply {
+                    text = "Mostra prefisso codice articolo"
+                    textSize = 14f
+                    setTextColor(Color.BLACK)
+                    isChecked =
+                        offerPreferences.getBoolean(
+                            OFFER_SHOW_PREFIX_KEY,
+                            true
+                        )
+                }
+
             panel.addView(oldPriceCheck)
             panel.addView(barcodeCheck)
+            panel.addView(imageCheck)
+            panel.addView(prefixCheck)
 
             val preview =
                 LinearLayout(context).apply {
@@ -1035,6 +1064,10 @@ class A4LabelsPopup(
                             oldPriceCheck.isChecked
                         val showBarcode =
                             barcodeCheck.isChecked
+                        val showImage =
+                            imageCheck.isChecked
+                        val showArticlePrefix =
+                            prefixCheck.isChecked
 
                         offerPreferences.edit()
                             .putString(
@@ -1048,6 +1081,14 @@ class A4LabelsPopup(
                             .putBoolean(
                                 OFFER_SHOW_BARCODE_KEY,
                                 showBarcode
+                            )
+                            .putBoolean(
+                                OFFER_SHOW_IMAGE_KEY,
+                                showImage
+                            )
+                            .putBoolean(
+                                OFFER_SHOW_PREFIX_KEY,
+                                showArticlePrefix
                             )
                             .apply()
 
@@ -1065,7 +1106,11 @@ class A4LabelsPopup(
                                         showOldPrice =
                                             showOldPrice,
                                         showBarcode =
-                                            showBarcode
+                                            showBarcode,
+                                        showImage =
+                                            showImage,
+                                        showArticlePrefix =
+                                            showArticlePrefix
                                     )
 
                             post {
@@ -1268,7 +1313,7 @@ class A4LabelsPopup(
                 }
             )
 
-            fun saveAndScan() {
+            fun currentBlisterSelection(): Triple<String, Boolean, Boolean> {
                 val checked =
                     radioGroup.findViewById<RadioButton>(
                         radioGroup.checkedRadioButtonId
@@ -1286,6 +1331,61 @@ class A4LabelsPopup(
                     .putBoolean(INCLUDE_HOOK_KEY, includeHook)
                     .putBoolean(SHOW_PRICE_KEY, showPrice)
                     .apply()
+
+                return Triple(
+                    type,
+                    includeHook,
+                    showPrice
+                )
+            }
+
+            val searchButton = Button(context).apply {
+                text = "⌕  CERCA ARTICOLO"
+                textSize = 14f
+                setTypeface(
+                    typeface,
+                    android.graphics.Typeface.BOLD
+                )
+                setOnClickListener {
+                    val callback = onBlisterSearchRequested
+
+                    if (callback == null) {
+                        Toast.makeText(
+                            context,
+                            "Ricerca blister non disponibile",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                        return@setOnClickListener
+                    }
+
+                    val (type, includeHook, showPrice) =
+                        currentBlisterSelection()
+
+                    currentSection = Section.BLISTER
+                    remove(preserveSection = true)
+
+                    callback(
+                        type,
+                        includeHook,
+                        showPrice
+                    )
+                }
+            }
+
+            panel.addView(
+                searchButton,
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    dp(50)
+                ).apply {
+                    topMargin = dp(10)
+                    bottomMargin = dp(4)
+                }
+            )
+
+            fun saveAndScan() {
+                val (type, includeHook, showPrice) =
+                    currentBlisterSelection()
 
                 if (onBlisterScanRequested == null) {
                     Toast.makeText(
