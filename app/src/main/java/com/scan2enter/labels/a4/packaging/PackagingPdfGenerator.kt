@@ -858,21 +858,42 @@ object PackagingPdfGenerator {
             mm(1.6f)
         )
 
+        // Immagine prodotto ripristinata sul retro del BLISTER GRANDE.
+        // Il retro è alto solo 70 mm: immagine e barcode restano compatti
+        // per non uscire dalla sagoma e non interferire con stagione/anno.
+        val imageBounds = RectF(
+            bounds.left + mm(7f),
+            dataTop + mm(10f),
+            bounds.right - mm(7f),
+            dataTop + mm(23f)
+        )
+
+        val productImage = loadProductImage(product.barcode)
+
+        if (productImage != null) {
+            drawBitmapFitCenter(
+                canvas = canvas,
+                bitmap = productImage,
+                bounds = imageBounds
+            )
+            productImage.recycle()
+        }
+
         val barcodeBounds = RectF(
             bounds.left + mm(5f),
-            dataTop + mm(10f),
+            dataTop + mm(25f),
             bounds.right - mm(5f),
-            dataTop + mm(22f)
+            dataTop + mm(33f)
         )
         drawEan13(canvas, product.barcode, barcodeBounds)
 
-        val eanPaint = textPaint(mm(4.8f), bold = true).apply {
+        val eanPaint = textPaint(mm(3.8f), bold = true).apply {
             textAlign = Paint.Align.CENTER
         }
         canvas.drawText(
             product.barcode.filter(Char::isDigit),
             barcodeBounds.centerX(),
-            barcodeBounds.bottom + mm(3.3f),
+            barcodeBounds.bottom + mm(2.6f),
             eanPaint
         )
 

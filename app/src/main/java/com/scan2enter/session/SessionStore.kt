@@ -480,36 +480,186 @@ object SessionStore {
                         totalAdjustment % row.quantity == 0
             }
 
-        val chosen =
-            eligible.firstOrNull { it.first.quantity == 1 }
-                ?: eligible.firstOrNull()
-                ?: return
-
-        val row = chosen.first
-        val originalUnitCents = chosen.second
-        val unitAdjustment =
-            totalAdjustment / row.quantity
-        val roundedUnitCents =
-            originalUnitCents + unitAdjustment
-
-        if (roundedUnitCents < 0) return
-
         fun centsToPrice(cents: Int): String =
             java.math.BigDecimal(cents)
                 .movePointLeft(2)
                 .setScale(2)
                 .toPlainString()
 
-        val sign =
-            if (unitAdjustment >= 0) "+" else ""
+        val chosen =
+            eligible.firstOrNull { it.first.quantity == 1 }
+                ?: eligible.firstOrNull()
 
-        items[row.articleId] =
-            row.copy(
-                roundingPrice =
-                    centsToPrice(roundedUnitCents),
-                roundingAdjustment =
-                    "$sign${centsToPrice(unitAdjustment)}"
+        if (chosen != null) {
+            // Comportamento esistente: se basta una riga, non cambia nulla.
+            val row = chosen.first
+            val originalUnitCents = chosen.second
+            val unitAdjustment = totalAdjustment / row.quantity
+            val roundedUnitCents = originalUnitCents + unitAdjustment
+
+            if (roundedUnitCents < 0) return
+
+            val sign = if (unitAdjustment >= 0) "+" else ""
+
+            items[row.articleId] =
+                row.copy(
+                    roundingPrice = centsToPrice(roundedUnitCents),
+                    roundingAdjustment = "$sign${centsToPrice(unitAdjustment)}"
+                )
+            return
+        }
+
+        /*
+         * Fallback a due righe per casi non risolvibili con una sola riga.
+         * Esempio: 7 x 0,36 + 5 x 0,36 = 4,32 -> 4,30
+         *           7 x 0,35 + 5 x 0,37 = 4,30
+         */
+        data class PairAdjustment(
+            val first: Triple<SessionItem, Int, Int>,
+            val second: Triple<SessionItem, Int, Int>,
+            val firstUnitAdjustment: Int,
+            val secondUnitAdjustment: Int
+        )
+
+        var bestPair: PairAdjustment? = null
+        var bestScore = Int.MAX_VALUE
+
+        for (firstIndex in 0 until rows.size - 1) {
+            val first = rows[firstIndex]
+            if (first.second % 10 == 0 || first.first.quantity <= 0) continue
+
+            for (secondIndex in firstIndex + 1 until rows.size) {
+                val second = rows[secondIndex]
+                if (second.second % 10 == 0 || second.first.quantity <= 0) continue
+
+                for (firstAdjustment in -9..9) {
+                    for (secondAdjustment in -9..9) {
+                        if (firstAdjustment == 0 && secondAdjustment == 0) continue
+
+                        val producedAdjustment =
+                            firstAdjustment * first.first.quantity +
+                                    secondAdjustment * second.first.quantity
+
+                        if (producedAdjustment != totalAdjustment) continue
+                        if (first.second + firstAdjustment < 0 ||
+                            second.second + secondAdjustment < 0
+                        ) continue
+
+                        val score =
+                            kotlin.math.abs(firstAdjustment) +
+                                    kotlin.math.abs(secondAdjustment)
+
+                        if (score < bestScore) {
+                            bestScore = score
+                            bestPair = PairAdjustment(
+                                first = first,
+                                second = second,
+                                firstUnitAdjustment = firstAdjustment,
+                                secondUnitAdjustment = secondAdjustment
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        val pair = bestPair
+
+        fun applyPairAdjustment(
+            candidate: Triple<SessionItem, Int, Int>,
+            unitAdjustment: Int
+        ) {
+            val row = candidate.first
+            val roundedUnitCents = candidate.second + unitAdjustment
+            val sign = if (unitAdjustment >= 0) "+" else ""
+
+            items[row.articleId] =
+                row.copy(
+                    roundingPrice = centsToPrice(roundedUnitCents),
+                    roundingAdjustment = "$sign${centsToPrice(unitAdjustment)}"
+                )
+        }
+
+        if (pair != null) {
+            applyPairAdjustment(pair.first, pair.firstUnitAdjustment)
+            applyPairAdjustment(pair.second, pair.secondUnitAdjustment)
+            return
+        }
+
+        /*
+         * Ultimo fallback: prezzo unitario con maggiore precisione.
+         *
+         * Serve quando né una riga né due righe a 2 decimali possono
+         * produrre esattamente la correzione richiesta.
+         *
+         * Esempi:
+         *   8 x 0,36 = 2,88 -> obiettivo 2,90
+         *   prezzo riga = 2,90 / 8 = 0,3625
+         *
+         *   3 x 0,36 + 3 x 0,36 = 2,16 -> obiettivo 2,20
+         *   una sola delle due righe assorbe +0,04 sul proprio totale;
+         *   il prezzo unitario viene calcolato con 6 decimali.
+         *
+         * Preferiamo la quantità maggiore per minimizzare la variazione
+         * del prezzo unitario.
+         */
+        val preciseCandidate =
+            rows
+                .filter { (row, unitCents, _) ->
+                    row.quantity > 0 &&
+                            unitCents % 10 != 0
+                }
+                .maxByOrNull { it.first.quantity }
+                ?: return
+
+        val preciseRow = preciseCandidate.first
+        val originalUnitCents = preciseCandidate.second
+
+        val originalRowTotalCents =
+            java.math.BigDecimal(originalUnitCents)
+                .multiply(
+                    java.math.BigDecimal(preciseRow.quantity)
+                )
+
+        val targetRowTotalCents =
+            originalRowTotalCents.add(
+                java.math.BigDecimal(totalAdjustment)
             )
+
+        if (targetRowTotalCents.signum() < 0) return
+
+        val preciseUnitPrice =
+            targetRowTotalCents
+                .movePointLeft(2)
+                .divide(
+                    java.math.BigDecimal(preciseRow.quantity),
+                    6,
+                    java.math.RoundingMode.HALF_UP
+                )
+
+        val baseUnitPrice =
+            java.math.BigDecimal(originalUnitCents)
+                .movePointLeft(2)
+
+        val preciseAdjustment =
+            preciseUnitPrice.subtract(baseUnitPrice)
+
+        val sign =
+            if (preciseAdjustment.signum() >= 0) "+" else ""
+
+        items[preciseRow.articleId] =
+            preciseRow.copy(
+                roundingPrice =
+                    preciseUnitPrice
+                        .stripTrailingZeros()
+                        .toPlainString(),
+                roundingAdjustment =
+                    sign +
+                            preciseAdjustment
+                                .stripTrailingZeros()
+                                .toPlainString()
+            )
+
     }
 
     private fun saveLocked() {

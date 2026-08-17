@@ -237,6 +237,15 @@ class ScanSession(
                         }
 
                     if (scanMode == MODE_LABELS_A4) {
+                        /*
+                         * Una lettura A4 è sempre una lettura singola.
+                         * Dopo aver aggiornato A4LabelStore torniamo al popup A4:
+                         * sarà OverlayService/A4LabelsPopup a mantenere la sezione
+                         * attiva (SCAFFALE oppure OFFERTA).
+                         *
+                         * Non inviamo più ACTION_OPEN_SCANNER: quel vecchio rientro
+                         * poteva riaprire CameraX e creare popup/letture ripetute.
+                         */
                         Handler(Looper.getMainLooper()).postDelayed(
                             {
                                 context.startService(
@@ -244,19 +253,11 @@ class ScanSession(
                                         context,
                                         OverlayService::class.java
                                     ).apply {
-                                        action =
-                                            if (
-                                                a4AddResult ==
-                                                A4LabelStore.AddResult.PAGE_FULL
-                                            ) {
-                                                OverlayService.ACTION_SHOW_A4_LABELS
-                                            } else {
-                                                OverlayService.ACTION_OPEN_SCANNER
-                                            }
+                                        action = OverlayService.ACTION_SHOW_A4_LABELS
                                     }
                                 )
                             },
-                            1_200L
+                            250L
                         )
                     } else {
                         context.startService(

@@ -428,6 +428,103 @@ class GatewayApiClient(
     }
 
     /**
+     * Preferiti centralizzati Scan2Enter.
+     */
+    fun getFavorites(): Result<List<FavoriteDto>> = runCatching {
+        val url = "${baseUrl.trimEnd('/')}/api/favorites"
+        val response = executeGet(url)
+
+        if (response.code !in 200..299) {
+            error(
+                "Gateway HTTP ${response.code}: ${response.body.take(500)}"
+            )
+        }
+
+        val root = JSONObject(response.body)
+        val array = root.optJSONArray("items") ?: JSONArray()
+        val result = ArrayList<FavoriteDto>(array.length())
+
+        for (index in 0 until array.length()) {
+            val item = array.optJSONObject(index) ?: continue
+            val articleId = item.optLong("articleId", 0L)
+            if (articleId <= 0L) continue
+
+            result.add(
+                FavoriteDto(
+                    articleId = articleId,
+                    barcode = item.optString("barcode", "").trim(),
+                    articleCode = item.optString("articleCode", "").trim(),
+                    description = item.optString("description", "").trim(),
+                    publicPrice = item.optString("publicPrice", "").trim(),
+                    stock = item.optString("stock", "").trim()
+                )
+            )
+        }
+
+        result
+    }
+
+    fun saveFavorite(
+        favorite: FavoriteDto
+    ): Result<Boolean> = runCatching {
+        require(favorite.articleId > 0L) {
+            "articleId non valido"
+        }
+
+        val url = "${baseUrl.trimEnd('/')}/api/favorites"
+
+        val body = JSONObject()
+            .put("articleId", favorite.articleId)
+            .put("barcode", favorite.barcode)
+            .put("articleCode", favorite.articleCode)
+            .put("description", favorite.description)
+            .put("publicPrice", favorite.publicPrice)
+            .put("stock", favorite.stock)
+            .toString()
+
+        val response = executeJson(
+            urlString = url,
+            method = "POST",
+            jsonBody = body
+        )
+
+        if (response.code !in 200..299) {
+            error(
+                "Gateway HTTP ${response.code}: ${response.body.take(500)}"
+            )
+        }
+
+        JSONObject(response.body)
+            .optBoolean("saved", true)
+    }
+
+    fun removeFavorite(
+        articleId: Long
+    ): Result<Boolean> = runCatching {
+        require(articleId > 0L) {
+            "articleId non valido"
+        }
+
+        val url =
+            "${baseUrl.trimEnd('/')}/api/favorites/$articleId"
+
+        val response = executeWithoutBody(
+            urlString = url,
+            method = "DELETE"
+        )
+
+        if (response.code !in 200..299) {
+            error(
+                "Gateway HTTP ${response.code}: ${response.body.take(500)}"
+            )
+        }
+
+        JSONObject(response.body)
+            .optBoolean("removed", false)
+    }
+
+
+    /**
      * Scarica dal Gateway la lista completa degli articoli da riordinare.
      */
     fun getReorderList(): Result<List<ReorderItem>> {
@@ -1139,6 +1236,15 @@ class GatewayApiClient(
         val body: String
     )
 }
+
+data class FavoriteDto(
+    val articleId: Long,
+    val barcode: String,
+    val articleCode: String,
+    val description: String,
+    val publicPrice: String,
+    val stock: String
+)
 
 data class ColloHistorySummaryDto(
     val testataId: Int,

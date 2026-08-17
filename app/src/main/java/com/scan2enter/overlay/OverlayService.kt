@@ -268,6 +268,21 @@ class OverlayService : Service() {
     private var a4ShelfScanInProgress = false
 
     /*
+     * True soltanto mentre CameraX è stata aperta dalla sezione OFFERTE.
+     * Serve a consegnare al popup l'articolo appena letto senza passare
+     * dalla lista SCAFFALE.
+     */
+    private var a4OfferScanInProgress = false
+
+    /*
+     * SOLO SUNMI:
+     * segnala che openA4BarcodeDirect() è stato invocato dal laser hardware
+     * mentre il popup A4 era nella sezione OFFERTE.
+     * S24 non imposta mai questo flag.
+     */
+    private var sunmiA4OfferScanInProgress = false
+
+    /*
      * Percorso GoDEX Sunmi lasciato IDENTICO alla versione stabile
      * confermata prima dell'intervento A4.
      */
@@ -361,11 +376,20 @@ class OverlayService : Service() {
                             "mode=$currentMode barcode=$barcode"
                 )
 
+                /*
+                 * SOLO SUNMI: memorizza se questa lettura arriva dalla sezione
+                 * OFFERTE prima di rimuovere temporaneamente il popup.
+                 */
+                sunmiA4OfferScanInProgress =
+                    currentMode == MODE_LABELS_A4 &&
+                            a4LabelsPopupController.isOfferSection()
+
                 a4LabelsPopupController.remove(
                     preserveSection = true
                 )
 
                 if (currentMode == MODE_LABELS_BLISTER) {
+                    sunmiA4OfferScanInProgress = false
                     openBlisterBarcodeDirect(barcode)
                 } else {
                     openA4BarcodeDirect(barcode)
@@ -580,6 +604,22 @@ class OverlayService : Service() {
 
                 scanOverlay.hide()
 
+                if (a4OfferScanInProgress) {
+                    ProductInfoStore.current?.let { product ->
+                        a4LabelsPopupController.selectOfferItem(
+                            A4LabelItem.fromProduct(product)
+                        )
+                    }
+
+                    android.util.Log.d(
+                        "OverlayService",
+                        "OFFERTA SCAN -> ARTICOLO SELEZIONATO " +
+                                "ean=${ProductInfoStore.current?.barcode.orEmpty()}"
+                    )
+
+                    a4OfferScanInProgress = false
+                }
+
                 a4LabelsPopupController.show(
                     onSearchRequested = {
                         applicationContext
@@ -621,6 +661,21 @@ class OverlayService : Service() {
                             .apply()
 
                         reopenA4ScannerIfNeeded()
+                    },
+                    onOfferScanRequested = {
+                        applicationContext
+                            .getSharedPreferences(
+                                WORKFLOW_PREFS,
+                                Context.MODE_PRIVATE
+                            )
+                            .edit()
+                            .putString(
+                                WORKFLOW_MODE_KEY,
+                                MODE_LABELS_A4
+                            )
+                            .apply()
+
+                        reopenA4OfferScanner()
                     },
                     onBlisterScanRequested = {
                             type,
@@ -669,6 +724,7 @@ class OverlayService : Service() {
                         )
                     },
                     onShelfActivated = {
+                        a4OfferScanInProgress = false
                         applicationContext
                             .getSharedPreferences(
                                 WORKFLOW_PREFS,
@@ -696,6 +752,7 @@ class OverlayService : Service() {
                     },
                     onHubActivated = {
                         a4ShelfScanInProgress = false
+                        a4OfferScanInProgress = false
                         applicationContext
                             .getSharedPreferences(
                                 WORKFLOW_PREFS,
@@ -1636,6 +1693,9 @@ class OverlayService : Service() {
             onHardwareScanRequested = {
                 reopenA4ScannerIfNeeded()
             },
+            onOfferScanRequested = {
+                reopenA4OfferScanner()
+            },
             onBlisterScanRequested = {
                     type,
                     includeHook,
@@ -1768,6 +1828,25 @@ class OverlayService : Service() {
             onLoaded = { loadedProduct ->
                 A4LabelStore.initialize(applicationContext)
 
+                /*
+                 * SOLO SUNMI: il percorso hardware non passa da
+                 * ACTION_SHOW_A4_LABELS, quindi assegniamo qui l'articolo
+                 * appena caricato alla sezione OFFERTE.
+                 */
+                if (sunmiA4OfferScanInProgress) {
+                    a4LabelsPopupController.selectOfferItem(
+                        A4LabelItem.fromProduct(loadedProduct)
+                    )
+
+                    android.util.Log.d(
+                        "Scan2Enter",
+                        "SUNMI OFFERTA -> ARTICOLO SELEZIONATO " +
+                                "ean=${loadedProduct.barcode}"
+                    )
+
+                    sunmiA4OfferScanInProgress = false
+                }
+
                 when (
                     A4LabelStore.add(
                         A4LabelItem.fromProduct(loadedProduct)
@@ -1809,6 +1888,9 @@ class OverlayService : Service() {
                     },
                     onHardwareScanRequested = {
                         reopenA4ScannerIfNeeded()
+                    },
+                    onOfferScanRequested = {
+                        reopenA4OfferScanner()
                     },
                     onBlisterScanRequested = {
                             type,
@@ -1852,6 +1934,7 @@ class OverlayService : Service() {
                         )
                     },
                     onShelfActivated = {
+                        a4OfferScanInProgress = false
                         applicationContext
                             .getSharedPreferences(
                                 WORKFLOW_PREFS,
@@ -1879,6 +1962,7 @@ class OverlayService : Service() {
                     },
                     onHubActivated = {
                         a4ShelfScanInProgress = false
+                        a4OfferScanInProgress = false
                         applicationContext
                             .getSharedPreferences(
                                 WORKFLOW_PREFS,
@@ -1948,6 +2032,27 @@ class OverlayService : Service() {
                     true
                 )
             }
+        )
+    }
+
+    private fun reopenA4OfferScanner() {
+        if (loadCurrentScanMode() != MODE_LABELS_A4) {
+            return
+        }
+
+        // OFFERTA è una lettura singola: niente retry automatico SCAFFALE.
+        a4ShelfScanInProgress = false
+        a4OfferScanInProgress = true
+
+        popupHandler.postDelayed(
+            {
+                sessionRecordedForCurrentScan = false
+                scanOverlay.show(
+                    rapidRescan = false,
+                    directToSession = false
+                )
+            },
+            250L
         )
     }
 
@@ -5351,6 +5456,29 @@ class OverlayService : Service() {
             return
         }
 
+        /*
+         * Spara-spara INFO: se l'articolo è nei Preferiti, usa un suono
+         * dedicato al posto del normale feedback stock.
+         */
+        val isFavorite =
+            loadCurrentScanMode() == MODE_INFO &&
+                    FavoriteRepository.getAll().any {
+                        it.articleId == product.articleId
+                    }
+
+        if (isFavorite) {
+            urgentStockTone?.startTone(
+                ToneGenerator.TONE_PROP_ACK,
+                450
+            )
+
+            android.util.Log.d(
+                "OverlayService",
+                "SUONO PREFERITO EAN=${product.barcode} articleId=${product.articleId}"
+            )
+            return
+        }
+
         when (status) {
             ProductInfoPopup.StockSoundStatus.REGULAR -> {
                 ScanFeedbackManager.playSuccess(applicationContext)
@@ -5887,6 +6015,23 @@ class OverlayService : Service() {
     private fun openScannerFromQuickDock() {
         val currentScanMode = loadCurrentScanMode()
 
+        val a4OfferFromDock =
+            a4LabelsPopupController.isOfferSection()
+
+        if (a4OfferFromDock) {
+            applicationContext
+                .getSharedPreferences(
+                    WORKFLOW_PREFS,
+                    Context.MODE_PRIVATE
+                )
+                .edit()
+                .putString(
+                    WORKFLOW_MODE_KEY,
+                    MODE_LABELS_A4
+                )
+                .apply()
+        }
+
         /*
          * In modalità GoDEX la finestra corrente deve essere rimossa PRIMA
          * di aprire CameraX. Altrimenti, dopo la lettura, ACTION_SHOW_GODEX_PRINT
@@ -5897,7 +6042,14 @@ class OverlayService : Service() {
          * rimuovono il popup e poi aprono lo scanner.
          * La dock deve seguire esattamente lo stesso percorso.
          */
-        when (currentScanMode) {
+        val effectiveScanMode =
+            if (a4OfferFromDock) {
+                MODE_LABELS_A4
+            } else {
+                currentScanMode
+            }
+
+        when (effectiveScanMode) {
             MODE_LABELS_GODEX ->
                 labelPrintPopupController.remove()
 
@@ -5934,8 +6086,19 @@ class OverlayService : Service() {
          */
         keepQuickScanDockAlive()
 
-        if (currentScanMode == MODE_LABELS_A4) {
-            a4ShelfScanInProgress = true
+        if (effectiveScanMode == MODE_LABELS_A4) {
+            if (a4OfferFromDock) {
+                a4ShelfScanInProgress = false
+                a4OfferScanInProgress = true
+
+                android.util.Log.d(
+                    "OverlayService",
+                    "QUICK DOCK -> SCAN OFFERTA"
+                )
+            } else {
+                a4OfferScanInProgress = false
+                a4ShelfScanInProgress = true
+            }
         }
 
         startService(
@@ -5950,7 +6113,10 @@ class OverlayService : Service() {
                     directToSession
                 )
 
-                if (currentScanMode == MODE_LABELS_A4) {
+                if (
+                    effectiveScanMode == MODE_LABELS_A4 &&
+                    !a4OfferFromDock
+                ) {
                     putExtra(
                         EXTRA_A4_INITIAL_SCAN_REQUEST,
                         true

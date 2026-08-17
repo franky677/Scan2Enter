@@ -250,7 +250,8 @@ class ScanOverlay(
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
             PixelFormat.TRANSLUCENT
         ).apply {
-            gravity = Gravity.CENTER
+            gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+            y = dp(56)
         }
 
         windowManager.addView(frame, params)

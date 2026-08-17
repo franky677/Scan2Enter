@@ -121,6 +121,31 @@ object FavoriteStore {
         items.size
 
     @Synchronized
+    fun replaceAll(newItems: List<FavoriteItem>) {
+        val replacement = linkedMapOf<Long, FavoriteItem>()
+
+        newItems.forEach { item ->
+            if (item.articleId > 0L) {
+                replacement[item.articleId] = item
+            }
+        }
+
+        if (items == replacement) {
+            return
+        }
+
+        items.clear()
+        items.putAll(replacement)
+        saveToDisk()
+        notifyChanged()
+
+        Log.d(
+            TAG,
+            "FAVORITE STORE SINCRONIZZATO elementi=${items.size}"
+        )
+    }
+
+    @Synchronized
     fun clear() {
         if (items.isEmpty()) return
 

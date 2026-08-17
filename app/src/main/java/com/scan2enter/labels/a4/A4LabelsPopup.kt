@@ -19,6 +19,7 @@ import android.widget.ScrollView
 import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
+import com.scan2enter.scanner.ScannerModeDetector
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -74,6 +75,20 @@ class A4LabelsPopup(
      */
     private var currentSection = Section.HUB
 
+    /*
+     * OFFERTA deve avere un articolo selezionato proprio.
+     * Non può dipendere dall'ultimo elemento della pagina SCAFFALE.
+     */
+    private var selectedOfferItem: A4LabelItem? = null
+
+    fun selectOfferItem(item: A4LabelItem) {
+        selectedOfferItem = item
+    }
+
+    fun isOfferSection(): Boolean {
+        return currentSection == Section.OFFER
+    }
+
     private val storeListener: () -> Unit = {
         root?.post { refreshShelf() }
     }
@@ -81,6 +96,7 @@ class A4LabelsPopup(
     fun show(
         onSearchRequested: () -> Unit = {},
         onHardwareScanRequested: () -> Unit = {},
+        onOfferScanRequested: () -> Unit = {},
         onBlisterSearchRequested: ((String, Boolean, Boolean) -> Unit)? = null,
         onBlisterScanRequested: ((String, Boolean, Boolean) -> Unit)? = null,
         onShelfActivated: () -> Unit = {},
@@ -269,6 +285,32 @@ class A4LabelsPopup(
                 accent = Color.rgb(230, 180, 0)
             ) {
                 currentSection = Section.OFFER
+
+                /*
+                 * SOLO SUNMI:
+                 * il laser hardware può leggere direttamente mentre la sezione
+                 * OFFERTE è aperta, senza passare da volume/dock.
+                 *
+                 * Impostiamo subito il workflow A4 così il broadcast Honeywell
+                 * viene gestito dal receiver A4 dedicato e NON dal receiver HOME
+                 * che aprirebbe il popup articolo.
+                 *
+                 * S24 non entra in questo blocco: comportamento invariato.
+                 */
+                if (ScannerModeDetector.isSunmi()) {
+                    context.applicationContext
+                        .getSharedPreferences(
+                            "scan_workflow",
+                            Context.MODE_PRIVATE
+                        )
+                        .edit()
+                        .putString(
+                            "mode",
+                            "ETICHETTE_A4"
+                        )
+                        .apply()
+                }
+
                 rebuildCurrentSection()
             }
 
@@ -669,6 +711,7 @@ class A4LabelsPopup(
                 )
                 setOnClickListener {
                     currentSection = Section.OFFER
+                    selectedOfferItem = null
                     remove(preserveSection = true)
                     onSearchRequested()
                 }
@@ -683,7 +726,8 @@ class A4LabelsPopup(
             )
 
             val selectedItem =
-                A4LabelStore.getItems().lastOrNull()
+                selectedOfferItem
+                    ?: A4LabelStore.getItems().lastOrNull()
 
             val articleCard =
                 LinearLayout(context).apply {
@@ -799,6 +843,32 @@ class A4LabelsPopup(
                 "A4",
                 OfferFormat.A4_FULL
             )
+
+            /*
+             * Salva subito il formato scelto.
+             * Il popup OFFERTE viene temporaneamente rimosso durante una scansione;
+             * senza questo salvataggio immediato, al ritorno veniva ripristinato
+             * l'ultimo formato usato in una stampa precedente.
+             */
+            formatGroup.setOnCheckedChangeListener { group, checkedId ->
+                val checkedButton =
+                    group.findViewById<RadioButton>(checkedId)
+
+                val selectedFormat =
+                    checkedButton?.tag
+                        ?.toString()
+                        .orEmpty()
+
+                if (selectedFormat.isNotBlank()) {
+                    offerPreferences
+                        .edit()
+                        .putString(
+                            OFFER_FORMAT_KEY,
+                            selectedFormat
+                        )
+                        .apply()
+                }
+            }
 
             panel.addView(formatGroup)
 
@@ -1008,9 +1078,10 @@ class A4LabelsPopup(
 
                     setOnClickListener {
                         val item =
-                            A4LabelStore
-                                .getItems()
-                                .lastOrNull()
+                            selectedOfferItem
+                                ?: A4LabelStore
+                                    .getItems()
+                                    .lastOrNull()
 
                         if (item == null) {
                             Toast.makeText(
@@ -1532,7 +1603,7 @@ class A4LabelsPopup(
                             Section.OFFER -> {
                                 currentSection = Section.OFFER
                                 remove(preserveSection = true)
-                                onHardwareScanRequested()
+                                onOfferScanRequested()
                             }
 
                             Section.HUB -> Unit
@@ -1787,8 +1858,8 @@ class A4LabelsPopup(
 
     private fun dp(value: Int): Int {
         return (
-            value *
-                    context.resources.displayMetrics.density
-            ).toInt()
+                value *
+                        context.resources.displayMetrics.density
+                ).toInt()
     }
 }
