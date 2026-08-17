@@ -5244,8 +5244,10 @@ class OverlayService : Service() {
             workflowCompleted = workflowCompleted
         )
 
-        updateProductImage(product)
-
+        /*
+         * L'immagine prodotto viene già caricata da ProductInfoPopup.update().
+         * Non lanciamo un secondo caricamento Coil concorrente sulla stessa View.
+         */
         if (
             playStockSound &&
             product != null &&
@@ -5399,6 +5401,13 @@ class OverlayService : Service() {
     }
 
     private fun removeProductInfoPopup() {
+        /*
+         * Un callback di chiusura appartenente al popup precedente non deve
+         * poter intervenire sul popup successivo.
+         */
+        popupHandler.removeCallbacks(dismissPopupRunnable)
+        popupTimerPausedByUser = false
+
         locationManagementPopupController.remove()
         stockSettingsPopupController.remove()
         productInfoPopupController.remove()

@@ -78,7 +78,19 @@ class ProductInfoPopup(
         onTouchFinished: () -> Unit,
         onPopupTap: () -> Unit
     ): Bindings {
-        bindings?.let { return it }
+        bindings?.let { existing ->
+            /*
+             * Se il binding esiste ed è ancora realmente attaccato al
+             * WindowManager lo riutilizziamo. Se invece la View è rimasta
+             * scollegata per una chiusura/race precedente, scartiamo il binding
+             * e ricreiamo il popup da zero.
+             */
+            if (existing.root.isAttachedToWindow) {
+                return existing
+            }
+
+            bindings = null
+        }
 
         val density = context.resources.displayMetrics.density
         val screenWidth = context.resources.displayMetrics.widthPixels
@@ -668,12 +680,23 @@ class ProductInfoPopup(
     fun remove() {
         val current = bindings ?: return
 
+        /*
+         * Invalidiamo subito lo stato interno PRIMA di parlare con
+         * WindowManager. In questo modo un eventuale show/update concorrente
+         * non può riutilizzare un binding che sta per essere rimosso.
+         */
+        bindings = null
+
+        // Ferma/sgancia anche l'eventuale richiesta immagine associata alla View.
+        current.productImageView.setImageDrawable(null)
+        current.barcodeImageView.setImageDrawable(null)
+
         try {
-            windowManager.removeView(current.root)
+            if (current.root.isAttachedToWindow) {
+                windowManager.removeView(current.root)
+            }
         } catch (_: Exception) {
         }
-
-        bindings = null
     }
 
     private fun createWindowParams(): WindowManager.LayoutParams {
