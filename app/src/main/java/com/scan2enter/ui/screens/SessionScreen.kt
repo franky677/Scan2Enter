@@ -732,6 +732,24 @@ fun SessionScreen(
             onDismiss = {
                 editingItem = null
             },
+            onOpenArticle = {
+                editingItem = null
+
+                context.startService(
+                    Intent(
+                        context,
+                        OverlayService::class.java
+                    ).apply {
+                        action =
+                            OverlayService.ACTION_OPEN_SESSION_ARTICLE_DETAIL
+
+                        putExtra(
+                            OverlayService.EXTRA_CURRENT_ARTICLE_BARCODE,
+                            item.barcode
+                        )
+                    }
+                )
+            },
             onSave = { qty, manualPrice ->
                 SessionStore.setQuantityAndManualPrice(
                     articleId = item.articleId,
@@ -1836,6 +1854,7 @@ private fun SessionRow(
 private fun QuantityDialog(
     item: SessionItem,
     onDismiss: () -> Unit,
+    onOpenArticle: () -> Unit,
     onSave: (Int, String) -> Unit
 ) {
     var quantityText by remember(item.articleId) {
@@ -2049,10 +2068,18 @@ private fun QuantityDialog(
             }
         },
         dismissButton = {
-            TextButton(
-                onClick = onDismiss
-            ) {
-                Text("ANNULLA")
+            Row {
+                TextButton(
+                    onClick = onOpenArticle
+                ) {
+                    Text("ⓘ APRI ARTICOLO")
+                }
+
+                TextButton(
+                    onClick = onDismiss
+                ) {
+                    Text("ANNULLA")
+                }
             }
         }
     )
