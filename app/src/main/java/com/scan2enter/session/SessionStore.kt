@@ -8,10 +8,12 @@ import org.json.JSONObject
 object SessionStore {
     private const val PREFS_NAME = "scan2enter_work_session"
     private const val KEY_ITEMS = "items"
+    private const val KEY_NOTE = "collo_note"
 
     private val lock = Any()
     private val listeners = mutableSetOf<(List<SessionItem>) -> Unit>()
     private val items = LinkedHashMap<Long, SessionItem>()
+    private var colloNote: String = ""
 
     /*
      * Protezione contro la stessa lettura hardware instradata due volte
@@ -230,10 +232,12 @@ object SessionStore {
     }
 
     fun replaceWithHistory(
-        historyItems: List<SessionItem>
+        historyItems: List<SessionItem>,
+        note: String = ""
     ) {
         synchronized(lock) {
             items.clear()
+            colloNote = note.take(4000)
 
             historyItems.forEach { item ->
                 if (
@@ -258,10 +262,34 @@ object SessionStore {
     fun clear() {
         synchronized(lock) {
             items.clear()
+            colloNote = ""
             saveLocked()
         }
 
         notifyListeners()
+    }
+
+    fun getNote(): String =
+        synchronized(lock) {
+            colloNote
+        }
+
+    fun setNote(note: String) {
+        synchronized(lock) {
+            colloNote = note.take(4000)
+
+            val context = applicationContext ?: return
+            context.getSharedPreferences(
+                PREFS_NAME,
+                Context.MODE_PRIVATE
+            ).edit()
+                .putString(KEY_NOTE, colloNote)
+                .apply()
+        }
+    }
+
+    fun clearNote() {
+        setNote("")
     }
 
     fun getItems(): List<SessionItem> =
@@ -316,12 +344,19 @@ object SessionStore {
 
         val context = applicationContext ?: return
 
-        val json =
+        val prefs =
             context.getSharedPreferences(
                 PREFS_NAME,
                 Context.MODE_PRIVATE
             )
-                .getString(KEY_ITEMS, null)
+
+        colloNote =
+            prefs.getString(KEY_NOTE, "")
+                ?.take(4000)
+                .orEmpty()
+
+        val json =
+            prefs.getString(KEY_ITEMS, null)
                 ?: return
 
         runCatching {
@@ -696,6 +731,10 @@ object SessionStore {
             .putString(
                 KEY_ITEMS,
                 array.toString()
+            )
+            .putString(
+                KEY_NOTE,
+                colloNote
             )
             .apply()
     }

@@ -625,7 +625,8 @@ class GatewayApiClient(
                     itemCount = item.optInt("itemCount", 0),
                     pieceCount = item.optDouble("pieceCount", 0.0),
                     total = item.optDouble("total", 0.0),
-                    isElaborato = item.optBoolean("isElaborato", false)
+                    isElaborato = item.optBoolean("isElaborato", false),
+                    hasNote = item.optBoolean("hasNote", false)
                 )
             )
         }
@@ -680,7 +681,8 @@ class GatewayApiClient(
             createdAt = root.optString("createdAt", "").trim(),
             isElaborato = root.optBoolean("isElaborato", false),
             total = root.optDouble("total", 0.0),
-            items = items
+            items = items,
+            note = root.optString("note", "").trim()
         )
     }
 
@@ -691,7 +693,8 @@ class GatewayApiClient(
      */
     fun createSessionCollo(
         clientId: Int,
-        items: List<SessionColloItemDto>
+        items: List<SessionColloItemDto>,
+        note: String = ""
     ): Result<CreateColloResultDto> = runCatching {
         require(clientId > 0) {
             "Cliente non valido"
@@ -701,11 +704,16 @@ class GatewayApiClient(
             "La sessione è vuota"
         }
 
+        require(note.length <= 4000) {
+            "La nota collo supera 4000 caratteri"
+        }
+
         val url =
             "${baseUrl.trimEnd('/')}/api/session/colli"
 
         val body = JSONObject()
             .put("clientId", clientId)
+            .put("note", note.trim())
             .put(
                 "items",
                 JSONArray().apply {
@@ -1256,7 +1264,8 @@ data class ColloHistorySummaryDto(
     val itemCount: Int,
     val pieceCount: Double,
     val total: Double,
-    val isElaborato: Boolean
+    val isElaborato: Boolean,
+    val hasNote: Boolean = false
 )
 
 data class ColloHistoryItemDto(
@@ -1278,7 +1287,8 @@ data class ColloHistoryDetailDto(
     val createdAt: String,
     val isElaborato: Boolean,
     val total: Double,
-    val items: List<ColloHistoryItemDto>
+    val items: List<ColloHistoryItemDto>,
+    val note: String = ""
 )
 
 data class SessionColloItemDto(

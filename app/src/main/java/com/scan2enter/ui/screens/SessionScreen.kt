@@ -888,6 +888,14 @@ private fun SessionActionPanel(
         mutableStateOf(false)
     }
 
+    var colloNote by remember {
+        mutableStateOf(SessionStore.getNote())
+    }
+
+    var deleteNoteConfirmOpen by remember {
+        mutableStateOf(false)
+    }
+
     val gatewayApiClient = remember {
         GatewayApiClient()
     }
@@ -963,6 +971,54 @@ private fun SessionActionPanel(
                 )
             }
 
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.Top
+            ) {
+                OutlinedTextField(
+                    value = colloNote,
+                    onValueChange = { value ->
+                        val limited = value.take(4000)
+                        colloNote = limited
+                        SessionStore.setNote(limited)
+                    },
+                    label = {
+                        Text("📝 Nota collo")
+                    },
+                    placeholder = {
+                        Text("Testo libero, es. consegnare venerdì")
+                    },
+                    minLines = 2,
+                    maxLines = 5,
+                    modifier = Modifier.weight(1f)
+                )
+
+                if (colloNote.isNotBlank()) {
+                    Text(
+                        text = "✕",
+                        fontSize = 24.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFFB00020),
+                        modifier = Modifier
+                            .clickable {
+                                deleteNoteConfirmOpen = true
+                            }
+                            .padding(
+                                start = 10.dp,
+                                top = 12.dp,
+                                end = 4.dp,
+                                bottom = 12.dp
+                            )
+                    )
+                }
+            }
+
+            Text(
+                text = "${colloNote.length}/4000",
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
             sendError?.let { error ->
                 Text(
                     text = error,
@@ -1009,7 +1065,8 @@ private fun SessionActionPanel(
                         val result =
                             gatewayApiClient.createSessionCollo(
                                 clientId = customer.id,
-                                items = payloadItems
+                                items = payloadItems,
+                                note = colloNote
                             )
 
                         Handler(Looper.getMainLooper()).post {
@@ -1091,6 +1148,47 @@ private fun SessionActionPanel(
                 )
             }
         }
+    }
+
+    if (deleteNoteConfirmOpen) {
+        AlertDialog(
+            onDismissRequest = {
+                deleteNoteConfirmOpen = false
+            },
+            title = {
+                Text(
+                    text = "⚠ ELIMINA NOTA COLLO",
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFFB00020)
+                )
+            },
+            text = {
+                Text(
+                    "Vuoi eliminare la nota dalla Sessione corrente? " +
+                            "Gli articoli non verranno modificati."
+                )
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        deleteNoteConfirmOpen = false
+                    }
+                ) {
+                    Text("ANNULLA")
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        colloNote = ""
+                        SessionStore.clearNote()
+                        deleteNoteConfirmOpen = false
+                    }
+                ) {
+                    Text("ELIMINA NOTA")
+                }
+            }
+        )
     }
 
     if (clearSessionConfirmOpen) {

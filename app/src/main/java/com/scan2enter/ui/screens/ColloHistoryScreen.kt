@@ -120,7 +120,7 @@ fun ColloHistoryScreen(
             OutlinedTextField(
                 value = query,
                 onValueChange = { query = it },
-                label = { Text("Numero, cliente, articolo o barcode") },
+                label = { Text("Numero, cliente, articolo, barcode o nota") },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                 keyboardActions = KeyboardActions(onSearch = { loadHistory() }),
@@ -146,9 +146,31 @@ fun ColloHistoryScreen(
                         tonalElevation = 2.dp
                     ) {
                         Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text("📦 ${collo.numeroCollo}", fontSize = 19.sp, fontWeight = FontWeight.Bold)
-                                Text(if (collo.isElaborato) "✅ ELABORATO" else "🟡 APERTO", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    "📦 ${collo.numeroCollo}",
+                                    fontSize = 19.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.weight(1f)
+                                )
+
+                                if (collo.hasNote) {
+                                    Text(
+                                        text = "📝✓",
+                                        fontSize = 18.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.padding(horizontal = 10.dp)
+                                    )
+                                }
+
+                                Text(
+                                    if (collo.isElaborato) "✅ ELABORATO" else "🟡 APERTO",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
                             }
                             Text(collo.clientName.ifBlank { "Cliente ${collo.clientId}" }, fontWeight = FontWeight.SemiBold)
                             Text("${formatHistoryDate(collo.createdAt)} • ${collo.itemCount} articoli • ${formatPieces(collo.pieceCount)} pezzi")
@@ -190,7 +212,10 @@ fun ColloHistoryScreen(
                         )
                     }
                 }
-                SessionStore.replaceWithHistory(sessionItems)
+                SessionStore.replaceWithHistory(
+                    historyItems = sessionItems,
+                    note = collo.note
+                )
                 SessionCustomerStore.setCustomer(collo.clientId, collo.clientName.ifBlank { "Cliente ${collo.clientId}" })
                 detail = null
                 onDuplicated()
@@ -217,6 +242,13 @@ private fun ColloDetailDialog(
                 item {
                     Text(collo.clientName.ifBlank { "Cliente ${collo.clientId}" }, fontWeight = FontWeight.Bold)
                     Text(formatHistoryDate(collo.createdAt))
+                    if (collo.note.isNotBlank()) {
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            text = "📝 ${collo.note}",
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
                     Spacer(Modifier.height(8.dp))
                     if (collo.barcodeCollo.isNotBlank()) {
                         Ean13Barcode(code = collo.barcodeCollo, modifier = Modifier.fillMaxWidth().height(130.dp))
