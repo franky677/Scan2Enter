@@ -144,6 +144,9 @@ class OverlayService : Service() {
         const val EXTRA_FORCE_STOCK_SOUND =
             "com.scan2enter.extra.FORCE_STOCK_SOUND"
 
+        const val EXTRA_SUPPRESS_AUTO_REOPEN_SCANNER =
+            "com.scan2enter.extra.SUPPRESS_AUTO_REOPEN_SCANNER"
+
         const val EXTRA_DIRECT_TO_SESSION =
             "com.scan2enter.extra.DIRECT_TO_SESSION"
 
@@ -1268,13 +1271,20 @@ class OverlayService : Service() {
                         false
                     )
 
+                val suppressAutoReopenScanner =
+                    intent.getBooleanExtra(
+                        EXTRA_SUPPRESS_AUTO_REOPEN_SCANNER,
+                        false
+                    )
+
                 openCurrentArticleFromApi(
                     rawBarcode = barcode,
                     uiYear = intent.getStringExtra(EXTRA_CURRENT_ARTICLE_YEAR).orEmpty(),
                     uiSeason = intent.getStringExtra(EXTRA_CURRENT_ARTICLE_SEASON).orEmpty(),
                     uiLocation = intent.getStringExtra(EXTRA_CURRENT_ARTICLE_LOCATION).orEmpty(),
                     addToSession = false,
-                    forceStockSound = forceStockSound
+                    forceStockSound = forceStockSound,
+                    suppressAutoReopenScanner = suppressAutoReopenScanner
                 )
             }
         }
@@ -1401,6 +1411,7 @@ class OverlayService : Service() {
         addToSession: Boolean = false,
         showPopup: Boolean = true,
         forceStockSound: Boolean = false,
+        suppressAutoReopenScanner: Boolean = false,
         onLoaded: ((ProductInfo) -> Unit)? = null
     ) {
         val barcode = rawBarcode
@@ -1466,7 +1477,8 @@ class OverlayService : Service() {
                     if (showPopup) {
                         showOrUpdateProductInfoPopup(
                             workflowCompleted = true,
-                            manualOpen = !forceStockSound
+                            manualOpen = !forceStockSound,
+                            allowAutoReopenScanner = !suppressAutoReopenScanner
                         )
                     }
 
@@ -4402,7 +4414,8 @@ class OverlayService : Service() {
      */
     private fun showOrUpdateProductInfoPopup(
         workflowCompleted: Boolean,
-        manualOpen: Boolean
+        manualOpen: Boolean,
+        allowAutoReopenScanner: Boolean = true
     ) {
         val product = ProductInfoStore.current
 
@@ -4450,7 +4463,10 @@ class OverlayService : Service() {
         )
 
         popupHandler.removeCallbacks(dismissPopupRunnable)
-        reopenScannerAfterPopup = workflowCompleted && !manualOpen
+        reopenScannerAfterPopup =
+            workflowCompleted &&
+                !manualOpen &&
+                allowAutoReopenScanner
 
         if (workflowCompleted || manualOpen) {
             scheduleProductPopupDismiss(product)

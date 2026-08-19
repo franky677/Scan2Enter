@@ -85,6 +85,7 @@
         <service
             android:name=".overlay.OverlayService"
             android:exported="false" />
+
         <receiver
             android:name=".sunmi.SunmiManifestReceiver"
             android:exported="true">
@@ -95,7 +96,17 @@
 
         </receiver>
 
+        <!-- Zebra TC22 / DataWedge -->
+        <receiver
+            android:name=".zebra.ZebraDataWedgeReceiver"
+            android:exported="true">
 
+            <intent-filter>
+                <action android:name="com.scan2enter.SCAN" />
+
+            </intent-filter>
+
+        </receiver>
 
     </application>
 

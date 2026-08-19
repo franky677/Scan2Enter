@@ -199,6 +199,62 @@ fun SessionScreen(
         var lastBarcode = ""
         var lastScanAt = 0L
 
+        fun routeHardwareBarcode(
+            barcode: String,
+            source: String
+        ) {
+            val normalizedBarcode =
+                barcode.trim()
+
+            if (normalizedBarcode.isBlank()) {
+                return
+            }
+
+            val now =
+                android.os.SystemClock.elapsedRealtime()
+
+            if (
+                normalizedBarcode == lastBarcode &&
+                now - lastScanAt < 600L
+            ) {
+                android.util.Log.d(
+                    "SessionScreen",
+                    "DOPPIA LETTURA IGNORATA " +
+                            "source=$source barcode=$normalizedBarcode"
+                )
+                return
+            }
+
+            lastBarcode = normalizedBarcode
+            lastScanAt = now
+
+            android.util.Log.d(
+                "SessionScreen",
+                "LETTURA HARDWARE SESSIONE " +
+                        "source=$source barcode=$normalizedBarcode"
+            )
+
+            context.startService(
+                Intent(
+                    context,
+                    OverlayService::class.java
+                ).apply {
+                    action =
+                        OverlayService.ACTION_OPEN_SEARCH_ARTICLE
+
+                    putExtra(
+                        OverlayService.EXTRA_CURRENT_ARTICLE_BARCODE,
+                        normalizedBarcode
+                    )
+
+                    putExtra(
+                        OverlayService.EXTRA_SUPPRESS_PRODUCT_POPUP,
+                        true
+                    )
+                }
+            )
+        }
+
         val sunmiReceiver =
             object : BroadcastReceiver() {
                 override fun onReceive(
@@ -217,45 +273,36 @@ fun SessionScreen(
                             ?.trim()
                             .orEmpty()
 
-                    if (barcode.isBlank()) {
-                        return
-                    }
+                    routeHardwareBarcode(
+                        barcode = barcode,
+                        source = "SUNMI"
+                    )
+                }
+            }
 
-                    val now =
-                        android.os.SystemClock.elapsedRealtime()
-
+        val zebraReceiver =
+            object : BroadcastReceiver() {
+                override fun onReceive(
+                    receiverContext: Context?,
+                    intent: Intent?
+                ) {
                     if (
-                        barcode == lastBarcode &&
-                        now - lastScanAt < 600L
+                        intent?.action !=
+                        "com.scan2enter.SCAN"
                     ) {
-                        android.util.Log.d(
-                            "SessionScreen",
-                            "DOPPIA LETTURA IGNORATA barcode=$barcode"
-                        )
                         return
                     }
 
-                    lastBarcode = barcode
-                    lastScanAt = now
+                    val barcode =
+                        intent.getStringExtra(
+                            "com.symbol.datawedge.data_string"
+                        )
+                            ?.trim()
+                            .orEmpty()
 
-                    context.startService(
-                        Intent(
-                            context,
-                            OverlayService::class.java
-                        ).apply {
-                            action =
-                                OverlayService.ACTION_OPEN_SEARCH_ARTICLE
-
-                            putExtra(
-                                OverlayService.EXTRA_CURRENT_ARTICLE_BARCODE,
-                                barcode
-                            )
-
-                            putExtra(
-                                OverlayService.EXTRA_SUPPRESS_PRODUCT_POPUP,
-                                true
-                            )
-                        }
+                    routeHardwareBarcode(
+                        barcode = barcode,
+                        source = "ZEBRA"
                     )
                 }
             }
@@ -269,6 +316,13 @@ fun SessionScreen(
             )
         }
 
+        androidx.core.content.ContextCompat.registerReceiver(
+            context,
+            zebraReceiver,
+            IntentFilter("com.scan2enter.SCAN"),
+            androidx.core.content.ContextCompat.RECEIVER_EXPORTED
+        )
+
         onDispose {
             if (ScannerModeDetector.isSunmi()) {
                 runCatching {
@@ -276,6 +330,12 @@ fun SessionScreen(
                         sunmiReceiver
                     )
                 }
+            }
+
+            runCatching {
+                context.unregisterReceiver(
+                    zebraReceiver
+                )
             }
         }
     }
