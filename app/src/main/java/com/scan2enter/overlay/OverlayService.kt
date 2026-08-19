@@ -261,7 +261,9 @@ class OverlayService : Service() {
     private val popupHandler = Handler(Looper.getMainLooper())
 
     private var godexSunmiReceiverRegistered = false
+    private var godexZebraReceiverRegistered = false
     private var a4SunmiReceiverRegistered = false
+    private var a4ZebraReceiverRegistered = false
 
     /*
      * Solo per SCAFFALE A4:
@@ -283,7 +285,7 @@ class OverlayService : Service() {
      * mentre il popup A4 era nella sezione OFFERTE.
      * S24 non imposta mai questo flag.
      */
-    private var sunmiA4OfferScanInProgress = false
+    private var hardwareA4OfferScanInProgress = false
 
     /*
      * Percorso GoDEX Sunmi lasciato IDENTICO alla versione stabile
@@ -324,6 +326,51 @@ class OverlayService : Service() {
                 android.util.Log.d(
                     "Scan2Enter",
                     "SUNMI GODEX SERVICE RECEIVER barcode=$barcode"
+                )
+
+                labelPrintPopupController.remove()
+
+                openGodexBarcodeDirect(barcode)
+            }
+        }
+
+    /*
+     * ZEBRA / DataWedge:
+     * percorso GoDEX parallelo a quello Sunmi.
+     * Il receiver generale Zebra ignora volutamente MODE_LABELS_GODEX,
+     * quindi qui non ci sono doppie letture.
+     */
+    private val godexZebraReceiver =
+        object : BroadcastReceiver() {
+            override fun onReceive(
+                receiverContext: Context?,
+                intent: Intent?
+            ) {
+                if (
+                    intent?.action !=
+                    "com.scan2enter.SCAN"
+                ) {
+                    return
+                }
+
+                if (loadCurrentScanMode() != MODE_LABELS_GODEX) {
+                    return
+                }
+
+                val barcode =
+                    intent.getStringExtra(
+                        "com.symbol.datawedge.data_string"
+                    )
+                        ?.trim()
+                        .orEmpty()
+
+                if (barcode.isBlank()) {
+                    return
+                }
+
+                android.util.Log.d(
+                    "Scan2Enter",
+                    "ZEBRA GODEX SERVICE RECEIVER barcode=$barcode"
                 )
 
                 labelPrintPopupController.remove()
@@ -383,7 +430,7 @@ class OverlayService : Service() {
                  * SOLO SUNMI: memorizza se questa lettura arriva dalla sezione
                  * OFFERTE prima di rimuovere temporaneamente il popup.
                  */
-                sunmiA4OfferScanInProgress =
+                hardwareA4OfferScanInProgress =
                     currentMode == MODE_LABELS_A4 &&
                             a4LabelsPopupController.isOfferSection()
 
@@ -392,11 +439,118 @@ class OverlayService : Service() {
                 )
 
                 if (currentMode == MODE_LABELS_BLISTER) {
-                    sunmiA4OfferScanInProgress = false
+                    hardwareA4OfferScanInProgress = false
                     openBlisterBarcodeDirect(barcode)
                 } else {
                     openA4BarcodeDirect(barcode)
                 }
+            }
+        }
+
+    /*
+     * ZEBRA / DataWedge - A4 SCAFFALE.
+     * Per questo step gestiamo volutamente soltanto la sezione SCAFFALE.
+     * OFFERTE e BLISTER verranno abilitate nei passi successivi.
+     */
+    private val a4ZebraReceiver =
+        object : BroadcastReceiver() {
+            override fun onReceive(
+                receiverContext: Context?,
+                intent: Intent?
+            ) {
+                if (
+                    intent?.action !=
+                    "com.scan2enter.SCAN"
+                ) {
+                    return
+                }
+
+                val currentMode =
+                    loadCurrentScanMode()
+
+                if (
+                    currentMode != MODE_LABELS_A4 &&
+                    currentMode != MODE_LABELS_BLISTER
+                ) {
+                    return
+                }
+
+                hardwareA4OfferScanInProgress =
+                    currentMode == MODE_LABELS_A4 &&
+                            a4LabelsPopupController.isOfferSection()
+
+                val barcode =
+                    intent.getStringExtra(
+                        "com.symbol.datawedge.data_string"
+                    )
+                        ?.trim()
+                        .orEmpty()
+
+                if (barcode.isBlank()) {
+                    return
+                }
+
+                android.util.Log.d(
+                    "Scan2Enter",
+                    "ZEBRA A4/BLISTER RECEIVER " +
+                            "mode=$currentMode " +
+                            "offer=$hardwareA4OfferScanInProgress " +
+                            "barcode=$barcode"
+                )
+
+                a4ShelfScanInProgress = false
+                a4OfferScanInProgress = hardwareA4OfferScanInProgress
+
+                if (currentMode == MODE_LABELS_BLISTER) {
+                    /*
+                     * BLISTER: stesso ingresso già usato dal percorso hardware
+                     * Sunmi. Rimuoviamo la finestra preservando la sezione e
+                     * carichiamo direttamente l'articolo letto.
+                     */
+                    a4LabelsPopupController.remove(
+                        preserveSection = true
+                    )
+
+                    applicationContext
+                        .getSharedPreferences(
+                            WORKFLOW_PREFS,
+                            Context.MODE_PRIVATE
+                        )
+                        .edit()
+                        .putString(
+                            WORKFLOW_MODE_KEY,
+                            MODE_LABELS_BLISTER
+                        )
+                        .apply()
+
+                    hardwareA4OfferScanInProgress = false
+                    openBlisterBarcodeDirect(barcode)
+                    return
+                }
+
+                /*
+                 * A4 Zebra già collaudato:
+                 * OFFERTE resta aperto; SCAFFALE conserva il percorso attuale.
+                 */
+                if (!hardwareA4OfferScanInProgress) {
+                    a4LabelsPopupController.remove(
+                        preserveSection = true
+                    )
+                }
+
+                applicationContext
+                    .getSharedPreferences(
+                        WORKFLOW_PREFS,
+                        Context.MODE_PRIVATE
+                    )
+                    .edit()
+                    .putString(
+                        WORKFLOW_MODE_KEY,
+                        MODE_LABELS_A4
+                    )
+                    .apply()
+
+                openA4BarcodeDirect(barcode)
             }
         }
 
@@ -1841,22 +1995,22 @@ class OverlayService : Service() {
                 A4LabelStore.initialize(applicationContext)
 
                 /*
-                 * SOLO SUNMI: il percorso hardware non passa da
+                 * SUNMI / ZEBRA: il percorso hardware non passa da
                  * ACTION_SHOW_A4_LABELS, quindi assegniamo qui l'articolo
                  * appena caricato alla sezione OFFERTE.
                  */
-                if (sunmiA4OfferScanInProgress) {
+                if (hardwareA4OfferScanInProgress) {
                     a4LabelsPopupController.selectOfferItem(
                         A4LabelItem.fromProduct(loadedProduct)
                     )
 
                     android.util.Log.d(
                         "Scan2Enter",
-                        "SUNMI OFFERTA -> ARTICOLO SELEZIONATO " +
+                        "HARDWARE OFFERTA -> ARTICOLO SELEZIONATO " +
                                 "ean=${loadedProduct.barcode}"
                     )
 
-                    sunmiA4OfferScanInProgress = false
+                    hardwareA4OfferScanInProgress = false
                 }
 
                 when (
@@ -1941,9 +2095,16 @@ class OverlayService : Service() {
                             )
                             .apply()
 
-                        scanOverlay.show(
-                            rapidRescan = false
-                        )
+                        if (isZebraDevice()) {
+                            android.util.Log.d(
+                                "Scan2Enter",
+                                "ZEBRA BLISTER - SCANNER HARDWARE GIÀ ATTIVO"
+                            )
+                        } else {
+                            scanOverlay.show(
+                                rapidRescan = false
+                            )
+                        }
                     },
                     onShelfActivated = {
                         a4OfferScanInProgress = false
@@ -2056,6 +2217,14 @@ class OverlayService : Service() {
         a4ShelfScanInProgress = false
         a4OfferScanInProgress = true
 
+        if (isZebraDevice()) {
+            android.util.Log.d(
+                "Scan2Enter",
+                "ZEBRA A4 OFFERTE - SCANNER HARDWARE GIÀ ATTIVO"
+            )
+            return
+        }
+
         popupHandler.postDelayed(
             {
                 sessionRecordedForCurrentScan = false
@@ -2074,6 +2243,14 @@ class OverlayService : Service() {
         }
 
         a4ShelfScanInProgress = true
+
+        if (isZebraDevice()) {
+            android.util.Log.d(
+                "Scan2Enter",
+                "ZEBRA A4 SCAFFALE - SCANNER HARDWARE GIÀ ATTIVO"
+            )
+            return
+        }
 
         popupHandler.postDelayed(
             {
@@ -2170,12 +2347,48 @@ class OverlayService : Service() {
             return
         }
 
+        /*
+         * Sul TC22 DataWedge tiene già pronto lo scanner hardware:
+         * non dobbiamo aprire CameraX. Il grilletto può essere premuto
+         * direttamente mentre la finestra GoDEX è aperta.
+         *
+         * S24 e Sunmi mantengono il comportamento precedente.
+         */
+        if (isZebraDevice()) {
+            android.util.Log.d(
+                "Scan2Enter",
+                "ZEBRA GODEX - SCANNER HARDWARE GIÀ ATTIVO"
+            )
+            return
+        }
+
         popupHandler.postDelayed(
             {
                 scanOverlay.show(rapidRescan = false)
             },
             250L
         )
+    }
+
+    private fun isZebraDevice(): Boolean {
+        val manufacturer =
+            android.os.Build.MANUFACTURER
+                .orEmpty()
+                .trim()
+
+        val brand =
+            android.os.Build.BRAND
+                .orEmpty()
+                .trim()
+
+        return manufacturer.contains(
+            "zebra",
+            ignoreCase = true
+        ) ||
+            brand.contains(
+                "zebra",
+                ignoreCase = true
+            )
     }
 
     private fun loadCurrentScanMode(): String {
@@ -2243,6 +2456,24 @@ class OverlayService : Service() {
             )
         }
 
+        if (!godexZebraReceiverRegistered) {
+            ContextCompat.registerReceiver(
+                this,
+                godexZebraReceiver,
+                IntentFilter(
+                    "com.scan2enter.SCAN"
+                ),
+                ContextCompat.RECEIVER_EXPORTED
+            )
+
+            godexZebraReceiverRegistered = true
+
+            android.util.Log.d(
+                "Scan2Enter",
+                "ZEBRA GODEX SERVICE RECEIVER REGISTRATO"
+            )
+        }
+
         if (!a4SunmiReceiverRegistered) {
             ContextCompat.registerReceiver(
                 this,
@@ -2258,6 +2489,24 @@ class OverlayService : Service() {
             android.util.Log.d(
                 "Scan2Enter",
                 "SUNMI A4 SERVICE RECEIVER REGISTRATO"
+            )
+        }
+
+        if (!a4ZebraReceiverRegistered) {
+            ContextCompat.registerReceiver(
+                this,
+                a4ZebraReceiver,
+                IntentFilter(
+                    "com.scan2enter.SCAN"
+                ),
+                ContextCompat.RECEIVER_EXPORTED
+            )
+
+            a4ZebraReceiverRegistered = true
+
+            android.util.Log.d(
+                "Scan2Enter",
+                "ZEBRA A4 SERVICE RECEIVER REGISTRATO"
             )
         }
 
@@ -6239,11 +6488,25 @@ class OverlayService : Service() {
             godexSunmiReceiverRegistered = false
         }
 
+        if (godexZebraReceiverRegistered) {
+            runCatching {
+                unregisterReceiver(godexZebraReceiver)
+            }
+            godexZebraReceiverRegistered = false
+        }
+
         if (a4SunmiReceiverRegistered) {
             runCatching {
                 unregisterReceiver(a4SunmiReceiver)
             }
             a4SunmiReceiverRegistered = false
+        }
+
+        if (a4ZebraReceiverRegistered) {
+            runCatching {
+                unregisterReceiver(a4ZebraReceiver)
+            }
+            a4ZebraReceiverRegistered = false
         }
 
         popupHandler.removeCallbacks(

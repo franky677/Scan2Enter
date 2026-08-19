@@ -3,6 +3,8 @@ package com.scan2enter.zebra
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import com.scan2enter.overlay.OverlayService
 
@@ -103,37 +105,69 @@ class ZebraDataWedgeReceiver : BroadcastReceiver() {
 
         /*
          * HOME + modalità INFO:
-         * lettura hardware Zebra tramite DataWedge.
-         * Riutilizziamo lo stesso ingresso già usato dal receiver Sunmi:
-         * OverlayService carica l'articolo e mostra il popup.
+         * DataWedge consegna lo stesso broadcast sia al receiver generale
+         * sia agli eventuali receiver dinamici di A4/GoDEX.
+         *
+         * Su A4 può quindi esistere una piccola race: il receiver generale
+         * vede ancora INFO mentre il receiver A4 sta impostando ETICHETTE_A4.
+         *
+         * Aspettiamo 120 ms e rileggiamo il workflow. Se è ancora INFO,
+         * siamo davvero sulla HOME e apriamo il popup articolo. Se nel
+         * frattempo è diventato A4/BLISTER/GoDEX, non facciamo nulla.
          */
         if (
             currentScreen == SCREEN_HOME &&
             workflowMode == MODE_INFO
         ) {
-            context.startService(
-                Intent(
-                    context,
-                    OverlayService::class.java
-                ).apply {
-                    action =
-                        OverlayService.ACTION_OPEN_CURRENT_ARTICLE
+            Handler(Looper.getMainLooper()).postDelayed(
+                {
+                    val confirmedMode =
+                        appContext
+                            .getSharedPreferences(
+                                WORKFLOW_PREFS,
+                                Context.MODE_PRIVATE
+                            )
+                            .getString(
+                                WORKFLOW_MODE_KEY,
+                                MODE_INFO
+                            )
+                            ?: MODE_INFO
 
-                    putExtra(
-                        OverlayService.EXTRA_CURRENT_ARTICLE_BARCODE,
-                        barcode
-                    )
+                    if (confirmedMode != MODE_INFO) {
+                        Log.d(
+                            "Scan2Enter",
+                            "ZEBRA HOME RECEIVER ANNULLATO " +
+                                    "mode=$confirmedMode barcode=$barcode"
+                        )
+                        return@postDelayed
+                    }
 
-                    putExtra(
-                        OverlayService.EXTRA_FORCE_STOCK_SOUND,
-                        true
-                    )
+                    context.startService(
+                        Intent(
+                            context,
+                            OverlayService::class.java
+                        ).apply {
+                            action =
+                                OverlayService.ACTION_OPEN_CURRENT_ARTICLE
 
-                    putExtra(
-                        OverlayService.EXTRA_SUPPRESS_AUTO_REOPEN_SCANNER,
-                        true
+                            putExtra(
+                                OverlayService.EXTRA_CURRENT_ARTICLE_BARCODE,
+                                barcode
+                            )
+
+                            putExtra(
+                                OverlayService.EXTRA_FORCE_STOCK_SOUND,
+                                true
+                            )
+
+                            putExtra(
+                                OverlayService.EXTRA_SUPPRESS_AUTO_REOPEN_SCANNER,
+                                true
+                            )
+                        }
                     )
-                }
+                },
+                120L
             )
 
             return

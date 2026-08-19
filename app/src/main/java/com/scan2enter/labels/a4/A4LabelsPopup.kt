@@ -81,8 +81,21 @@ class A4LabelsPopup(
      */
     private var selectedOfferItem: A4LabelItem? = null
 
+    /*
+     * Callback valorizzato mentre la finestra A4 è aperta.
+     * Serve per ridisegnare subito la sezione corrente quando cambia
+     * l'articolo OFFERTE da una scansione hardware.
+     */
+    private var refreshCurrentSectionUi: (() -> Unit)? = null
+
     fun selectOfferItem(item: A4LabelItem) {
         selectedOfferItem = item
+
+        root?.post {
+            if (currentSection == Section.OFFER) {
+                refreshCurrentSectionUi?.invoke()
+            }
+        }
     }
 
     fun isOfferSection(): Boolean {
@@ -297,7 +310,22 @@ class A4LabelsPopup(
                  *
                  * S24 non entra in questo blocco: comportamento invariato.
                  */
-                if (ScannerModeDetector.isSunmi()) {
+                val isHardwareScannerDevice =
+                    ScannerModeDetector.isSunmi() ||
+                            android.os.Build.MANUFACTURER
+                                .orEmpty()
+                                .contains(
+                                    "zebra",
+                                    ignoreCase = true
+                                ) ||
+                            android.os.Build.BRAND
+                                .orEmpty()
+                                .contains(
+                                    "zebra",
+                                    ignoreCase = true
+                                )
+
+                if (isHardwareScannerDevice) {
                     context.applicationContext
                         .getSharedPreferences(
                             "scan_workflow",
@@ -1546,6 +1574,8 @@ class A4LabelsPopup(
             }
         }
 
+        refreshCurrentSectionUi = rebuildCurrentSection
+
         backOrClose.setOnClickListener {
             if (currentSection == Section.HUB) {
                 currentSection = Section.HUB
@@ -1623,7 +1653,7 @@ class A4LabelsPopup(
             card,
             FrameLayout.LayoutParams(
                 (screenWidth - dp(28)).coerceAtMost(dp(520)),
-                (screenHeight - dp(70)).coerceAtMost(dp(850))
+                (screenHeight - dp(16)).coerceAtMost(dp(910))
             ).apply {
                 gravity = Gravity.CENTER
             }
@@ -1657,6 +1687,7 @@ class A4LabelsPopup(
         }
 
         root = null
+        refreshCurrentSectionUi = null
         listContainer = null
         countText = null
         previewCode = null
