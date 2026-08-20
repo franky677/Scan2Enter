@@ -29,6 +29,14 @@ data class ProductInfo(
     val barcode: String = "",
 
     /**
+     * Stato articolo in Due Retail.
+     *
+     * true = articolo attivo
+     * false = articolo bloccato/non più utilizzato
+     */
+    val active: Boolean = true,
+
+    /**
      * Prezzo imponibile.
      */
     val taxablePrice: String = "",

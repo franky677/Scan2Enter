@@ -44,6 +44,7 @@ class ProductInfoPopup(
     data class Bindings(
         val root: View,
         val windowParams: WindowManager.LayoutParams,
+        val blockedBanner: TextView,
         val priceValueText: TextView,
         val articleCodeValueText: TextView,
         val barcodeValueText: TextView,
@@ -106,9 +107,43 @@ class ProductInfoPopup(
         val popupView = LayoutInflater.from(context)
             .inflate(R.layout.product_info_popup, overlayRoot, false)
 
+        val blockedBanner = TextView(context).apply {
+            text = "⛔  ARTICOLO BLOCCATO"
+            textSize = 18f
+            setTextColor(Color.WHITE)
+            gravity = Gravity.CENTER
+            setPadding((12 * density).toInt(), (8 * density).toInt(), (12 * density).toInt(), (8 * density).toInt())
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = 12 * density
+                setColor(Color.rgb(183, 28, 28))
+            }
+            visibility = View.GONE
+        }
+
+        val mainContent =
+            popupView.findViewById<LinearLayout>(
+                R.id.productInfoMainContent
+            )
+
+        mainContent.addView(
+            blockedBanner,
+            1,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                leftMargin = (12 * density).toInt()
+                rightMargin = (12 * density).toInt()
+                topMargin = (8 * density).toInt()
+                bottomMargin = (4 * density).toInt()
+            }
+        )
+
         val createdBindings = Bindings(
             root = overlayRoot,
             windowParams = createWindowParams(),
+            blockedBanner = blockedBanner,
             priceValueText = popupView.findViewById(R.id.productPublicPriceText),
             articleCodeValueText = popupView.findViewById(R.id.productArticleCodeText),
             barcodeValueText = popupView.findViewById(R.id.productBarcodeText),
@@ -295,6 +330,7 @@ class ProductInfoPopup(
             value.trim().takeIf { it.isNotEmpty() && it != "-1" } ?: ""
 
         if (product == null) {
+            current.blockedBanner.visibility = View.GONE
             current.priceValueText.text = "—"
             current.articleCodeValueText.text = "—"
             current.barcodeValueText.text = "—"
@@ -315,6 +351,8 @@ class ProductInfoPopup(
             current.reorderLotValueText.text = ""
             return null
         }
+
+        current.blockedBanner.visibility = if (product.active) View.GONE else View.VISIBLE
 
         current.priceValueText.text = formatPublicPrice(product.publicPrice)
         current.articleCodeValueText.text = valueOrLoading(product.articleCode)

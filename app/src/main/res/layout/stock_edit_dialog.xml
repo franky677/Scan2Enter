@@ -215,6 +215,15 @@
             android:textSize="16sp"
             android:textStyle="bold" />
 
+        <Button
+            android:id="@+id/productActiveButton"
+            android:layout_width="match_parent"
+            android:layout_height="54dp"
+            android:layout_marginTop="10dp"
+            android:text="⛔  BLOCCA ARTICOLO"
+            android:textSize="16sp"
+            android:textStyle="bold" />
+
 
         <LinearLayout
             android:layout_width="match_parent"

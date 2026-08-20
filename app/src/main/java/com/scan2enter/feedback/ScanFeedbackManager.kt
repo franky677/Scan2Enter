@@ -24,6 +24,7 @@ object ScanFeedbackManager {
     private var successSoundId = 0
     private var warningSoundId = 0
     private var errorSoundId = 0
+    private var blockedSoundId = 0
     private val loadedSoundIds = mutableSetOf<Int>()
 
     fun initialize(context: Context) {
@@ -68,6 +69,7 @@ object ScanFeedbackManager {
             successSoundId = pool.load(appContext, R.raw.scan_blip, 1)
             warningSoundId = pool.load(appContext, R.raw.scan_crash, 1)
             errorSoundId = pool.load(appContext, R.raw.scan_double_beep, 1)
+            blockedSoundId = pool.load(appContext, R.raw.article_blocked, 1)
 
             soundPool = pool
             initialized = true
@@ -89,6 +91,11 @@ object ScanFeedbackManager {
     fun playError(context: Context) {
         initialize(context)
         play(errorSoundId, "DOPPIO BIP")
+    }
+
+    fun playBlocked(context: Context) {
+        initialize(context)
+        play(blockedSoundId, "ARTICOLO BLOCCATO")
     }
 
     fun setEnabled(context: Context, value: Boolean) {
@@ -129,6 +136,7 @@ object ScanFeedbackManager {
             successSoundId = 0
             warningSoundId = 0
             errorSoundId = 0
+            blockedSoundId = 0
             initialized = false
         }
     }

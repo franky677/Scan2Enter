@@ -85,6 +85,57 @@ class GatewayApiClient(
     }
 
     /**
+     * Blocca o sblocca un articolo nel Gateway.
+     *
+     * PUT /api/product/{articleId}/active
+     */
+    fun updateProductActive(
+        articleId: Long,
+        active: Boolean
+    ): Result<Boolean> = runCatching {
+        require(articleId > 0L) {
+            "articleId non valido: $articleId"
+        }
+
+        val url =
+            "${baseUrl.trimEnd('/')}/api/product/$articleId/active"
+
+        val body = JSONObject()
+            .put("active", active)
+            .toString()
+
+        Log.d(TAG, "GATEWAY UPDATE PRODUCT ACTIVE")
+        Log.d(TAG, "ARTICLE ID=$articleId ACTIVE=$active")
+        Log.d(TAG, "URL = $url")
+
+        val response = executeJson(
+            urlString = url,
+            method = "PUT",
+            jsonBody = body
+        )
+
+        Log.d(TAG, "GATEWAY UPDATE PRODUCT ACTIVE HTTP=${response.code}")
+        Log.d(TAG, "BODY=${response.body.take(500)}")
+
+        if (response.code !in 200..299) {
+            error(
+                "Gateway HTTP ${response.code}: ${response.body.take(500)}"
+            )
+        }
+
+        val root = JSONObject(response.body)
+
+        check(root.optBoolean("updated", false)) {
+            root.optString(
+                "message",
+                "Aggiornamento stato articolo non riuscito"
+            )
+        }
+
+        root.optBoolean("active", active)
+    }
+
+    /**
      * Recupera il prezzo corretto per un cliente e un articolo.
      *
      * GET /api/session/client-price?clientId=...&barcode=...
@@ -952,6 +1003,7 @@ class GatewayApiClient(
             articleCode = item.optString("articleCode"),
             description = item.optString("description"),
             barcode = item.optString("barcode"),
+            active = item.optBoolean("active", true),
             taxablePrice = item.optString("taxablePrice"),
             vatRate = item.optString("vatRate"),
             publicPrice = item.optString("publicPrice"),

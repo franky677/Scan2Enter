@@ -663,6 +663,7 @@ class OverlayService : Service() {
     private var savedListTopOffset = 0
     private var urgentStockTone: ToneGenerator? = null
 
+
     private val dismissScanErrorRunnable = Runnable {
         removeScanErrorPopup()
 
@@ -4699,7 +4700,12 @@ class OverlayService : Service() {
         updateProductInfoPopup(
             product = product,
             workflowCompleted = workflowCompleted,
-            playStockSound = workflowCompleted && !manualOpen
+            playStockSound =
+                workflowCompleted &&
+                        (
+                                !manualOpen ||
+                                        product?.active == false
+                                )
         )
 
         /*
@@ -5515,13 +5521,21 @@ class OverlayService : Service() {
          */
         if (
             playStockSound &&
-            product != null &&
-            stockSoundStatus != null
+            product != null
         ) {
-            playStockStatusSound(
-                product = product,
-                status = stockSoundStatus
-            )
+            if (!product.active) {
+                ScanFeedbackManager.playBlocked(applicationContext)
+
+                android.util.Log.d(
+                    "OverlayService",
+                    "VOCE ARTICOLO BLOCCATO EAN=${product.barcode} articleId=${product.articleId}"
+                )
+            } else if (stockSoundStatus != null) {
+                playStockStatusSound(
+                    product = product,
+                    status = stockSoundStatus
+                )
+            }
         }
     }
 
@@ -5726,6 +5740,20 @@ class OverlayService : Service() {
             android.util.Log.d(
                 "OverlayService",
                 "SUONO STOCK DISATTIVATO status=$status EAN=${product.barcode}"
+            )
+            return
+        }
+
+        /*
+         * Un articolo bloccato ha priorità assoluta:
+         * nessun suono Preferiti e nessun feedback di scorta/riordino.
+         */
+        if (!product.active) {
+            ScanFeedbackManager.playBlocked(applicationContext)
+
+            android.util.Log.d(
+                "OverlayService",
+                "VOCE ARTICOLO BLOCCATO EAN=${product.barcode} articleId=${product.articleId}"
             )
             return
         }

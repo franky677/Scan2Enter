@@ -12,6 +12,7 @@ data class GatewayProductDto(
     val articleCode: String,
     val description: String,
     val barcode: String,
+    val active: Boolean = true,
     val taxablePrice: String,
     val vatRate: String,
     val publicPrice: String,

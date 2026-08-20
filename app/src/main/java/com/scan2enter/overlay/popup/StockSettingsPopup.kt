@@ -21,6 +21,8 @@ import kotlin.math.max
 import kotlin.math.min
 import android.widget.ImageView
 import com.scan2enter.favorites.FavoriteRepository
+import com.scan2enter.api.GatewayApiClient
+import java.util.concurrent.Executors
 /**
  * Finestra overlay dedicata alla modifica di scorta minima e lotto di riordino.
  *
@@ -35,6 +37,13 @@ class StockSettingsPopup(
     private val labelPrintPopup by lazy {
         LabelPrintPopup(context, windowManager)
     }
+
+    private val gatewayApiClient by lazy {
+        GatewayApiClient()
+    }
+
+    private val activeExecutor =
+        Executors.newSingleThreadExecutor()
 
     private var overlayRoot: View? = null
 
@@ -143,6 +152,90 @@ class StockSettingsPopup(
         }
 
         updateFavoriteIcon()
+
+        val activeButton =
+            dialogView.findViewById<Button>(
+                R.id.productActiveButton
+            )
+
+        var currentActive = product.active
+
+        fun updateActiveButton() {
+            activeButton.text =
+                if (currentActive) {
+                    "⛔  BLOCCA ARTICOLO"
+                } else {
+                    "✅  SBLOCCA ARTICOLO"
+                }
+
+            activeButton.contentDescription =
+                if (currentActive) {
+                    "Blocca articolo"
+                } else {
+                    "Sblocca articolo"
+                }
+        }
+
+        updateActiveButton()
+
+        activeButton.setOnClickListener {
+            if (product.articleId <= 0L) {
+                Toast.makeText(
+                    context,
+                    "Articolo non disponibile",
+                    Toast.LENGTH_SHORT
+                ).show()
+                return@setOnClickListener
+            }
+
+            val newActive = !currentActive
+            activeButton.isEnabled = false
+
+            activeExecutor.execute {
+                gatewayApiClient
+                    .updateProductActive(
+                        articleId = product.articleId,
+                        active = newActive
+                    )
+                    .onSuccess {
+                        currentActive = newActive
+
+                        activeButton.post {
+                            if (overlayRoot == null) {
+                                return@post
+                            }
+
+                            updateActiveButton()
+                            activeButton.isEnabled = true
+
+                            Toast.makeText(
+                                context,
+                                if (currentActive) {
+                                    "Articolo sbloccato"
+                                } else {
+                                    "Articolo bloccato"
+                                },
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
+                    }
+                    .onFailure { error ->
+                        activeButton.post {
+                            if (overlayRoot == null) {
+                                return@post
+                            }
+
+                            activeButton.isEnabled = true
+
+                            Toast.makeText(
+                                context,
+                                "Errore: ${error.message ?: "aggiornamento non riuscito"}",
+                                Toast.LENGTH_LONG
+                            ).show()
+                        }
+                    }
+            }
+        }
 
         dialogView.findViewById<TextView>(R.id.stockEditArticleText).text =
             listOf(product.articleCode, product.description)

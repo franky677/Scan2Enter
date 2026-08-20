@@ -55,6 +55,7 @@ class ProductRepository(
             articleCode = product.articleCode,
             description = product.description,
             barcode = product.barcode,
+            active = product.active,
             taxablePrice = product.taxablePrice,
             vatRate = product.vatRate,
             publicPrice = product.publicPrice,
