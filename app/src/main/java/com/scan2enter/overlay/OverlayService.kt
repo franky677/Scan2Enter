@@ -1394,7 +1394,8 @@ class OverlayService : Service() {
                     addToHistory = false,
                     addToReorder = false,
                     addToSession = addToSessionFromSearch,
-                    showPopup = !suppressPopup
+                    showPopup = !suppressPopup,
+                    manualAlertSoundsOnly = true
                 )
             }
 
@@ -1567,6 +1568,7 @@ class OverlayService : Service() {
         showPopup: Boolean = true,
         forceStockSound: Boolean = false,
         suppressAutoReopenScanner: Boolean = false,
+        manualAlertSoundsOnly: Boolean = false,
         onLoaded: ((ProductInfo) -> Unit)? = null
     ) {
         val barcode = rawBarcode
@@ -1633,7 +1635,8 @@ class OverlayService : Service() {
                         showOrUpdateProductInfoPopup(
                             workflowCompleted = true,
                             manualOpen = !forceStockSound,
-                            allowAutoReopenScanner = !suppressAutoReopenScanner
+                            allowAutoReopenScanner = !suppressAutoReopenScanner,
+                            manualAlertSoundsOnly = manualAlertSoundsOnly
                         )
                     }
 
@@ -4665,7 +4668,8 @@ class OverlayService : Service() {
     private fun showOrUpdateProductInfoPopup(
         workflowCompleted: Boolean,
         manualOpen: Boolean,
-        allowAutoReopenScanner: Boolean = true
+        allowAutoReopenScanner: Boolean = true,
+        manualAlertSoundsOnly: Boolean = false
     ) {
         val product = ProductInfoStore.current
 
@@ -4704,8 +4708,10 @@ class OverlayService : Service() {
                 workflowCompleted &&
                         (
                                 !manualOpen ||
-                                        product?.active == false
-                                )
+                                        product?.active == false ||
+                                        manualAlertSoundsOnly
+                                ),
+            alertSoundsOnly = manualAlertSoundsOnly
         )
 
         /*
@@ -5508,7 +5514,8 @@ class OverlayService : Service() {
     private fun updateProductInfoPopup(
         product: ProductInfo?,
         workflowCompleted: Boolean,
-        playStockSound: Boolean
+        playStockSound: Boolean,
+        alertSoundsOnly: Boolean = false
     ) {
         val stockSoundStatus = productInfoPopupController.update(
             product = product,
@@ -5531,10 +5538,15 @@ class OverlayService : Service() {
                     "VOCE ARTICOLO BLOCCATO EAN=${product.barcode} articleId=${product.articleId}"
                 )
             } else if (stockSoundStatus != null) {
-                playStockStatusSound(
-                    product = product,
-                    status = stockSoundStatus
-                )
+                if (
+                    !alertSoundsOnly ||
+                    stockSoundStatus != ProductInfoPopup.StockSoundStatus.REGULAR
+                ) {
+                    playStockStatusSound(
+                        product = product,
+                        status = stockSoundStatus
+                    )
+                }
             }
         }
     }
@@ -5787,14 +5799,11 @@ class OverlayService : Service() {
             }
 
             ProductInfoPopup.StockSoundStatus.WARNING -> {
-                ScanFeedbackManager.playWarning(applicationContext)
+                ScanFeedbackManager.playUnderstock(applicationContext)
             }
 
             ProductInfoPopup.StockSoundStatus.REORDER -> {
-                urgentStockTone?.startTone(
-                    ToneGenerator.TONE_CDMA_ALERT_CALL_GUARD,
-                    650
-                )
+                ScanFeedbackManager.playReorder(applicationContext)
             }
         }
 

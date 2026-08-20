@@ -3,6 +3,8 @@ package com.scan2enter.feedback
 import android.content.Context
 import android.media.AudioAttributes
 import android.media.SoundPool
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import com.scan2enter.R
 
@@ -13,8 +15,11 @@ object ScanFeedbackManager {
     private const val KEY_ENABLED = "enabled"
     private const val KEY_VOLUME = "volume"
     private const val DEFAULT_VOLUME = 0.85f
+    private const val STOCK_VOICE_DELAY_MS = 550L
 
     private val lock = Any()
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private var pendingStockVoice: Runnable? = null
 
     @Volatile private var initialized = false
     @Volatile private var enabled = true
@@ -25,6 +30,8 @@ object ScanFeedbackManager {
     private var warningSoundId = 0
     private var errorSoundId = 0
     private var blockedSoundId = 0
+    private var understockSoundId = 0
+    private var reorderSoundId = 0
     private val loadedSoundIds = mutableSetOf<Int>()
 
     fun initialize(context: Context) {
@@ -70,6 +77,8 @@ object ScanFeedbackManager {
             warningSoundId = pool.load(appContext, R.raw.scan_crash, 1)
             errorSoundId = pool.load(appContext, R.raw.scan_double_beep, 1)
             blockedSoundId = pool.load(appContext, R.raw.article_blocked, 1)
+            understockSoundId = pool.load(appContext, R.raw.article_understock, 1)
+            reorderSoundId = pool.load(appContext, R.raw.article_reorder, 1)
 
             soundPool = pool
             initialized = true
@@ -95,7 +104,24 @@ object ScanFeedbackManager {
 
     fun playBlocked(context: Context) {
         initialize(context)
+        cancelPendingStockVoice()
         play(blockedSoundId, "ARTICOLO BLOCCATO")
+    }
+
+    fun playUnderstock(context: Context) {
+        initialize(context)
+        playStockSequence(
+            voiceSoundId = understockSoundId,
+            voiceLabel = "ARTICOLO SOTTO SCORTA"
+        )
+    }
+
+    fun playReorder(context: Context) {
+        initialize(context)
+        playStockSequence(
+            voiceSoundId = reorderSoundId,
+            voiceLabel = "ARTICOLO DA RIORDINARE"
+        )
     }
 
     fun setEnabled(context: Context, value: Boolean) {
@@ -130,6 +156,7 @@ object ScanFeedbackManager {
 
     fun release() {
         synchronized(lock) {
+            cancelPendingStockVoice()
             soundPool?.release()
             soundPool = null
             loadedSoundIds.clear()
@@ -137,8 +164,34 @@ object ScanFeedbackManager {
             warningSoundId = 0
             errorSoundId = 0
             blockedSoundId = 0
+            understockSoundId = 0
+            reorderSoundId = 0
             initialized = false
         }
+    }
+
+    private fun playStockSequence(
+        voiceSoundId: Int,
+        voiceLabel: String
+    ) {
+        cancelPendingStockVoice()
+        play(warningSoundId, "CRASH")
+
+        val voiceRunnable = Runnable {
+            pendingStockVoice = null
+            play(voiceSoundId, voiceLabel)
+        }
+
+        pendingStockVoice = voiceRunnable
+        mainHandler.postDelayed(
+            voiceRunnable,
+            STOCK_VOICE_DELAY_MS
+        )
+    }
+
+    private fun cancelPendingStockVoice() {
+        pendingStockVoice?.let(mainHandler::removeCallbacks)
+        pendingStockVoice = null
     }
 
     private fun play(soundId: Int, label: String) {
