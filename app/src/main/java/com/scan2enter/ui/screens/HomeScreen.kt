@@ -28,7 +28,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.scan2enter.overlay.OverlayService
-
+import com.scan2enter.ui.components.GatewayStatusBanner
 @Composable
 fun HomeScreen(
     onOpenTrovaTutto: () -> Unit,
@@ -123,7 +123,7 @@ fun HomeScreen(
                 onClick = onOpenTrovaTutto,
                 modifier = Modifier.fillMaxWidth()
             )
-
+            GatewayStatusBanner()
             HomeButtonRow(
                 leftText = "📋\nRIORDINO",
                 rightText = "⭐\nPREFERITI",
