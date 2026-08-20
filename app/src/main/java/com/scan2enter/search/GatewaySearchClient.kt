@@ -88,6 +88,7 @@ class GatewaySearchClient(
                         barcode = item.optString("barcode"),
                         price = item.optString("price"),
                         stock = item.optString("stock"),
+                        active = item.optBoolean("active", true),
                         moved = item.optBoolean("moved", false),
                         lastMovement =
                             item.optString("lastMovement")

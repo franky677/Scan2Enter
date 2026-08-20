@@ -18,6 +18,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
@@ -62,6 +63,14 @@ fun TrovaTuttoScreen(
     }
     var loading by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+    var includeInactive by remember { mutableStateOf(false) }
+
+    val visibleResults =
+        if (includeInactive) {
+            results
+        } else {
+            results.filter { it.active }
+        }
 
     BackHandler(onBack = onBack)
 
@@ -148,7 +157,37 @@ fun TrovaTuttoScreen(
             )
 
             Spacer(
-                modifier = Modifier.height(10.dp)
+                modifier = Modifier.height(6.dp)
+            )
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable {
+                        includeInactive = !includeInactive
+                    }
+                    .padding(
+                        horizontal = 2.dp,
+                        vertical = 2.dp
+                    ),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Checkbox(
+                    checked = includeInactive,
+                    onCheckedChange = {
+                        includeInactive = it
+                    }
+                )
+
+                Text(
+                    text = "Includi inattivi",
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Medium
+                )
+            }
+
+            Spacer(
+                modifier = Modifier.height(4.dp)
             )
 
             when {
@@ -179,7 +218,7 @@ fun TrovaTuttoScreen(
                     )
                 }
 
-                results.isEmpty() -> {
+                visibleResults.isEmpty() -> {
                     Text(
                         text = "Nessun articolo trovato.",
                         modifier = Modifier.padding(8.dp)
@@ -188,7 +227,7 @@ fun TrovaTuttoScreen(
 
                 else -> {
                     Text(
-                        text = "${results.size} risultati",
+                        text = "${visibleResults.size} risultati",
                         fontSize = 14.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(
@@ -202,7 +241,7 @@ fun TrovaTuttoScreen(
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         items(
-                            items = results,
+                            items = visibleResults,
                             key = { it.id }
                         ) { item ->
                             TrovaTuttoResultRow(
@@ -264,19 +303,25 @@ private fun TrovaTuttoResultRow(
     onClick: () -> Unit
 ) {
     val backgroundColor =
-        if (item.moved) {
-            Color(0xFFFFF59D)
-        } else {
-            MaterialTheme.colorScheme.surface
+        when {
+            !item.active -> Color(0xFFFFE0E0)
+            item.moved -> Color(0xFFFFF59D)
+            else -> MaterialTheme.colorScheme.surface
         }
 
     val mainTextColor =
-        if (item.moved) Color.Black
-        else MaterialTheme.colorScheme.onSurface
+        when {
+            !item.active -> Color(0xFF7F0000)
+            item.moved -> Color.Black
+            else -> MaterialTheme.colorScheme.onSurface
+        }
 
     val secondaryTextColor =
-        if (item.moved) Color(0xFF424242)
-        else MaterialTheme.colorScheme.onSurfaceVariant
+        when {
+            !item.active -> Color(0xFF8B3A3A)
+            item.moved -> Color(0xFF424242)
+            else -> MaterialTheme.colorScheme.onSurfaceVariant
+        }
 
     Surface(
         modifier = Modifier
@@ -304,7 +349,14 @@ private fun TrovaTuttoResultRow(
                     modifier = Modifier.weight(1f)
                 )
 
-                if (item.moved) {
+                if (!item.active) {
+                    Text(
+                        text = "⛔ INATTIVO",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFFB00020)
+                    )
+                } else if (item.moved) {
                     Text(
                         text = "MOVIMENTATO",
                         fontSize = 11.sp,
