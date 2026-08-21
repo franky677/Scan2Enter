@@ -64,6 +64,7 @@ import com.scan2enter.overlay.OverlayService
 import com.scan2enter.api.GatewayApiClient
 import com.scan2enter.api.CustomerDto
 import com.scan2enter.api.SessionColloItemDto
+import com.scan2enter.api.ProductPriceListDto
 import com.scan2enter.session.SessionItem
 import com.scan2enter.session.SessionStore
 import com.scan2enter.session.SessionCustomerStore
@@ -810,11 +811,23 @@ fun SessionScreen(
                     }
                 )
             },
-            onSave = { qty, manualPrice ->
-                SessionStore.setQuantityAndManualPrice(
+            onSave = {
+                    qty,
+                    manualPrice,
+                    priceListId,
+                    priceListName,
+                    listPrice,
+                    finalPrice,
+                    markup ->
+                SessionStore.setQuantityAndPricing(
                     articleId = item.articleId,
                     quantity = qty,
-                    manualPrice = manualPrice
+                    manualPrice = manualPrice,
+                    priceListId = priceListId,
+                    priceListName = priceListName,
+                    listPrice = listPrice,
+                    finalPrice = finalPrice,
+                    effectiveMarkupPercent = markup
                 )
                 editingItem = null
             }
@@ -1904,35 +1917,47 @@ private fun SessionRow(
                                 listPriceValue != null &&
                                 finalPriceValue != null
 
-                    Text(
-                        text =
-                            if (hasDiscount) {
-                                val discountText =
-                                    if (item.discount1 % 1.0 == 0.0) {
-                                        item.discount1
-                                            .toInt()
-                                            .toString()
-                                    } else {
-                                        String.format(
-                                            Locale.ITALY,
-                                            "%.1f",
-                                            item.discount1
-                                        )
-                                    }
-
-                                "💰 $listPriceText → " +
-                                        "$finalPriceText (-$discountText%)"
+                    if (hasDiscount) {
+                        val discountText =
+                            if (item.discount1 % 1.0 == 0.0) {
+                                item.discount1
+                                    .toInt()
+                                    .toString()
                             } else {
-                                "💰 $finalPriceText"
-                            },
-                        fontSize = 14.sp,
-                        fontWeight =
-                            if (hasDiscount || item.manualPrice.isNotBlank()) {
-                                FontWeight.SemiBold
-                            } else {
-                                FontWeight.Normal
+                                String.format(
+                                    Locale.ITALY,
+                                    "%.1f",
+                                    item.discount1
+                                )
                             }
-                    )
+
+                        Text(
+                            text = "$listPriceText  (-$discountText%)",
+                            fontSize = 12.sp,
+                            color =
+                                MaterialTheme
+                                    .colorScheme
+                                    .onSurfaceVariant
+                        )
+                    }
+
+                    Surface(
+                        shape = RoundedCornerShape(7.dp),
+                        color = Color.White,
+                        contentColor = Color.Black,
+                        tonalElevation = 1.dp
+                    ) {
+                        Text(
+                            text = finalPriceText,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.Black,
+                            modifier = Modifier.padding(
+                                horizontal = 9.dp,
+                                vertical = 4.dp
+                            )
+                        )
+                    }
 
                     if (item.manualPrice.isNotBlank()) {
                         Text(
@@ -2013,73 +2038,319 @@ private fun QuantityDialog(
     item: SessionItem,
     onDismiss: () -> Unit,
     onOpenArticle: () -> Unit,
-    onSave: (Int, String) -> Unit
+    onSave: (
+        Int,
+        String,
+        Int,
+        String,
+        String,
+        String,
+        Double?
+    ) -> Unit
 ) {
+    val gatewayApiClient = remember {
+        GatewayApiClient()
+    }
+
     var quantityText by remember(item.articleId) {
         mutableStateOf(item.quantity.toString())
     }
 
-    val proposedPrice =
-        item.finalPrice.ifBlank {
-            item.publicPrice
-        }
+    var priceLists by remember(item.articleId) {
+        mutableStateOf<List<ProductPriceListDto>>(emptyList())
+    }
 
-    var priceText by remember(item.articleId, item.manualPrice) {
+    var priceListsLoading by remember(item.articleId) {
+        mutableStateOf(true)
+    }
+
+    var priceListsError by remember(item.articleId) {
+        mutableStateOf<String?>(null)
+    }
+
+    var selectedPriceListId by remember(item.articleId) {
+        mutableStateOf(item.priceListId)
+    }
+
+    var selectedPriceListName by remember(item.articleId) {
+        mutableStateOf(item.priceListName)
+    }
+
+    var selectedListPrice by remember(item.articleId) {
         mutableStateOf(
-            item.manualPrice.ifBlank {
-                proposedPrice
+            item.listPrice.ifBlank {
+                item.finalPrice.ifBlank { item.publicPrice }
             }
         )
     }
 
+    var selectedFinalPrice by remember(item.articleId) {
+        mutableStateOf(
+            item.finalPrice.ifBlank { item.publicPrice }
+        )
+    }
+
+    var selectedMarkup by remember(item.articleId) {
+        mutableStateOf(item.effectiveMarkupPercent)
+    }
+
+    var priceText by remember(item.articleId, item.manualPrice) {
+        mutableStateOf(
+            item.manualPrice.ifBlank {
+                item.finalPrice.ifBlank { item.publicPrice }
+            }
+        )
+    }
+
+    LaunchedEffect(item.articleId) {
+        priceListsLoading = true
+        priceListsError = null
+
+        Thread {
+            val result =
+                gatewayApiClient.getProductPriceLists(item.articleId)
+
+            Handler(Looper.getMainLooper()).post {
+                priceListsLoading = false
+
+                result.onSuccess { lists ->
+                    priceLists = lists
+
+                    val selected =
+                        lists.firstOrNull {
+                            it.priceListId == selectedPriceListId
+                        }
+                            ?: lists.firstOrNull {
+                                it.priceListId == 1
+                            }
+                            ?: lists.firstOrNull()
+
+                    if (selected != null) {
+                        selectedPriceListId = selected.priceListId
+                        selectedPriceListName = selected.name
+                        selectedListPrice =
+                            selected.salePrice?.let {
+                                String.format(
+                                    Locale.US,
+                                    "%.2f",
+                                    it
+                                )
+                            }.orEmpty()
+                        selectedFinalPrice = selectedListPrice
+                        selectedMarkup =
+                            selected.effectiveMarkupPercent
+
+                        if (item.manualPrice.isBlank()) {
+                            priceText = selectedFinalPrice
+                        }
+                    }
+                }.onFailure { error ->
+                    priceListsError =
+                        error.message ?: "Errore lettura listini"
+                }
+            }
+        }.start()
+    }
+
+    val proposedPrice =
+        selectedFinalPrice.ifBlank {
+            item.finalPrice.ifBlank { item.publicPrice }
+        }
+
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
-            Text(
-                text = item.description.ifBlank {
-                    item.articleCode
+            Column {
+                Text(
+                    text = item.description.ifBlank {
+                        item.articleCode
+                    },
+                    fontWeight = FontWeight.Bold
+                )
+
+                if (item.articleCode.isNotBlank()) {
+                    Text(
+                        text = item.articleCode,
+                        fontSize = 13.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
-            )
+            }
         },
         text = {
             Column(
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                if (item.priceListName.isNotBlank()) {
+                Text(
+                    text = "LISTINO E RICARICO",
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold
+                )
+
+                when {
+                    priceListsLoading -> {
+                        Text(
+                            text = "Caricamento listini...",
+                            fontSize = 14.sp
+                        )
+                    }
+
+                    priceListsError != null -> {
+                        Text(
+                            text = priceListsError.orEmpty(),
+                            color = MaterialTheme.colorScheme.error,
+                            fontSize = 13.sp
+                        )
+                    }
+
+                    else -> {
+                        val orderedPriceLists =
+                            priceLists.sortedBy { priceList ->
+                                when (priceList.priceListId) {
+                                    2 -> 1   // INSTALLATORI
+                                    3 -> 2   // ELETTRICISTI
+                                    1 -> 3   // AL PUBBLICO
+                                    4 -> 4   // EXTRA
+                                    6 -> 5   // MAX
+                                    else -> 99
+                                }
+                            }
+
+                        orderedPriceLists.forEach { priceList ->
+                            val selected =
+                                priceList.priceListId ==
+                                        selectedPriceListId
+
+                            Surface(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        selectedPriceListId =
+                                            priceList.priceListId
+                                        selectedPriceListName =
+                                            priceList.name
+                                        selectedListPrice =
+                                            priceList.salePrice?.let {
+                                                String.format(
+                                                    Locale.US,
+                                                    "%.2f",
+                                                    it
+                                                )
+                                            }.orEmpty()
+                                        selectedFinalPrice =
+                                            selectedListPrice
+                                        selectedMarkup =
+                                            priceList.effectiveMarkupPercent
+                                        priceText =
+                                            selectedFinalPrice
+                                    },
+                                shape = RoundedCornerShape(10.dp),
+                                tonalElevation =
+                                    if (selected) 6.dp else 1.dp,
+                                color =
+                                    if (priceList.priceListId == 1) {
+                                        Color.White
+                                    } else {
+                                        MaterialTheme.colorScheme.surface
+                                    },
+                                contentColor =
+                                    if (priceList.priceListId == 1) {
+                                        Color.Black
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurface
+                                    }
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(
+                                            horizontal = 10.dp,
+                                            vertical = 8.dp
+                                        ),
+                                    verticalAlignment =
+                                        Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text =
+                                            if (selected) "✓" else "",
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.width(22.dp)
+                                    )
+
+                                    Text(
+                                        text =
+                                            priceList.name
+                                                .substringAfter("-")
+                                                .ifBlank { priceList.name },
+                                        fontSize = 14.sp,
+                                        fontWeight =
+                                            if (selected) {
+                                                FontWeight.Bold
+                                            } else {
+                                                FontWeight.Normal
+                                            },
+                                        modifier = Modifier.weight(1f)
+                                    )
+
+                                    Text(
+                                        text =
+                                            priceList.salePrice?.let {
+                                                String.format(
+                                                    Locale.ITALY,
+                                                    "%.2f €",
+                                                    it
+                                                )
+                                            } ?: "—",
+                                        fontSize = 15.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+
+                                    Spacer(
+                                        modifier = Modifier.width(10.dp)
+                                    )
+
+                                    Text(
+                                        text =
+                                            priceList.effectiveMarkupPercent
+                                                ?.let {
+                                                    String.format(
+                                                        Locale.ITALY,
+                                                        "+%.1f%%",
+                                                        it
+                                                    )
+                                                } ?: "—",
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                selectedMarkup?.let { markup ->
                     Text(
-                        text = "🏷️ ${item.priceListName}",
+                        text =
+                            "${selectedPriceListName.ifBlank { "LISTINO" }}  •  " +
+                                    formatPriceText(proposedPrice) +
+                                    "  •  " +
+                                    String.format(
+                                        Locale.ITALY,
+                                        "+%.1f%%",
+                                        markup
+                                    ),
+                        fontSize = 16.sp,
                         fontWeight = FontWeight.Bold
                     )
                 }
 
-                if (item.listPrice.isNotBlank()) {
-                    Text(
-                        text = "Prezzo listino: ${
-                            formatPriceText(item.listPrice)
-                        }"
-                    )
-                }
-
-                if (item.discount1 > 0.0) {
-                    Text(
-                        text = "Sconto: ${
-                            formatDiscount(item.discount1)
-                        }"
-                    )
-                }
-
                 Text(
-                    text = "Prezzo proposto: ${
-                        formatPriceText(proposedPrice)
-                    }",
-                    fontWeight = FontWeight.SemiBold
+                    text = "Quantità",
+                    fontWeight = FontWeight.Bold
                 )
-
-                Spacer(
-                    modifier = Modifier.height(4.dp)
-                )
-
-                Text("Quantità")
 
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -2089,7 +2360,6 @@ private fun QuantityDialog(
                         onClick = {
                             val value =
                                 quantityText.toIntOrNull() ?: 1
-
                             quantityText =
                                 (value - 1)
                                     .coerceAtLeast(0)
@@ -2122,7 +2392,6 @@ private fun QuantityDialog(
                         onClick = {
                             val value =
                                 quantityText.toIntOrNull() ?: 0
-
                             quantityText =
                                 (value + 1)
                                     .coerceAtMost(9999)
@@ -2159,6 +2428,18 @@ private fun QuantityDialog(
                     modifier = Modifier.fillMaxWidth()
                 )
 
+                if (
+                    priceText.trim().replace(",", ".") !=
+                    proposedPrice.trim().replace(",", ".")
+                ) {
+                    Text(
+                        text = "✏️ PREZZO MODIFICATO",
+                        color = Color(0xFFD50000),
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
                 TextButton(
                     onClick = {
                         priceText = proposedPrice
@@ -2171,22 +2452,9 @@ private fun QuantityDialog(
                     )
                 }
 
-                if (
-                    priceText.trim()
-                        .replace(",", ".") !=
-                    proposedPrice.trim()
-                        .replace(",", ".")
-                ) {
-                    Text(
-                        text = "✏️ Prezzo modificato manualmente",
-                        color = MaterialTheme.colorScheme.primary,
-                        fontSize = 13.sp
-                    )
-                }
-
                 Text(
                     text = "0 quantità rimuove l'articolo.",
-                    fontSize = 13.sp
+                    fontSize = 12.sp
                 )
             }
         },
@@ -2218,7 +2486,12 @@ private fun QuantityDialog(
 
                     onSave(
                         quantity,
-                        manualPrice
+                        manualPrice,
+                        selectedPriceListId,
+                        selectedPriceListName,
+                        selectedListPrice,
+                        selectedFinalPrice,
+                        selectedMarkup
                     )
                 }
             ) {
@@ -2230,7 +2503,7 @@ private fun QuantityDialog(
                 TextButton(
                     onClick = onOpenArticle
                 ) {
-                    Text("ⓘ APRI ARTICOLO")
+                    Text("ⓘ ARTICOLO")
                 }
 
                 TextButton(

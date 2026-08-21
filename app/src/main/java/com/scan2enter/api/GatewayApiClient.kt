@@ -85,6 +85,39 @@ class GatewayApiClient(
     }
 
     /**
+     * Legge i listini vendita disponibili per un articolo.
+     *
+     * GET /api/product/{articleId}/price-lists
+     */
+    fun getProductPriceLists(
+        articleId: Long
+    ): Result<List<ProductPriceListDto>> = runCatching {
+        require(articleId > 0L) {
+            "articleId non valido: $articleId"
+        }
+
+        val url =
+            "${baseUrl.trimEnd('/')}/api/product/$articleId/price-lists"
+
+        Log.d(TAG, "GATEWAY GET PRODUCT PRICE LISTS")
+        Log.d(TAG, "ARTICLE ID=$articleId")
+        Log.d(TAG, "URL = $url")
+
+        val response = executeGet(url)
+
+        Log.d(TAG, "GATEWAY PRICE LISTS HTTP=${response.code}")
+        Log.d(TAG, "BODY=${response.body.take(1000)}")
+
+        if (response.code !in 200..299) {
+            error(
+                "Gateway HTTP ${response.code}: ${response.body.take(500)}"
+            )
+        }
+
+        parseProductPriceLists(response.body)
+    }
+
+    /**
      * Blocca o sblocca un articolo nel Gateway.
      *
      * PUT /api/product/{articleId}/active
@@ -1023,6 +1056,40 @@ class GatewayApiClient(
         )
     }
 
+    private fun parseProductPriceLists(
+        jsonText: String
+    ): List<ProductPriceListDto> {
+        check(jsonText.isNotBlank()) {
+            "Il Gateway ha restituito una risposta listini vuota"
+        }
+
+        val root = JSONObject(jsonText)
+        val array = root.optJSONArray("items")
+            ?: error("Risposta Gateway non valida: items listini mancante")
+
+        val result = ArrayList<ProductPriceListDto>(array.length())
+
+        for (index in 0 until array.length()) {
+            val item = array.optJSONObject(index) ?: continue
+            val priceListId = item.optInt("priceListId", 0)
+            if (priceListId <= 0) continue
+
+            result.add(
+                ProductPriceListDto(
+                    priceListId = priceListId,
+                    name = item.optString("name", "").trim(),
+                    saleTaxable = item.optNullableDouble("saleTaxable"),
+                    salePrice = item.optNullableDouble("salePrice"),
+                    purchaseTaxable = item.optNullableDouble("purchaseTaxable"),
+                    effectiveMarkupPercent =
+                        item.optNullableDouble("effectiveMarkupPercent")
+                )
+            )
+        }
+
+        return result
+    }
+
     private fun parseClientPrice(
         jsonText: String
     ): ClientPriceDto {
@@ -1296,6 +1363,15 @@ class GatewayApiClient(
         val body: String
     )
 }
+
+data class ProductPriceListDto(
+    val priceListId: Int,
+    val name: String,
+    val saleTaxable: Double?,
+    val salePrice: Double?,
+    val purchaseTaxable: Double?,
+    val effectiveMarkupPercent: Double?
+)
 
 data class FavoriteDto(
     val articleId: Long,

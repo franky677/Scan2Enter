@@ -101,11 +101,13 @@ object SessionStore {
                     publicPrice = effectiveFinalPrice,
                     stock = product.stock,
                     quantity = amount,
+                    priceListId = 1,
                     priceListName = priceListName,
                     listPrice = effectiveListPrice,
                     discount1 = discount1,
                     finalPrice = effectiveFinalPrice,
                     manualPrice = manualPrice,
+                    effectiveMarkupPercent = null,
                     roundingPrice = "",
                     roundingAdjustment = ""
                 )
@@ -209,6 +211,44 @@ object SessionStore {
                     old.copy(
                         quantity = quantity.coerceAtMost(9999),
                         manualPrice = manualPrice.trim(),
+                        roundingPrice = "",
+                        roundingAdjustment = ""
+                    )
+            }
+
+            recalculateCommercialRoundingLocked()
+            saveLocked()
+        }
+
+        notifyListeners()
+    }
+
+    fun setQuantityAndPricing(
+        articleId: Long,
+        quantity: Int,
+        manualPrice: String,
+        priceListId: Int,
+        priceListName: String,
+        listPrice: String,
+        finalPrice: String,
+        effectiveMarkupPercent: Double?
+    ) {
+        synchronized(lock) {
+            val old = items[articleId] ?: return
+
+            if (quantity <= 0) {
+                items.remove(articleId)
+            } else {
+                items[articleId] =
+                    old.copy(
+                        quantity = quantity.coerceAtMost(9999),
+                        priceListId = priceListId,
+                        priceListName = priceListName.trim(),
+                        listPrice = listPrice.trim(),
+                        discount1 = 0.0,
+                        finalPrice = finalPrice.trim(),
+                        manualPrice = manualPrice.trim(),
+                        effectiveMarkupPercent = effectiveMarkupPercent,
                         roundingPrice = "",
                         roundingAdjustment = ""
                     )
@@ -408,6 +448,7 @@ object SessionStore {
                         stock =
                             obj.optString("stock"),
                         quantity = quantity,
+                        priceListId = obj.optInt("priceListId", 1),
                         priceListName =
                             obj.optString("priceListName"),
                         listPrice = listPrice,
@@ -419,6 +460,12 @@ object SessionStore {
                         finalPrice = finalPrice,
                         manualPrice =
                             obj.optString("manualPrice"),
+                        effectiveMarkupPercent =
+                            if (obj.has("effectiveMarkupPercent") && !obj.isNull("effectiveMarkupPercent")) {
+                                obj.optDouble("effectiveMarkupPercent")
+                            } else {
+                                null
+                            },
                         roundingPrice = "",
                         roundingAdjustment = ""
                     )
@@ -712,11 +759,17 @@ object SessionStore {
                     put("publicPrice", item.publicPrice)
                     put("stock", item.stock)
                     put("quantity", item.quantity)
+                    put("priceListId", item.priceListId)
                     put("priceListName", item.priceListName)
                     put("listPrice", item.listPrice)
                     put("discount1", item.discount1)
                     put("finalPrice", item.finalPrice)
                     put("manualPrice", item.manualPrice)
+                    if (item.effectiveMarkupPercent != null) {
+                        put("effectiveMarkupPercent", item.effectiveMarkupPercent)
+                    } else {
+                        put("effectiveMarkupPercent", JSONObject.NULL)
+                    }
                     put("roundingPrice", item.roundingPrice)
                     put("roundingAdjustment", item.roundingAdjustment)
                 }
