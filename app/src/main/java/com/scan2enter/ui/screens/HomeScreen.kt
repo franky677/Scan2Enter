@@ -189,7 +189,7 @@ fun HomeScreen(
                 contentPadding = PaddingValues(8.dp)
             ) {
                 Text(
-                    text = "📋  SESSIONE",
+                    text = "📦  COLLO VELOCE",
                     fontSize = 23.sp,
                     fontWeight = FontWeight.Bold
                 )

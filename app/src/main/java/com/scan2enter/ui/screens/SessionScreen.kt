@@ -421,7 +421,7 @@ fun SessionScreen(
 
                 Column {
                     Text(
-                        text = "📋 SESSIONE",
+                        text = "📦 COLLO VELOCE",
                         fontSize = 26.sp,
                         fontWeight = FontWeight.Bold
                     )
@@ -495,7 +495,7 @@ fun SessionScreen(
             if (sessionItems.isEmpty()) {
                 Text(
                     text =
-                        "La sessione è vuota.\n" +
+                        "Il collo veloce è vuoto.\n" +
                                 "Usa il grilletto laterale o CERCA.",
                     modifier = Modifier.padding(16.dp),
                     fontSize = 18.sp
@@ -727,7 +727,7 @@ fun SessionScreen(
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     Text(
-                        text = "Sto per eliminare dalla sessione:",
+                        text = "Sto per eliminare dal collo veloce:",
                         fontWeight = FontWeight.Bold,
                         color = Color(0xFF111111)
                     )
@@ -991,7 +991,7 @@ private fun SessionActionPanel(
             ) {
                 Column {
                     Text(
-                        text = "SESSIONE PRONTA",
+                        text = "COLLO VELOCE PRONTO",
                         fontSize = 21.sp,
                         fontWeight = FontWeight.Bold
                     )
@@ -1202,7 +1202,7 @@ private fun SessionActionPanel(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text(
-                    text = "🗑️  SVUOTA TUTTA LA SESSIONE",
+                    text = "🗑️  SVUOTA TUTTO IL COLLO VELOCE",
                     color = Color(0xFFB00020),
                     fontWeight = FontWeight.Bold
                 )
@@ -1224,7 +1224,7 @@ private fun SessionActionPanel(
             },
             text = {
                 Text(
-                    "Vuoi eliminare la nota dalla Sessione corrente? " +
+                    "Vuoi eliminare la nota dal collo veloce corrente? " +
                             "Gli articoli non verranno modificati."
                 )
             },
@@ -1259,7 +1259,7 @@ private fun SessionActionPanel(
             containerColor = Color(0xFFFFDADA),
             title = {
                 Text(
-                    text = "⚠ SVUOTA SESSIONE",
+                    text = "⚠ SVUOTA COLLO VELOCE",
                     color = Color(0xFFB00020),
                     fontWeight = FontWeight.Bold
                 )
@@ -1269,7 +1269,7 @@ private fun SessionActionPanel(
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     Text(
-                        text = "Stai per eliminare TUTTI gli articoli della sessione.",
+                        text = "Stai per eliminare TUTTI gli articoli del collo veloce.",
                         fontWeight = FontWeight.Bold,
                         color = Color(0xFF111111)
                     )
@@ -1476,7 +1476,7 @@ private fun SessionActionPanel(
                         onClose()
                     }
                 ) {
-                    Text("FATTO • SVUOTA SESSIONE")
+                    Text("FATTO • SVUOTA COLLO VELOCE")
                 }
             },
             dismissButton = {
@@ -1485,7 +1485,7 @@ private fun SessionActionPanel(
                         createdCollo = null
                     }
                 ) {
-                    Text("TORNA ALLA SESSIONE")
+                    Text("TORNA AL COLLO VELOCE")
                 }
             }
         )
