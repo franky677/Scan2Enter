@@ -362,6 +362,9 @@ object ReorderStore {
                     supplierId = json.optLong("supplierId", 0L),
                     supplierName = json.optString("supplierName", ""),
                     supplierArticleCode = json.optString("supplierArticleCode", ""),
+                    purchaseTaxable = json.optNullableDouble("purchaseTaxable"),
+                    purchasePrice = json.optNullableDouble("purchasePrice"),
+                    vatRate = json.optNullableDouble("vatRate"),
                     stock = json.optNullableDouble("stock"),
                     availableStock = json.optNullableDouble("availableStock"),
                     minimumStock = json.optNullableDouble("minimumStock"),
@@ -411,6 +414,9 @@ object ReorderStore {
                         put("supplierId", item.supplierId)
                         put("supplierName", item.supplierName)
                         put("supplierArticleCode", item.supplierArticleCode)
+                        putNullableDouble("purchaseTaxable", item.purchaseTaxable)
+                        putNullableDouble("purchasePrice", item.purchasePrice)
+                        putNullableDouble("vatRate", item.vatRate)
                         putNullableDouble("stock", item.stock)
                         putNullableDouble("availableStock", item.availableStock)
                         putNullableDouble("minimumStock", item.minimumStock)

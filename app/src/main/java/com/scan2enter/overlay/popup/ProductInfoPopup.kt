@@ -75,6 +75,7 @@ class ProductInfoPopup(
     fun create(
         onStockClick: () -> Unit,
         onLocationClick: () -> Unit,
+        onPriceLongClick: () -> Unit,
         onTouchStarted: () -> Unit,
         onTouchFinished: () -> Unit,
         onPopupTap: () -> Unit
@@ -181,6 +182,17 @@ class ProductInfoPopup(
             isClickable = true
             isFocusable = true
             setOnClickListener { onLocationClick() }
+        }
+
+        createdBindings.priceValueText.apply {
+            isClickable = true
+            isFocusable = true
+            isLongClickable = true
+
+            setOnLongClickListener {
+                onPriceLongClick()
+                true
+            }
         }
 
         val horizontalMargin = (6 * density).toInt()

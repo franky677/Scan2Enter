@@ -57,6 +57,7 @@ import com.scan2enter.labels.a4.packaging.PackagingType
 import com.scan2enter.overlay.popup.LocationManagementPopup
 import com.scan2enter.overlay.popup.LabelPrintPopup
 import com.scan2enter.overlay.popup.ProductInfoPopup
+import com.scan2enter.overlay.popup.PriceManagementPopup
 import com.scan2enter.overlay.popup.StockSettingsPopup
 import com.scan2enter.repository.ProductRepositoryProvider
 import com.scan2enter.reorder.ReorderItem
@@ -212,6 +213,13 @@ class OverlayService : Service() {
 
     private val productInfoPopupController by lazy {
         ProductInfoPopup(
+            context = this,
+            windowManager = windowManager
+        )
+    }
+
+    private val priceManagementPopupController by lazy {
+        PriceManagementPopup(
             context = this,
             windowManager = windowManager
         )
@@ -805,7 +813,7 @@ class OverlayService : Service() {
                             showPrice = showPrice
                         )
                     },
-            onHardwareScanRequested = {
+                    onHardwareScanRequested = {
                         applicationContext
                             .getSharedPreferences(
                                 WORKFLOW_PREFS,
@@ -2389,10 +2397,10 @@ class OverlayService : Service() {
             "zebra",
             ignoreCase = true
         ) ||
-            brand.contains(
-                "zebra",
-                ignoreCase = true
-            )
+                brand.contains(
+                    "zebra",
+                    ignoreCase = true
+                )
     }
 
     private fun loadCurrentScanMode(): String {
@@ -2994,7 +3002,44 @@ class OverlayService : Service() {
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 (44 * density).toInt()
             ).apply {
-                bottomMargin = (10 * density).toInt()
+                bottomMargin = (8 * density).toInt()
+            }
+        )
+
+        val reorderTotalsText = TextView(this).apply {
+            tag = "reorderTotalsText"
+            text = "Imponibile: —   •   Ivato: —"
+            textSize = 15f
+            gravity = Gravity.CENTER
+            setTextColor(Color.rgb(35, 75, 55))
+            setTypeface(
+                typeface,
+                android.graphics.Typeface.BOLD
+            )
+            setPadding(
+                (10 * density).toInt(),
+                (9 * density).toInt(),
+                (10 * density).toInt(),
+                (9 * density).toInt()
+            )
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                setColor(Color.rgb(242, 248, 243))
+                setStroke(
+                    (1 * density).toInt().coerceAtLeast(1),
+                    Color.rgb(165, 214, 167)
+                )
+                cornerRadius = 12 * density
+            }
+        }
+
+        card.addView(
+            reorderTotalsText,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                bottomMargin = (8 * density).toInt()
             }
         )
 
@@ -3158,6 +3203,8 @@ class OverlayService : Service() {
             findViewByTag<Button>(popup, "favoriteSortButton")
         val supplierFilterButton =
             findViewByTag<Button>(popup, "reorderSupplierFilterButton")
+        val reorderTotalsText =
+            findViewByTag<TextView>(popup, "reorderTotalsText")
         val printListButton =
             findViewByTag<Button>(popup, "printListButton")
 
@@ -3184,6 +3231,7 @@ class OverlayService : Service() {
             }
 
             supplierFilterButton?.visibility = View.GONE
+            reorderTotalsText?.visibility = View.GONE
             favoriteSortButton?.visibility = View.GONE
             printListButton?.visibility = View.GONE
 
@@ -3205,6 +3253,7 @@ class OverlayService : Service() {
 
         if (reorderPopupMode == ReorderPopupMode.FAVORITES) {
             supplierFilterButton?.visibility = View.GONE
+            reorderTotalsText?.visibility = View.GONE
             favoriteSortButton?.visibility = View.VISIBLE
             favoriteSortButton?.text = favoriteSortLabel()
             printListButton?.visibility = View.VISIBLE
@@ -3261,6 +3310,9 @@ class OverlayService : Service() {
 
         supplierFilterButton?.visibility = View.VISIBLE
         supplierFilterButton?.text = selectedSupplierFilterLabel(allItems)
+
+        reorderTotalsText?.visibility = View.VISIBLE
+        reorderTotalsText?.text = formatReorderTotals(items)
 
         subtitle?.text = when {
             allItems.isEmpty() -> "Nessun articolo presente"
@@ -3504,6 +3556,51 @@ class OverlayService : Service() {
         }
 
         popupMenu.show()
+    }
+
+    private fun formatReorderTotals(
+        items: List<ReorderItem>
+    ): String {
+        var taxableTotal = 0.0
+        var grossTotal = 0.0
+        var pricedRows = 0
+
+        items.forEach { item ->
+            val quantity =
+                calculateQuantityToOrder(item)
+                    ?.takeIf { it > 0.0 }
+                    ?: return@forEach
+
+            val taxable = item.purchaseTaxable
+            val gross = item.purchasePrice
+
+            if (taxable != null) {
+                taxableTotal += taxable * quantity
+            }
+
+            if (gross != null) {
+                grossTotal += gross * quantity
+            }
+
+            if (taxable != null || gross != null) {
+                pricedRows++
+            }
+        }
+
+        if (items.isEmpty()) {
+            return "Imponibile: 0,00 €   •   Ivato: 0,00 €"
+        }
+
+        if (pricedRows == 0) {
+            return "Imponibile: —   •   Ivato: —"
+        }
+
+        return String.format(
+            Locale.ITALY,
+            "Imponibile: %,.2f €   •   Ivato: %,.2f €",
+            taxableTotal,
+            grossTotal
+        )
     }
 
     private fun createVirtualizedListAdapter(
@@ -4726,8 +4823,8 @@ class OverlayService : Service() {
         popupHandler.removeCallbacks(dismissPopupRunnable)
         reopenScannerAfterPopup =
             workflowCompleted &&
-                !manualOpen &&
-                allowAutoReopenScanner
+                    !manualOpen &&
+                    allowAutoReopenScanner
 
         if (workflowCompleted || manualOpen) {
             scheduleProductPopupDismiss(product)
@@ -4739,10 +4836,107 @@ class OverlayService : Service() {
         )
     }
 
+    private fun showPriceManagementPopup() {
+        val product =
+            ProductInfoStore.current ?: return
+
+        if (product.articleId <= 0L) {
+            Toast.makeText(
+                this,
+                "ID articolo non disponibile",
+                Toast.LENGTH_SHORT
+            ).show()
+            return
+        }
+
+        popupHandler.removeCallbacks(
+            dismissPopupRunnable
+        )
+        popupTimerPausedByUser = true
+
+        android.util.Log.d(
+            "OverlayService",
+            "APRO GESTIONE PREZZI articleId=${product.articleId}"
+        )
+
+        priceManagementPopupController.show(
+            product = product,
+            onSaved = { refreshedLists ->
+                val publicList =
+                    refreshedLists.firstOrNull {
+                        it.priceListId == 1
+                    }
+
+                if (publicList != null) {
+                    val current =
+                        ProductInfoStore.current
+                            ?: product
+
+                    val updatedProduct =
+                        current.copy(
+                            publicPrice =
+                                publicList.salePrice
+                                    ?.let {
+                                        String.format(
+                                            Locale.US,
+                                            "%.2f",
+                                            it
+                                        )
+                                    }
+                                    ?: current.publicPrice,
+                            taxablePrice =
+                                publicList.saleTaxable
+                                    ?.let {
+                                        String.format(
+                                            Locale.US,
+                                            "%.4f",
+                                            it
+                                        )
+                                    }
+                                    ?: current.taxablePrice
+                        )
+
+                    ProductInfoStore.current =
+                        updatedProduct
+
+                    ProductInfoStore.updateHistoryItem(
+                        updatedProduct
+                    )
+
+                    updateProductInfoPopup(
+                        product = updatedProduct,
+                        workflowCompleted = true,
+                        playStockSound = false
+                    )
+                }
+
+                android.util.Log.d(
+                    "OverlayService",
+                    "GESTIONE PREZZI SALVATA articleId=${product.articleId}"
+                )
+            },
+            onClosed = {
+                popupTimerPausedByUser = false
+
+                if (productInfoPopup != null) {
+                    scheduleProductPopupDismiss(
+                        ProductInfoStore.current
+                    )
+                }
+
+                android.util.Log.d(
+                    "OverlayService",
+                    "GESTIONE PREZZI CHIUSA"
+                )
+            }
+        )
+    }
+
     private fun createProductInfoPopup() {
         val bindings = productInfoPopupController.create(
             onStockClick = ::showStockEditPopup,
             onLocationClick = ::showLocationManagementPopup,
+            onPriceLongClick = ::showPriceManagementPopup,
             onTouchStarted = {
                 popupTimerPausedByUser = true
                 popupHandler.removeCallbacks(dismissPopupRunnable)
@@ -4753,34 +4947,62 @@ class OverlayService : Service() {
                 )
             },
             onTouchFinished = {
-                popupTimerPausedByUser = false
-                scheduleProductPopupDismiss(ProductInfoStore.current)
+                if (priceManagementPopupController.isShowing()) {
+                    popupTimerPausedByUser = true
+                    popupHandler.removeCallbacks(
+                        dismissPopupRunnable
+                    )
 
-                android.util.Log.d(
-                    "OverlayService",
-                    "TIMER POPUP RIPARTITO - DITO SOLLEVATO"
-                )
+                    android.util.Log.d(
+                        "OverlayService",
+                        "TIMER POPUP RESTA IN PAUSA - GESTIONE PREZZI APERTA"
+                    )
+                } else {
+                    popupTimerPausedByUser = false
+                    scheduleProductPopupDismiss(
+                        ProductInfoStore.current
+                    )
+
+                    android.util.Log.d(
+                        "OverlayService",
+                        "TIMER POPUP RIPARTITO - DITO SOLLEVATO"
+                    )
+                }
             },
             onPopupTap = {
-                popupHandler.removeCallbacks(dismissPopupRunnable)
-                popupTimerPausedByUser = false
+                if (priceManagementPopupController.isShowing()) {
+                    popupHandler.removeCallbacks(
+                        dismissPopupRunnable
+                    )
+                    popupTimerPausedByUser = true
 
-                val reopen =
-                    reopenScannerAfterPopup &&
-                            loadCurrentScanMode() == MODE_INFO
+                    android.util.Log.d(
+                        "OverlayService",
+                        "TAP POPUP IGNORATO - GESTIONE PREZZI APERTA"
+                    )
+                } else {
+                    popupHandler.removeCallbacks(
+                        dismissPopupRunnable
+                    )
+                    popupTimerPausedByUser = false
 
-                reopenScannerAfterPopup = false
-                removeProductInfoPopup()
+                    val reopen =
+                        reopenScannerAfterPopup &&
+                                loadCurrentScanMode() == MODE_INFO
 
-                if (reopen) {
-                    sessionRecordedForCurrentScan = false
-                    openRapidScanner()
+                    reopenScannerAfterPopup = false
+                    removeProductInfoPopup()
+
+                    if (reopen) {
+                        sessionRecordedForCurrentScan = false
+                        openRapidScanner()
+                    }
+
+                    android.util.Log.d(
+                        "OverlayService",
+                        "POPUP TOCCATO - CHIUSURA IMMEDIATA"
+                    )
                 }
-
-                android.util.Log.d(
-                    "OverlayService",
-                    "POPUP TOCCATO - CHIUSURA IMMEDIATA"
-                )
             }
         )
 
@@ -5699,6 +5921,9 @@ class OverlayService : Service() {
         popupHandler.removeCallbacks(dismissPopupRunnable)
         popupTimerPausedByUser = false
 
+        priceManagementPopupController.remove(
+            notifyClosed = false
+        )
         locationManagementPopupController.remove()
         stockSettingsPopupController.remove()
         productInfoPopupController.remove()

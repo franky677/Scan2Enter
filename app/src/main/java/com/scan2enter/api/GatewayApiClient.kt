@@ -118,6 +118,72 @@ class GatewayApiClient(
     }
 
     /**
+     * Aggiorna il prezzo vendita di un singolo listino articolo.
+     *
+     * PUT /api/product/{articleId}/price-lists/{priceListId}
+     */
+    fun updateProductPriceList(
+        articleId: Long,
+        priceListId: Int,
+        price: Double
+    ): Result<Boolean> = runCatching {
+        require(articleId > 0L) {
+            "articleId non valido: $articleId"
+        }
+
+        require(priceListId in setOf(1, 2, 3, 4, 6)) {
+            "Listino non valido: $priceListId"
+        }
+
+        require(price >= 0.0) {
+            "Il prezzo non può essere negativo"
+        }
+
+        val url =
+            "${baseUrl.trimEnd('/')}/api/product/$articleId/price-lists/$priceListId"
+
+        val body = JSONObject()
+            .put("price", price)
+            .toString()
+
+        Log.d(TAG, "GATEWAY UPDATE PRODUCT PRICE")
+        Log.d(
+            TAG,
+            "ARTICLE ID=$articleId LISTINO=$priceListId PRICE=$price"
+        )
+        Log.d(TAG, "URL = $url")
+
+        val response = executeJson(
+            urlString = url,
+            method = "PUT",
+            jsonBody = body
+        )
+
+        Log.d(
+            TAG,
+            "GATEWAY UPDATE PRODUCT PRICE HTTP=${response.code}"
+        )
+        Log.d(TAG, "BODY=${response.body.take(800)}")
+
+        if (response.code !in 200..299) {
+            error(
+                "Gateway HTTP ${response.code}: ${response.body.take(500)}"
+            )
+        }
+
+        val root = JSONObject(response.body)
+
+        check(root.optBoolean("updated", false)) {
+            root.optString(
+                "message",
+                "Aggiornamento prezzo non riuscito"
+            )
+        }
+
+        true
+    }
+
+    /**
      * Blocca o sblocca un articolo nel Gateway.
      *
      * PUT /api/product/{articleId}/active
@@ -1305,6 +1371,12 @@ class GatewayApiClient(
                     supplierName = item.optNullableString("supplierName"),
                     supplierArticleCode =
                         item.optNullableString("supplierArticleCode"),
+                    purchaseTaxable =
+                        item.optNullableDouble("purchaseTaxable"),
+                    purchasePrice =
+                        item.optNullableDouble("purchasePrice"),
+                    vatRate =
+                        item.optNullableDouble("vatRate"),
                     stock = item.optNullableDouble("stock"),
                     availableStock = item.optNullableDouble("available"),
                     minimumStock = item.optNullableDouble("minimumStock"),

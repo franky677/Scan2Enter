@@ -18,6 +18,10 @@ data class ReorderItem(
     val supplierName: String,
     val supplierArticleCode: String,
 
+    val purchaseTaxable: Double? = null,
+    val purchasePrice: Double? = null,
+    val vatRate: Double? = null,
+
     val stock: Double?,
     val availableStock: Double?,
     val minimumStock: Double?,
