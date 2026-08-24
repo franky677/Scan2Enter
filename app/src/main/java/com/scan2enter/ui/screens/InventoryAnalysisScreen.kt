@@ -1,5 +1,10 @@
 package com.scan2enter.ui.screens
 
+import android.content.Context
+import android.print.PrintAttributes
+import android.print.PrintManager
+import android.webkit.WebView
+import android.webkit.WebViewClient
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -25,8 +30,10 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -38,6 +45,7 @@ import com.scan2enter.api.InventoryManufacturerSummaryDto
 import com.scan2enter.api.InventoryRotationDto
 import com.scan2enter.api.InventorySupplierSummaryDto
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.text.NumberFormat
 import java.util.Locale
@@ -57,8 +65,12 @@ private enum class InventoryView {
 @Composable
 fun InventoryAnalysisScreen(onBack: () -> Unit) {
     val client = remember { GatewayApiClient() }
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
 
     var currentView by remember { mutableStateOf(InventoryView.SUMMARY) }
+    var reportLoading by remember { mutableStateOf(false) }
+    var reportError by remember { mutableStateOf<String?>(null) }
 
     var loading by remember { mutableStateOf(true) }
     var summary by remember { mutableStateOf<InventoryAnalysisSummaryDto?>(null) }
@@ -223,7 +235,7 @@ fun InventoryAnalysisScreen(onBack: () -> Unit) {
                 subFamilyId = selectedSubFamily?.id,
                 categoryId = selectedCategory?.id,
                 subCategoryId = selectedSubCategory?.id,
-                limit = 5000
+                limit = 50000
             )
         }.onSuccess {
             items = it
@@ -448,6 +460,40 @@ fun InventoryAnalysisScreen(onBack: () -> Unit) {
                 }
 
                 InventoryView.ITEMS -> {
+                    fun printReport(valuation: String) {
+                        if (reportLoading) return
+
+                        reportLoading = true
+                        reportError = null
+
+                        scope.launch {
+                            withContext(Dispatchers.IO) {
+                                client.getInventoryAnalysisReportHtml(
+                                    valuation = valuation,
+                                    title = "ANALISI MAGAZZINO - $title",
+                                    rotationId = selectedRotation?.rotationId,
+                                    supplierId = selectedSupplier?.supplierId,
+                                    manufacturerId = selectedManufacturer?.manufacturerId,
+                                    familyId = selectedFamily?.id,
+                                    subFamilyId = selectedSubFamily?.id,
+                                    categoryId = selectedCategory?.id,
+                                    subCategoryId = selectedSubCategory?.id
+                                )
+                            }.onSuccess { html ->
+                                printInventoryHtml(
+                                    context = context,
+                                    html = html,
+                                    jobName = "Analisi Magazzino - $title - ${valuation.uppercase()}"
+                                )
+                            }.onFailure { throwable ->
+                                reportError =
+                                    throwable.message ?: "Errore generazione report"
+                            }
+
+                            reportLoading = false
+                        }
+                    }
+
                     ItemsView(
                         loading = itemsLoading,
                         error = itemsError,
@@ -456,6 +502,10 @@ fun InventoryAnalysisScreen(onBack: () -> Unit) {
                         selectedSupplier = selectedSupplier,
                         selectedManufacturer = selectedManufacturer,
                         selectedClassification = selectedSubCategory,
+                        reportLoading = reportLoading,
+                        reportError = reportError,
+                        onPrintFifo = { printReport("fifo") },
+                        onPrintPurchase = { printReport("purchase") },
                         onRetry = { itemsReloadKey++ }
                     )
                 }
@@ -828,6 +878,10 @@ private fun ItemsView(
     selectedSupplier: InventorySupplierSummaryDto?,
     selectedManufacturer: InventoryManufacturerSummaryDto?,
     selectedClassification: InventoryClassificationDto?,
+    reportLoading: Boolean,
+    reportError: String?,
+    onPrintFifo: () -> Unit,
+    onPrintPurchase: () -> Unit,
     onRetry: () -> Unit
 ) {
     selectedRotation?.let {
@@ -912,6 +966,35 @@ private fun ItemsView(
         }
     }
 
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Button(
+            onClick = onPrintFifo,
+            enabled = !reportLoading && !loading && error == null && items.isNotEmpty(),
+            modifier = Modifier.weight(1f)
+        ) {
+            Text(if (reportLoading) "ATTENDI…" else "STAMPA FIFO")
+        }
+
+        Button(
+            onClick = onPrintPurchase,
+            enabled = !reportLoading && !loading && error == null && items.isNotEmpty(),
+            modifier = Modifier.weight(1f)
+        ) {
+            Text(if (reportLoading) "ATTENDI…" else "STAMPA LISTINO")
+        }
+    }
+
+    reportError?.let { message ->
+        Text(
+            message,
+            color = MaterialTheme.colorScheme.error,
+            style = MaterialTheme.typography.bodySmall
+        )
+    }
 
     HorizontalDivider()
 
@@ -1004,6 +1087,41 @@ private fun InventoryItemCard(
         }
     }
 }
+
+private fun printInventoryHtml(
+    context: Context,
+    html: String,
+    jobName: String
+) {
+    val webView = WebView(context)
+
+    webView.settings.javaScriptEnabled = false
+    webView.webViewClient = object : WebViewClient() {
+        override fun onPageFinished(view: WebView, url: String?) {
+            val printManager =
+                context.getSystemService(Context.PRINT_SERVICE) as PrintManager
+
+            val adapter = view.createPrintDocumentAdapter(jobName)
+
+            printManager.print(
+                jobName,
+                adapter,
+                PrintAttributes.Builder()
+                    .setMediaSize(PrintAttributes.MediaSize.ISO_A4)
+                    .build()
+            )
+        }
+    }
+
+    webView.loadDataWithBaseURL(
+        null,
+        html,
+        "text/html",
+        "UTF-8",
+        null
+    )
+}
+
 
 @Composable
 private fun CenterLoader() {

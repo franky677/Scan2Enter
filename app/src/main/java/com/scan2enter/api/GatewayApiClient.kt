@@ -1129,7 +1129,7 @@ class GatewayApiClient(
             params += "q=$encodedQuery"
         }
 
-        params += "limit=${limit.coerceIn(1, 5000)}"
+        params += "limit=${limit.coerceIn(1, 50000)}"
 
         val url =
             "${baseUrl.trimEnd('/')}/api/inventory-analysis/items?" +
@@ -1183,6 +1183,71 @@ class GatewayApiClient(
         }
 
         result
+    }
+
+
+    /**
+     * Genera il report HTML dell'Analisi Magazzino usando gli stessi filtri
+     * della lista articoli visualizzata.
+     *
+     * POST /api/inventory-analysis/report
+     */
+    fun getInventoryAnalysisReportHtml(
+        valuation: String,
+        title: String,
+        rotationId: Int? = null,
+        supplierId: Int? = null,
+        manufacturerId: Int? = null,
+        familyId: Int? = null,
+        subFamilyId: Int? = null,
+        categoryId: Int? = null,
+        subCategoryId: Int? = null,
+        query: String = ""
+    ): Result<String> = runCatching {
+        val normalizedValuation = valuation.trim().lowercase()
+        require(normalizedValuation == "fifo" || normalizedValuation == "purchase") {
+            "Valorizzazione non valida: $valuation"
+        }
+
+        val url =
+            "${baseUrl.trimEnd('/')}/api/inventory-analysis/report"
+
+        val body = JSONObject()
+            .put("valuation", normalizedValuation)
+            .put("title", title.trim())
+
+        rotationId?.let { body.put("rotationId", it) }
+        supplierId?.let { body.put("supplierId", it) }
+        manufacturerId?.let { body.put("manufacturerId", it) }
+        familyId?.let { body.put("familyId", it) }
+        subFamilyId?.let { body.put("subFamilyId", it) }
+        categoryId?.let { body.put("categoryId", it) }
+        subCategoryId?.let { body.put("subCategoryId", it) }
+        if (query.isNotBlank()) {
+            body.put("q", query.trim())
+        }
+
+        Log.d(TAG, "GATEWAY POST INVENTORY ANALYSIS REPORT")
+        Log.d(TAG, "URL = $url")
+        Log.d(TAG, "BODY = $body")
+
+        val response = executeJson(
+            urlString = url,
+            method = "POST",
+            jsonBody = body.toString()
+        )
+
+        Log.d(TAG, "GATEWAY INVENTORY REPORT HTTP=${response.code}")
+
+        if (response.code !in 200..299) {
+            error("Gateway HTTP ${response.code}: ${response.body.take(500)}")
+        }
+
+        check(response.body.isNotBlank()) {
+            "Il Gateway ha restituito un report vuoto"
+        }
+
+        response.body
     }
 
 
