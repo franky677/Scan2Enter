@@ -21,6 +21,10 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -28,13 +32,29 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.scan2enter.overlay.OverlayService
+import com.scan2enter.sales.SalesAccessManager
+import com.scan2enter.ui.components.SalesUnlockDialog
 import com.scan2enter.ui.components.GatewayStatusBanner
 @Composable
 fun HomeScreen(
     onOpenTrovaTutto: () -> Unit,
-    onOpenSession: () -> Unit
+    onOpenSession: () -> Unit,
+    onOpenSales: () -> Unit,
+    onOpenInventoryAnalysis: () -> Unit
 ) {
     val context = LocalContext.current
+
+    val salesAccessManager = remember {
+        SalesAccessManager(context)
+    }
+
+    var showSalesPasswordDialog by remember {
+        mutableStateOf(false)
+    }
+
+    var showInventoryPasswordDialog by remember {
+        mutableStateOf(false)
+    }
 
     DisposableEffect(Unit) {
         context
@@ -79,6 +99,33 @@ fun HomeScreen(
             "$moduleName: modulo in preparazione",
             Toast.LENGTH_SHORT
         ).show()
+    }
+
+    if (showSalesPasswordDialog) {
+        SalesUnlockDialog(
+            accessManager = salesAccessManager,
+            onDismiss = {
+                showSalesPasswordDialog = false
+            },
+            onUnlocked = {
+                showSalesPasswordDialog = false
+                onOpenSales()
+            }
+        )
+    }
+
+    if (showInventoryPasswordDialog) {
+        SalesUnlockDialog(
+            accessManager = salesAccessManager,
+            onDismiss = {
+                showInventoryPasswordDialog = false
+            },
+            onUnlocked = {
+                showInventoryPasswordDialog = false
+                onOpenInventoryAnalysis()
+            },
+            areaName = "ANALISI MAGAZZINO"
+        )
     }
 
     Scaffold(
@@ -176,11 +223,13 @@ fun HomeScreen(
 
             HomeButtonRow(
                 leftText = "📊\nVENDITE",
-                rightText = "",
+                rightText = "📦\nANALISI MAGAZZINO",
                 onLeftClick = {
-                    moduleNotAvailable("Vendite")
+                    showSalesPasswordDialog = true
                 },
-                onRightClick = null
+                onRightClick = {
+                    showInventoryPasswordDialog = true
+                }
             )
 
             Button(

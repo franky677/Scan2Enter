@@ -979,6 +979,373 @@ class GatewayApiClient(
         }
     }
 
+
+    /**
+     * Riepilogo vendite Scan2Enter.
+     *
+     * GET /api/sales/summary?year=...
+     */
+    fun getSalesSummary(
+        year: Int
+    ): Result<SalesSummaryDto> = runCatching {
+        require(year in 2000..2100) {
+            "Anno non valido: $year"
+        }
+
+        val url =
+            "${baseUrl.trimEnd('/')}/api/sales/summary?year=$year"
+
+        Log.d(TAG, "GATEWAY GET SALES SUMMARY")
+        Log.d(TAG, "URL = $url")
+
+        val response = executeGet(url)
+
+        Log.d(TAG, "GATEWAY SALES SUMMARY HTTP=${response.code}")
+        Log.d(TAG, "BODY=${response.body.take(1000)}")
+
+        if (response.code !in 200..299) {
+            error(
+                "Gateway HTTP ${response.code}: ${response.body.take(500)}"
+            )
+        }
+
+        val root = JSONObject(response.body)
+
+        fun parseSection(name: String): SalesSectionDto {
+            val item = root.optJSONObject(name)
+                ?: error(
+                    "Risposta Gateway non valida: sezione $name mancante"
+                )
+
+            return SalesSectionDto(
+                documents = item.optInt("documents", 0),
+                salesTaxable = item.optDouble("salesTaxable", 0.0),
+                cost = item.optDouble("cost", 0.0),
+                difference = item.optDouble("difference", 0.0),
+                markupPercent = item.optDouble("markupPercent", 0.0)
+            )
+        }
+
+        SalesSummaryDto(
+            year = root.optInt("year", year),
+            from = root.optString("from", "").trim(),
+            to = root.optString("to", "").trim(),
+            receipts = parseSection("receipts"),
+            invoices = parseSection("invoices"),
+            total = parseSection("total")
+        )
+    }
+
+
+    /**
+     * Riepilogo Analisi Magazzino.
+     *
+     * GET /api/inventory-analysis/summary
+     */
+    fun getInventoryAnalysisSummary(): Result<InventoryAnalysisSummaryDto> = runCatching {
+        val url =
+            "${baseUrl.trimEnd('/')}/api/inventory-analysis/summary"
+
+        Log.d(TAG, "GATEWAY GET INVENTORY ANALYSIS SUMMARY")
+        Log.d(TAG, "URL = $url")
+
+        val response = executeGet(url)
+
+        Log.d(TAG, "GATEWAY INVENTORY SUMMARY HTTP=${response.code}")
+        Log.d(TAG, "BODY=${response.body.take(1500)}")
+
+        if (response.code !in 200..299) {
+            error(
+                "Gateway HTTP ${response.code}: ${response.body.take(500)}"
+            )
+        }
+
+        val root = JSONObject(response.body)
+        val rotationArray = root.optJSONArray("rotation") ?: JSONArray()
+        val rotation = ArrayList<InventoryRotationDto>(rotationArray.length())
+
+        for (index in 0 until rotationArray.length()) {
+            val item = rotationArray.optJSONObject(index) ?: continue
+
+            rotation.add(
+                InventoryRotationDto(
+                    rotationId = item.optInt("rotationId", 0),
+                    rotation = item.optString("rotation", "").trim(),
+                    articles = item.optInt("articles", 0),
+                    quantity = item.optDouble("quantity", 0.0),
+                    fifoValue = item.optDouble("fifoValue", 0.0),
+                    purchaseListValue =
+                        item.optDouble("purchaseListValue", 0.0),
+                    fifoPercentage =
+                        item.optDouble("fifoPercentage", 0.0)
+                )
+            )
+        }
+
+        InventoryAnalysisSummaryDto(
+            articles = root.optInt("articles", 0),
+            quantity = root.optDouble("quantity", 0.0),
+            fifoValue = root.optDouble("fifoValue", 0.0),
+            purchaseListValue =
+                root.optDouble("purchaseListValue", 0.0),
+            fifoCalculatedAt =
+                root.optString("fifoCalculatedAt", "").trim(),
+            rotation = rotation
+        )
+    }
+
+
+    /**
+     * Elenco articoli Analisi Magazzino.
+     *
+     * GET /api/inventory-analysis/items
+     */
+    fun getInventoryAnalysisItems(
+        rotationId: Int? = null,
+        supplierId: Int? = null,
+        manufacturerId: Int? = null,
+        familyId: Int? = null,
+        subFamilyId: Int? = null,
+        categoryId: Int? = null,
+        subCategoryId: Int? = null,
+        query: String = "",
+        limit: Int = 500
+    ): Result<List<InventoryAnalysisItemDto>> = runCatching {
+        val params = mutableListOf<String>()
+
+        rotationId?.let { params += "rotationId=$it" }
+        supplierId?.let { params += "supplierId=$it" }
+        manufacturerId?.let { params += "manufacturerId=$it" }
+        familyId?.let { params += "familyId=$it" }
+        subFamilyId?.let { params += "subFamilyId=$it" }
+        categoryId?.let { params += "categoryId=$it" }
+        subCategoryId?.let { params += "subCategoryId=$it" }
+
+        if (query.isNotBlank()) {
+            val encodedQuery = URLEncoder.encode(
+                query.trim(),
+                StandardCharsets.UTF_8.name()
+            )
+            params += "q=$encodedQuery"
+        }
+
+        params += "limit=${limit.coerceIn(1, 5000)}"
+
+        val url =
+            "${baseUrl.trimEnd('/')}/api/inventory-analysis/items?" +
+                    params.joinToString("&")
+
+        Log.d(TAG, "GATEWAY GET INVENTORY ANALYSIS ITEMS")
+        Log.d(TAG, "URL = $url")
+
+        val response = executeGet(url)
+
+        Log.d(TAG, "GATEWAY INVENTORY ITEMS HTTP=${response.code}")
+        Log.d(TAG, "BODY=${response.body.take(1500)}")
+
+        if (response.code !in 200..299) {
+            error("Gateway HTTP ${response.code}: ${response.body.take(500)}")
+        }
+
+        val root = JSONObject(response.body)
+        val array = root.optJSONArray("items")
+            ?: error("Risposta Gateway non valida: items mancanti")
+
+        val result = ArrayList<InventoryAnalysisItemDto>(array.length())
+
+        for (index in 0 until array.length()) {
+            val item = array.optJSONObject(index) ?: continue
+            result.add(
+                InventoryAnalysisItemDto(
+                    articleId = item.optLong("articleId", 0L),
+                    articleCode = item.optString("articleCode", "").trim(),
+                    description = item.optString("description", "").trim(),
+                    quantity = item.optDouble("quantity", 0.0),
+                    lastSaleDate = item.optString("lastSaleDate", "").trim(),
+                    rotationId = item.optInt("rotationId", 0),
+                    rotation = item.optString("rotation", "").trim(),
+                    supplierId = item.optInt("supplierId", 0),
+                    supplier = item.optString("supplier", "").trim(),
+                    manufacturerId = item.optInt("manufacturerId", 0),
+                    manufacturer = item.optString("manufacturer", "").trim(),
+                    familyId = item.optInt("familyId", 0),
+                    family = item.optString("family", "").trim(),
+                    subFamilyId = item.optInt("subFamilyId", 0),
+                    subFamily = item.optString("subFamily", "").trim(),
+                    categoryId = item.optInt("categoryId", 0),
+                    category = item.optString("category", "").trim(),
+                    subCategoryId = item.optInt("subCategoryId", 0),
+                    subCategory = item.optString("subCategory", "").trim(),
+                    fifoValue = item.optDouble("fifoValue", 0.0),
+                    purchaseListValue = item.optDouble("purchaseListValue", 0.0)
+                )
+            )
+        }
+
+        result
+    }
+
+
+    /**
+     * Riepilogo Analisi Magazzino per fornitore.
+     *
+     * GET /api/inventory-analysis/suppliers
+     */
+    fun getInventorySupplierSummary(): Result<List<InventorySupplierSummaryDto>> = runCatching {
+        val url =
+            "${baseUrl.trimEnd('/')}/api/inventory-analysis/suppliers"
+
+        Log.d(TAG, "GATEWAY GET INVENTORY SUPPLIERS")
+        Log.d(TAG, "URL = $url")
+
+        val response = executeGet(url)
+
+        Log.d(TAG, "GATEWAY INVENTORY SUPPLIERS HTTP=${response.code}")
+        Log.d(TAG, "BODY=${response.body.take(1500)}")
+
+        if (response.code !in 200..299) {
+            error(
+                "Gateway HTTP ${response.code}: ${response.body.take(500)}"
+            )
+        }
+
+        val root = JSONObject(response.body)
+        val array = root.optJSONArray("items")
+            ?: error("Risposta Gateway non valida: items fornitori mancanti")
+
+        val result = ArrayList<InventorySupplierSummaryDto>(array.length())
+
+        for (index in 0 until array.length()) {
+            val item = array.optJSONObject(index) ?: continue
+
+            result.add(
+                InventorySupplierSummaryDto(
+                    supplierId =
+                        if (item.isNull("supplierId")) null
+                        else item.optInt("supplierId"),
+                    supplier = item.optString("supplier", "").trim(),
+                    articles = item.optInt("articles", 0),
+                    quantity = item.optDouble("quantity", 0.0),
+                    fifoValue = item.optDouble("fifoValue", 0.0),
+                    purchaseListValue =
+                        item.optDouble("purchaseListValue", 0.0)
+                )
+            )
+        }
+
+        result
+    }
+
+
+    /**
+     * Riepilogo Analisi Magazzino per produttore/marca.
+     *
+     * GET /api/inventory-analysis/manufacturers
+     */
+    fun getInventoryManufacturerSummary(): Result<List<InventoryManufacturerSummaryDto>> = runCatching {
+        val url =
+            "${baseUrl.trimEnd('/')}/api/inventory-analysis/manufacturers"
+
+        Log.d(TAG, "GATEWAY GET INVENTORY MANUFACTURERS")
+        Log.d(TAG, "URL = $url")
+
+        val response = executeGet(url)
+
+        Log.d(TAG, "GATEWAY INVENTORY MANUFACTURERS HTTP=${response.code}")
+        Log.d(TAG, "BODY=${response.body.take(1500)}")
+
+        if (response.code !in 200..299) {
+            error("Gateway HTTP ${response.code}: ${response.body.take(500)}")
+        }
+
+        val root = JSONObject(response.body)
+        val array = root.optJSONArray("items")
+            ?: error("Risposta Gateway non valida: items produttori mancanti")
+
+        val result = ArrayList<InventoryManufacturerSummaryDto>(array.length())
+
+        for (index in 0 until array.length()) {
+            val item = array.optJSONObject(index) ?: continue
+            result.add(
+                InventoryManufacturerSummaryDto(
+                    manufacturerId = if (item.isNull("id")) null else item.optInt("id"),
+                    manufacturer = item.optString("name", "").trim(),
+                    articles = item.optInt("articles", 0),
+                    quantity = item.optDouble("quantity", 0.0),
+                    fifoValue = item.optDouble("fifoValue", 0.0),
+                    purchaseListValue = item.optDouble("purchaseListValue", 0.0)
+                )
+            )
+        }
+
+        result
+    }
+
+
+    /**
+     * Navigazione gerarchica classificazioni Analisi Magazzino.
+     *
+     * GET /api/inventory-analysis/classifications
+     */
+    fun getInventoryClassifications(
+        dimension: String,
+        familyId: Int? = null,
+        subFamilyId: Int? = null,
+        categoryId: Int? = null,
+        subCategoryId: Int? = null
+    ): Result<List<InventoryClassificationDto>> = runCatching {
+        require(
+            dimension in setOf("family", "subfamily", "category", "subcategory")
+        ) {
+            "Dimensione classificazione non valida: $dimension"
+        }
+
+        val params = mutableListOf("dimension=$dimension")
+        familyId?.let { params += "familyId=$it" }
+        subFamilyId?.let { params += "subFamilyId=$it" }
+        categoryId?.let { params += "categoryId=$it" }
+        subCategoryId?.let { params += "subCategoryId=$it" }
+
+        val url =
+            "${baseUrl.trimEnd('/')}/api/inventory-analysis/classifications?" +
+                    params.joinToString("&")
+
+        Log.d(TAG, "GATEWAY GET INVENTORY CLASSIFICATIONS")
+        Log.d(TAG, "URL = $url")
+
+        val response = executeGet(url)
+
+        Log.d(TAG, "GATEWAY INVENTORY CLASSIFICATIONS HTTP=${response.code}")
+        Log.d(TAG, "BODY=${response.body.take(1500)}")
+
+        if (response.code !in 200..299) {
+            error("Gateway HTTP ${response.code}: ${response.body.take(500)}")
+        }
+
+        val root = JSONObject(response.body)
+        val array = root.optJSONArray("items")
+            ?: error("Risposta Gateway non valida: classificazioni mancanti")
+
+        val result = ArrayList<InventoryClassificationDto>(array.length())
+
+        for (index in 0 until array.length()) {
+            val item = array.optJSONObject(index) ?: continue
+            result.add(
+                InventoryClassificationDto(
+                    id = if (item.isNull("id")) null else item.optInt("id"),
+                    name = item.optString("name", "").trim(),
+                    articles = item.optInt("articles", 0),
+                    quantity = item.optDouble("quantity", 0.0),
+                    fifoValue = item.optDouble("fifoValue", 0.0),
+                    purchaseListValue = item.optDouble("purchaseListValue", 0.0)
+                )
+            )
+        }
+
+        result
+    }
+
+
     private fun executeGet(urlString: String): HttpResponse {
         val connection =
             URL(urlString).openConnection() as HttpURLConnection
@@ -1536,4 +1903,93 @@ data class DeleteLocationResult(
     val deleted: Boolean,
     val usageCount: Int,
     val message: String
+)
+
+data class SalesSummaryDto(
+    val year: Int,
+    val from: String,
+    val to: String,
+    val receipts: SalesSectionDto,
+    val invoices: SalesSectionDto,
+    val total: SalesSectionDto
+)
+
+data class SalesSectionDto(
+    val documents: Int,
+    val salesTaxable: Double,
+    val cost: Double,
+    val difference: Double,
+    val markupPercent: Double
+)
+
+
+data class InventoryAnalysisSummaryDto(
+    val articles: Int,
+    val quantity: Double,
+    val fifoValue: Double,
+    val purchaseListValue: Double,
+    val fifoCalculatedAt: String,
+    val rotation: List<InventoryRotationDto>
+)
+
+data class InventoryRotationDto(
+    val rotationId: Int,
+    val rotation: String,
+    val articles: Int,
+    val quantity: Double,
+    val fifoValue: Double,
+    val purchaseListValue: Double,
+    val fifoPercentage: Double
+)
+
+data class InventoryAnalysisItemDto(
+    val articleId: Long,
+    val articleCode: String,
+    val description: String,
+    val quantity: Double,
+    val lastSaleDate: String,
+    val rotationId: Int,
+    val rotation: String,
+    val supplierId: Int,
+    val supplier: String,
+    val manufacturerId: Int,
+    val manufacturer: String,
+    val familyId: Int,
+    val family: String,
+    val subFamilyId: Int,
+    val subFamily: String,
+    val categoryId: Int,
+    val category: String,
+    val subCategoryId: Int,
+    val subCategory: String,
+    val fifoValue: Double,
+    val purchaseListValue: Double
+)
+
+
+data class InventorySupplierSummaryDto(
+    val supplierId: Int?,
+    val supplier: String,
+    val articles: Int,
+    val quantity: Double,
+    val fifoValue: Double,
+    val purchaseListValue: Double
+)
+
+data class InventoryManufacturerSummaryDto(
+    val manufacturerId: Int?,
+    val manufacturer: String,
+    val articles: Int,
+    val quantity: Double,
+    val fifoValue: Double,
+    val purchaseListValue: Double
+)
+
+data class InventoryClassificationDto(
+    val id: Int?,
+    val name: String,
+    val articles: Int,
+    val quantity: Double,
+    val fifoValue: Double,
+    val purchaseListValue: Double
 )

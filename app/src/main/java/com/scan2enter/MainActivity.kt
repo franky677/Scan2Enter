@@ -25,6 +25,8 @@ import com.scan2enter.scanner.ScannerModeDetector
 import com.scan2enter.ui.screens.HomeScreen
 import com.scan2enter.ui.screens.TrovaTuttoScreen
 import com.scan2enter.ui.screens.SessionScreen
+import com.scan2enter.ui.screens.SalesScreen
+import com.scan2enter.ui.screens.InventoryAnalysisScreen
 import com.scan2enter.ui.screens.ColloHistoryScreen
 import com.scan2enter.session.SessionStore
 import com.scan2enter.ui.theme.Scan2EnterTheme
@@ -409,6 +411,22 @@ class MainActivity : ComponentActivity() {
                         )
                     }
 
+                    "VENDITE" -> {
+                        SalesScreen(
+                            onBack = {
+                                currentScreen = "HOME"
+                            }
+                        )
+                    }
+
+                    "ANALISI_MAGAZZINO" -> {
+                        InventoryAnalysisScreen(
+                            onBack = {
+                                currentScreen = "HOME"
+                            }
+                        )
+                    }
+
                     "SESSIONE" -> {
                         SessionScreen(
                             onBack = {
@@ -441,6 +459,12 @@ class MainActivity : ComponentActivity() {
                             },
                             onOpenSession = {
                                 currentScreen = "SESSIONE"
+                            },
+                            onOpenSales = {
+                                currentScreen = "VENDITE"
+                            },
+                            onOpenInventoryAnalysis = {
+                                currentScreen = "ANALISI_MAGAZZINO"
                             }
                         )
                     }
