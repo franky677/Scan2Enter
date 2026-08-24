@@ -1,10 +1,13 @@
 package com.scan2enter.ui.screens
 
+import android.content.Intent
+import android.widget.Toast
 import android.content.Context
 import android.print.PrintAttributes
 import android.print.PrintManager
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -44,6 +47,7 @@ import com.scan2enter.api.InventoryAnalysisSummaryDto
 import com.scan2enter.api.InventoryManufacturerSummaryDto
 import com.scan2enter.api.InventoryRotationDto
 import com.scan2enter.api.InventorySupplierSummaryDto
+import com.scan2enter.overlay.OverlayService
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -266,6 +270,62 @@ fun InventoryAnalysisScreen(onBack: () -> Unit) {
                 ?: "Articoli"
     }
 
+    fun navigateBack() {
+        when (currentView) {
+            InventoryView.SUMMARY -> onBack()
+
+            InventoryView.SUPPLIERS -> {
+                currentView = InventoryView.SUMMARY
+            }
+
+            InventoryView.MANUFACTURERS -> {
+                currentView = InventoryView.SUMMARY
+            }
+
+            InventoryView.FAMILIES -> {
+                currentView = InventoryView.SUMMARY
+            }
+
+            InventoryView.SUBFAMILIES -> {
+                selectedFamily = null
+                currentView = InventoryView.FAMILIES
+            }
+
+            InventoryView.CATEGORIES -> {
+                selectedSubFamily = null
+                currentView = InventoryView.SUBFAMILIES
+            }
+
+            InventoryView.SUBCATEGORIES -> {
+                selectedCategory = null
+                currentView = InventoryView.CATEGORIES
+            }
+
+            InventoryView.ITEMS -> {
+                items = emptyList()
+                itemsError = null
+
+                if (selectedSupplier != null) {
+                    selectedSupplier = null
+                    currentView = InventoryView.SUPPLIERS
+                } else if (selectedManufacturer != null) {
+                    selectedManufacturer = null
+                    currentView = InventoryView.MANUFACTURERS
+                } else if (selectedSubCategory != null) {
+                    selectedSubCategory = null
+                    currentView = InventoryView.SUBCATEGORIES
+                } else {
+                    selectedRotation = null
+                    currentView = InventoryView.SUMMARY
+                }
+            }
+        }
+    }
+
+    BackHandler {
+        navigateBack()
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -278,55 +338,7 @@ fun InventoryAnalysisScreen(onBack: () -> Unit) {
                 navigationIcon = {
                     Button(
                         onClick = {
-                            when (currentView) {
-                                InventoryView.SUMMARY -> onBack()
-
-                                InventoryView.SUPPLIERS -> {
-                                    currentView = InventoryView.SUMMARY
-                                }
-
-                                InventoryView.MANUFACTURERS -> {
-                                    currentView = InventoryView.SUMMARY
-                                }
-
-                                InventoryView.FAMILIES -> {
-                                    currentView = InventoryView.SUMMARY
-                                }
-
-                                InventoryView.SUBFAMILIES -> {
-                                    selectedFamily = null
-                                    currentView = InventoryView.FAMILIES
-                                }
-
-                                InventoryView.CATEGORIES -> {
-                                    selectedSubFamily = null
-                                    currentView = InventoryView.SUBFAMILIES
-                                }
-
-                                InventoryView.SUBCATEGORIES -> {
-                                    selectedCategory = null
-                                    currentView = InventoryView.CATEGORIES
-                                }
-
-                                InventoryView.ITEMS -> {
-                                    items = emptyList()
-                                    itemsError = null
-
-                                    if (selectedSupplier != null) {
-                                        selectedSupplier = null
-                                        currentView = InventoryView.SUPPLIERS
-                                    } else if (selectedManufacturer != null) {
-                                        selectedManufacturer = null
-                                        currentView = InventoryView.MANUFACTURERS
-                                    } else if (selectedSubCategory != null) {
-                                        selectedSubCategory = null
-                                        currentView = InventoryView.SUBCATEGORIES
-                                    } else {
-                                        selectedRotation = null
-                                        currentView = InventoryView.SUMMARY
-                                    }
-                                }
-                            }
+                            navigateBack()
                         },
                         modifier = Modifier.padding(start = 8.dp)
                     ) {
@@ -506,7 +518,30 @@ fun InventoryAnalysisScreen(onBack: () -> Unit) {
                         reportError = reportError,
                         onPrintFifo = { printReport("fifo") },
                         onPrintPurchase = { printReport("purchase") },
-                        onRetry = { itemsReloadKey++ }
+                        onRetry = { itemsReloadKey++ },
+                        onArticleClick = { item ->
+                            if (item.barcode.isBlank()) {
+                                Toast.makeText(
+                                    context,
+                                    "Questo articolo non ha un barcode utilizzabile",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            } else {
+                                context.startService(
+                                    Intent(
+                                        context,
+                                        OverlayService::class.java
+                                    ).apply {
+                                        action =
+                                            OverlayService.ACTION_OPEN_SEARCH_ARTICLE
+                                        putExtra(
+                                            OverlayService.EXTRA_CURRENT_ARTICLE_BARCODE,
+                                            item.barcode
+                                        )
+                                    }
+                                )
+                            }
+                        }
                     )
                 }
             }
@@ -882,7 +917,9 @@ private fun ItemsView(
     reportError: String?,
     onPrintFifo: () -> Unit,
     onPrintPurchase: () -> Unit,
-    onRetry: () -> Unit
+    onRetry: () -> Unit,
+    onArticleClick: (InventoryAnalysisItemDto) -> Unit
+
 ) {
     selectedRotation?.let {
         Text(
@@ -1012,7 +1049,10 @@ private fun ItemsView(
             )
 
             items.forEach {
-                InventoryItemCard(it)
+                InventoryItemCard(
+                    item = it,
+                    onClick = { onArticleClick(it) }
+                )
             }
         }
     }
@@ -1020,10 +1060,13 @@ private fun ItemsView(
 
 @Composable
 private fun InventoryItemCard(
-    item: InventoryAnalysisItemDto
+    item: InventoryAnalysisItemDto,
+    onClick: () -> Unit
 ) {
     Card(
-        modifier = Modifier.fillMaxWidth()
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
     ) {
         Column(
             modifier = Modifier.padding(14.dp),
