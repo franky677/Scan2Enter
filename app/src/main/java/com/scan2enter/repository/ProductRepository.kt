@@ -6,6 +6,7 @@ import com.scan2enter.api.DueRetailApiClient
 import com.scan2enter.api.DueRetailStockSettings
 import com.scan2enter.api.GatewayApiClient
 import com.scan2enter.api.LocationDto
+import com.scan2enter.api.ProductHealthApiClient
 import com.scan2enter.model.ProductInfo
 import org.json.JSONObject
 import java.io.BufferedReader
@@ -26,6 +27,8 @@ class ProductRepository(
     @Suppress("UNUSED_PARAMETER")
     private val dueRetailWriteApi: DueRetailApiClient
 ) {
+
+    private val productHealthApi = ProductHealthApiClient()
 
     companion object {
         private const val TAG = "Scan2Enter"
@@ -50,6 +53,25 @@ class ProductRepository(
                 emptyList()
             }
 
+        /*
+         * La Salute Articolo è aggiuntiva e NON bloccante.
+         *
+         * Se il Gateway non restituisce /health oppure si verifica
+         * un errore di rete/parsing, il normale caricamento
+         * dell'articolo continua con health = null.
+         */
+        val health = productHealthApi
+            .getProductHealth(barcode)
+            .getOrElse { error ->
+                Log.e(
+                    TAG,
+                    "ERRORE LETTURA SALUTE ARTICOLO barcode=$barcode: " +
+                            error.message,
+                    error
+                )
+                null
+            }
+
         ProductInfo(
             articleId = product.articleId,
             articleCode = product.articleCode,
@@ -71,21 +93,28 @@ class ProductRepository(
             supplierId = product.supplierId,
             supplierName = product.supplierName,
             supplierArticleCode = product.supplierArticleCode,
-            coverImagePath = product.coverImagePath
+            coverImagePath = product.coverImagePath,
+            health = health
         )
     }
 
-    fun getLocations(): Result<List<LocationDto>> = gatewayApi.getLocations()
+    fun getLocations(): Result<List<LocationDto>> =
+        gatewayApi.getLocations()
 
     fun getProductLocations(articleId: Long): Result<List<LocationDto>> =
         gatewayApi.getProductLocations(articleId)
 
-    fun addLocation(articleId: Long, locationId: Int): Result<Boolean> =
+    fun addLocation(
+        articleId: Long,
+        locationId: Int
+    ): Result<Boolean> =
         gatewayApi.addLocation(articleId, locationId)
 
-    fun removeLocation(articleId: Long, locationId: Int): Result<Boolean> =
+    fun removeLocation(
+        articleId: Long,
+        locationId: Int
+    ): Result<Boolean> =
         gatewayApi.removeLocation(articleId, locationId)
-
     fun createLocation(name: String): Result<LocationDto> =
         gatewayApi.createLocation(name)
 
@@ -116,10 +145,27 @@ class ProductRepository(
         maximumStock: Double? = null,
         reorderLot: Double? = null
     ): Result<DueRetailStockSettings> = runCatching {
-        require(articleId > 0L) { "articleId non valido: $articleId" }
-        minimumStock?.let { require(it >= -1.0) { "Scorta minima non valida: $it" } }
-        maximumStock?.let { require(it >= -1.0) { "Scorta massima non valida: $it" } }
-        reorderLot?.let { require(it >= -1.0) { "Lotto riordino non valido: $it" } }
+        require(articleId > 0L) {
+            "articleId non valido: $articleId"
+        }
+
+        minimumStock?.let {
+            require(it >= -1.0) {
+                "Scorta minima non valida: $it"
+            }
+        }
+
+        maximumStock?.let {
+            require(it >= -1.0) {
+                "Scorta massima non valida: $it"
+            }
+        }
+
+        reorderLot?.let {
+            require(it >= -1.0) {
+                "Lotto riordino non valido: $it"
+            }
+        }
 
         val requestJson = JSONObject().apply {
             put("warehouseId", 0)
@@ -131,50 +177,100 @@ class ProductRepository(
             put("reorderLot", reorderLot ?: JSONObject.NULL)
         }
 
-        val url = "$GATEWAY_BASE_URL/api/product/$articleId/stock"
+        val url =
+            "$GATEWAY_BASE_URL/api/product/$articleId/stock"
 
         Log.d(TAG, "GATEWAY STOCK SETTINGS UPDATE START")
         Log.d(TAG, "URL=$url")
         Log.d(TAG, "BODY=$requestJson")
 
-        val connection = URL(url).openConnection() as HttpURLConnection
+        val connection =
+            URL(url).openConnection() as HttpURLConnection
+
         try {
             connection.requestMethod = "PUT"
             connection.connectTimeout = 10_000
             connection.readTimeout = 30_000
             connection.doOutput = true
-            connection.setRequestProperty("Accept", "application/json")
-            connection.setRequestProperty("Content-Type", "application/json; charset=utf-8")
 
-            val bytes = requestJson.toString().toByteArray(StandardCharsets.UTF_8)
+            connection.setRequestProperty(
+                "Accept",
+                "application/json"
+            )
+
+            connection.setRequestProperty(
+                "Content-Type",
+                "application/json; charset=utf-8"
+            )
+
+            val bytes =
+                requestJson
+                    .toString()
+                    .toByteArray(StandardCharsets.UTF_8)
+
             connection.setFixedLengthStreamingMode(bytes.size)
-            connection.outputStream.use { it.write(bytes) }
+
+            connection.outputStream.use {
+                it.write(bytes)
+            }
 
             val code = connection.responseCode
-            val body = readResponseBody(connection, code)
+            val body =
+                readResponseBody(connection, code)
 
-            Log.d(TAG, "GATEWAY STOCK SETTINGS HTTP=$code")
-            Log.d(TAG, "BODY=${body.take(1000)}")
+            Log.d(
+                TAG,
+                "GATEWAY STOCK SETTINGS HTTP=$code"
+            )
+
+            Log.d(
+                TAG,
+                "BODY=${body.take(1000)}"
+            )
 
             if (code !in 200..299) {
-                error("Gateway HTTP $code: ${body.take(500)}")
+                error(
+                    "Gateway HTTP $code: " +
+                            body.take(500)
+                )
             }
 
             val json = JSONObject(body)
-            check(json.optBoolean("updated", false)) {
+
+            check(
+                json.optBoolean("updated", false)
+            ) {
                 "Il Gateway non ha confermato l'aggiornamento"
             }
 
             DueRetailStockSettings(
-                articleId = json.optLong("articleId", articleId),
+                articleId =
+                    json.optLong(
+                        "articleId",
+                        articleId
+                    ),
                 articleCode = "",
-                minimumStock = json.optDouble("minimumStock", -1.0),
-                maximumStock = json.optDouble("maximumStock", -1.0),
-                reorderLot = json.optDouble("reorderLot", -1.0)
+                minimumStock =
+                    json.optDouble(
+                        "minimumStock",
+                        -1.0
+                    ),
+                maximumStock =
+                    json.optDouble(
+                        "maximumStock",
+                        -1.0
+                    ),
+                reorderLot =
+                    json.optDouble(
+                        "reorderLot",
+                        -1.0
+                    )
             ).also { updated ->
+
                 Log.d(
                     TAG,
-                    "GATEWAY STOCK SETTINGS UPDATE OK articleId=${updated.articleId} " +
+                    "GATEWAY STOCK SETTINGS UPDATE OK " +
+                            "articleId=${updated.articleId} " +
                             "minimum=${updated.minimumStock} " +
                             "maximum=${updated.maximumStock} " +
                             "lot=${updated.reorderLot}"
@@ -189,13 +285,25 @@ class ProductRepository(
         connection: HttpURLConnection,
         responseCode: Int
     ): String {
-        val stream: InputStream? =
-            if (responseCode in 200..299) connection.inputStream else connection.errorStream
 
-        if (stream == null) return ""
+        val stream: InputStream? =
+            if (responseCode in 200..299) {
+                connection.inputStream
+            } else {
+                connection.errorStream
+            }
+
+        if (stream == null) {
+            return ""
+        }
 
         return BufferedReader(
-            InputStreamReader(stream, StandardCharsets.UTF_8)
-        ).use { it.readText() }
+            InputStreamReader(
+                stream,
+                StandardCharsets.UTF_8
+            )
+        ).use {
+            it.readText()
+        }
     }
 }

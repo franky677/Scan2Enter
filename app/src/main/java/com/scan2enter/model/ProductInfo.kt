@@ -1,6 +1,7 @@
 package com.scan2enter.model
 
 import com.scan2enter.api.LocationDto
+import com.scan2enter.api.ProductHealthDto
 
 /**
  * Contiene tutte le informazioni lette automaticamente
@@ -116,5 +117,12 @@ data class ProductInfo(
     /**
      * Percorso dell'immagine di copertina restituito dalle API.
      */
-    val coverImagePath: String = ""
+    val coverImagePath: String = "",
+
+    /**
+     * Stato di salute operativo calcolato dal Gateway.
+     *
+     * null = salute non ancora caricata oppure non disponibile.
+     */
+    val health: ProductHealthDto? = null
 )

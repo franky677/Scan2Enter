@@ -45,6 +45,9 @@ class ProductInfoPopup(
         val root: View,
         val windowParams: WindowManager.LayoutParams,
         val blockedBanner: TextView,
+        val healthContainer: LinearLayout,
+        val healthStatusText: TextView,
+        val healthDetailsText: TextView,
         val priceValueText: TextView,
         val articleCodeValueText: TextView,
         val barcodeValueText: TextView,
@@ -141,10 +144,77 @@ class ProductInfoPopup(
             }
         )
 
+        val healthStatusText = TextView(context).apply {
+            textSize = 18f
+            setTextColor(Color.WHITE)
+            gravity = Gravity.CENTER
+            setPadding(
+                (12 * density).toInt(),
+                (7 * density).toInt(),
+                (12 * density).toInt(),
+                (7 * density).toInt()
+            )
+        }
+
+        val healthDetailsText = TextView(context).apply {
+            textSize = 13f
+            setTextColor(Color.DKGRAY)
+            gravity = Gravity.CENTER
+            setPadding(
+                (10 * density).toInt(),
+                (5 * density).toInt(),
+                (10 * density).toInt(),
+                (8 * density).toInt()
+            )
+        }
+
+        val healthContainer = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            visibility = View.GONE
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = 14 * density
+                setColor(Color.rgb(238, 238, 238))
+            }
+
+            addView(
+                healthStatusText,
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                )
+            )
+
+            addView(
+                healthDetailsText,
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                )
+            )
+        }
+
+        mainContent.addView(
+            healthContainer,
+            2,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                leftMargin = (12 * density).toInt()
+                rightMargin = (12 * density).toInt()
+                topMargin = (6 * density).toInt()
+                bottomMargin = (6 * density).toInt()
+            }
+        )
+
         val createdBindings = Bindings(
             root = overlayRoot,
             windowParams = createWindowParams(),
             blockedBanner = blockedBanner,
+            healthContainer = healthContainer,
+            healthStatusText = healthStatusText,
+            healthDetailsText = healthDetailsText,
             priceValueText = popupView.findViewById(R.id.productPublicPriceText),
             articleCodeValueText = popupView.findViewById(R.id.productArticleCodeText),
             barcodeValueText = popupView.findViewById(R.id.productBarcodeText),
@@ -343,6 +413,9 @@ class ProductInfoPopup(
 
         if (product == null) {
             current.blockedBanner.visibility = View.GONE
+            current.healthContainer.visibility = View.GONE
+            current.healthStatusText.text = ""
+            current.healthDetailsText.text = ""
             current.priceValueText.text = "—"
             current.articleCodeValueText.text = "—"
             current.barcodeValueText.text = "—"
@@ -410,6 +483,11 @@ class ProductInfoPopup(
             current = current
         )
 
+        updateHealthStatus(
+            product = product,
+            current = current
+        )
+
         current.productImageView.setImageDrawable(null)
         current.productImageView.visibility = View.VISIBLE
 
@@ -473,6 +551,135 @@ class ProductInfoPopup(
         )
 
         return stockSoundStatus
+    }
+
+    private fun updateHealthStatus(
+        product: ProductInfo,
+        current: Bindings
+    ) {
+        val health = product.health
+
+        if (health == null) {
+            current.healthContainer.visibility = View.GONE
+            current.healthStatusText.text = ""
+            current.healthDetailsText.text = ""
+            return
+        }
+
+        current.healthContainer.visibility = View.VISIBLE
+
+        android.util.Log.d(
+            "ProductInfoPopup",
+            "SALUTE VISIBILE stato=${health.statoSalute} fifo=${health.valoreFifo}"
+        )
+
+        val state = health.statoSalute
+            .trim()
+            .uppercase(java.util.Locale.ITALY)
+            .ifEmpty { "OK" }
+
+        val statusBackground = GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = 14 * context.resources.displayMetrics.density
+        }
+
+        when (state) {
+            "ROSSO" -> {
+                statusBackground.setColor(Color.rgb(198, 40, 40))
+                current.healthStatusText.setTextColor(Color.WHITE)
+            }
+
+            "ARANCIONE" -> {
+                statusBackground.setColor(Color.rgb(245, 124, 0))
+                current.healthStatusText.setTextColor(Color.WHITE)
+            }
+
+            "GIALLO" -> {
+                statusBackground.setColor(Color.rgb(255, 214, 0))
+                current.healthStatusText.setTextColor(Color.BLACK)
+            }
+
+            else -> {
+                statusBackground.setColor(Color.rgb(0, 200, 83))
+                current.healthStatusText.setTextColor(Color.BLACK)
+            }
+        }
+
+        current.healthStatusText.background = statusBackground
+        current.healthStatusText.text = "SALUTE  $state"
+
+        fun formatQuantity(value: Double): String =
+            if (value == value.toLong().toDouble()) {
+                value.toLong().toString()
+            } else {
+                String.format(
+                    java.util.Locale.ITALY,
+                    "%.2f",
+                    value
+                )
+            }
+
+        fun formatDecimal(value: Double?): String =
+            value?.let {
+                String.format(
+                    java.util.Locale.ITALY,
+                    "%.2f",
+                    it
+                )
+            } ?: "—"
+
+        fun formatDate(value: String?): String {
+            val raw = value?.trim().orEmpty()
+            if (raw.isEmpty()) return "Mai"
+
+            val datePart = raw.take(10)
+            val pieces = datePart.split("-")
+
+            return if (
+                pieces.size == 3 &&
+                pieces[0].length == 4
+            ) {
+                "${pieces[2]}/${pieces[1]}/${pieces[0]}"
+            } else {
+                datePart
+            }
+        }
+
+        val description = health.descrizioneSalute
+            .trim()
+            .ifEmpty { "Regolare" }
+
+        val fifoValue = String.format(
+            java.util.Locale.ITALY,
+            "€ %.2f",
+            health.valoreFifo
+        )
+
+        current.healthDetailsText.text = buildString {
+            append(description)
+            append("\n")
+            append("Ultima vendita: ")
+            append(formatDate(health.ultimaVendita))
+            append("   •   12M: ")
+            append(formatQuantity(health.venduto12M))
+            append("   •   24M: ")
+            append(formatQuantity(health.venduto24M))
+            append("\n")
+            append("Rotazione: ")
+            append(formatDecimal(health.rotazione12M))
+            append("   •   Copertura: ")
+            append(
+                health.mesiCopertura?.let {
+                    String.format(
+                        java.util.Locale.ITALY,
+                        "%.1f mesi",
+                        it
+                    )
+                } ?: "—"
+            )
+            append("   •   FIFO: ")
+            append(fifoValue)
+        }
     }
 
     private fun updateStockStatus(
