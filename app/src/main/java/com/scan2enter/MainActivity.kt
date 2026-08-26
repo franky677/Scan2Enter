@@ -188,6 +188,35 @@ class MainActivity : ComponentActivity() {
         )
     }
 
+    /**
+     * Solo Zebra / DataWedge.
+     *
+     * Trasforma Volume SU e Volume GIÙ in grilletti aggiuntivi del motore
+     * scanner hardware senza modificare i trigger fisici originali.
+     *
+     * ACTION_DOWN -> START_SCANNING
+     * ACTION_UP   -> STOP_SCANNING
+     */
+    private fun sendZebraSoftScanTrigger(command: String) {
+        if (!ScannerModeDetector.isZebra()) {
+            return
+        }
+
+        val intent = Intent("com.symbol.datawedge.api.ACTION").apply {
+            putExtra(
+                "com.symbol.datawedge.api.SOFT_SCAN_TRIGGER",
+                command
+            )
+        }
+
+        sendBroadcast(intent)
+
+        Log.d(
+            "Scan2Enter",
+            "ZEBRA VOLUME TRIGGER -> $command"
+        )
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -502,15 +531,26 @@ class MainActivity : ComponentActivity() {
             keyCode == KeyEvent.KEYCODE_VOLUME_DOWN ||
                     keyCode == KeyEvent.KEYCODE_VOLUME_UP
 
-        if (
-            isVolumeTrigger &&
-            !ScannerModeDetector.isSunmi()
-        ) {
+        if (isVolumeTrigger) {
             /*
-             * Sull'S24 entrambi i tasti volume diventano grilletti Scan2Enter.
-             * Un singolo click apre immediatamente lo scanner.
-             * Gli eventi ripetuti dovuti al tasto tenuto premuto vengono ignorati.
+             * ZEBRA TC22:
+             * entrambi i tasti volume diventano grilletti aggiuntivi DataWedge.
+             * I trigger fisici Zebra originali restano completamente invariati.
              */
+            if (ScannerModeDetector.isZebra()) {
+                if ((event?.repeatCount ?: 0) == 0) {
+                    sendZebraSoftScanTrigger("START_SCANNING")
+                }
+
+                return true
+            }
+
+            /* SUNMI: non intercettiamo qui i tasti volume. */
+            if (ScannerModeDetector.isSunmi()) {
+                return super.onKeyDown(keyCode, event)
+            }
+
+            /* S24 / dispositivi camera: comportamento esistente invariato. */
             if ((event?.repeatCount ?: 0) == 0) {
                 openScannerFromHardwareKey()
             }
@@ -529,10 +569,19 @@ class MainActivity : ComponentActivity() {
             keyCode == KeyEvent.KEYCODE_VOLUME_DOWN ||
                     keyCode == KeyEvent.KEYCODE_VOLUME_UP
 
-        if (
-            isVolumeTrigger &&
-            !ScannerModeDetector.isSunmi()
-        ) {
+        if (isVolumeTrigger) {
+            /* ZEBRA TC22: al rilascio fermiamo il soft trigger. */
+            if (ScannerModeDetector.isZebra()) {
+                sendZebraSoftScanTrigger("STOP_SCANNING")
+                return true
+            }
+
+            /* SUNMI resta invariato. */
+            if (ScannerModeDetector.isSunmi()) {
+                return super.onKeyUp(keyCode, event)
+            }
+
+            /* S24: consumiamo il rilascio come già avveniva prima. */
             return true
         }
 

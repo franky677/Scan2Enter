@@ -676,6 +676,22 @@ class OverlayService : Service() {
         removeScanErrorPopup()
 
         if (loadCurrentScanMode() == MODE_INFO) {
+            /*
+             * ZEBRA TC22:
+             * dopo un barcode/EAN non trovato non riaprire CameraX.
+             * DataWedge e lo scanner hardware restano pronti per il prossimo
+             * trigger fisico o per i tasti volume configurati.
+             *
+             * Sugli altri dispositivi resta invariato il comportamento attuale.
+             */
+            if (isZebraDevice()) {
+                android.util.Log.d(
+                    "OverlayService",
+                    "ZEBRA - ERRORE LETTURA CHIUSO, RESTO IN ATTESA DEL TRIGGER HARDWARE"
+                )
+                return@Runnable
+            }
+
             android.util.Log.d(
                 "OverlayService",
                 "ERRORE LETTURA - RIAPRO AUTOMATICAMENTE LO SCANNER"
@@ -5430,17 +5446,18 @@ class OverlayService : Service() {
 
         val toggle = TextView(this).apply {
             gravity = Gravity.CENTER
-            textSize = 14f
+            textSize = 12f
             setTypeface(typeface, android.graphics.Typeface.BOLD)
             isClickable = true
             isFocusable = true
-            minHeight = (44 * density).toInt()
+            minHeight = (40 * density).toInt()
+            translationY = -2f * density
 
             setPadding(
-                (12 * density).toInt(),
-                (9 * density).toInt(),
-                (12 * density).toInt(),
-                (9 * density).toInt()
+                (10 * density).toInt(),
+                (4 * density).toInt(),
+                (10 * density).toInt(),
+                (4 * density).toInt()
             )
 
             fun refresh() {

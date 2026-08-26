@@ -45,9 +45,6 @@ class ProductInfoPopup(
         val root: View,
         val windowParams: WindowManager.LayoutParams,
         val blockedBanner: TextView,
-        val healthContainer: LinearLayout,
-        val healthStatusText: TextView,
-        val healthDetailsText: TextView,
         val priceValueText: TextView,
         val articleCodeValueText: TextView,
         val barcodeValueText: TextView,
@@ -55,15 +52,27 @@ class ProductInfoPopup(
         val productImageView: ImageView,
         val favoriteButton: ImageView,
         val descriptionValueText: TextView,
+        val purchaseNetValueText: TextView,
+        val supplierNameValueText: TextView,
+        val supplierCodeValueText: TextView,
         val yearValueText: TextView,
         val seasonValueText: TextView,
         val locationValueText: TextView,
+        val healthLastSaleText: TextView,
+        val healthSold12Text: TextView,
+        val healthRotationText: TextView,
+        val healthCoverageText: TextView,
         val taxablePriceValueText: TextView,
         val vatRateValueText: TextView,
         val stockValueText: TextView,
+        val availableStockValueText: TextView,
         val stockStatusContainer: LinearLayout,
         val stockStatusText: TextView,
         val reorderText: TextView,
+        val healthSection: LinearLayout,
+        val healthStatusText: TextView,
+        val healthDetailsText: TextView,
+        val healthSecondaryText: TextView,
         val minimumStockValueText: TextView,
         val reorderLotValueText: TextView,
         val popupDurationSeekBar: SeekBar,
@@ -144,77 +153,10 @@ class ProductInfoPopup(
             }
         )
 
-        val healthStatusText = TextView(context).apply {
-            textSize = 18f
-            setTextColor(Color.WHITE)
-            gravity = Gravity.CENTER
-            setPadding(
-                (12 * density).toInt(),
-                (7 * density).toInt(),
-                (12 * density).toInt(),
-                (7 * density).toInt()
-            )
-        }
-
-        val healthDetailsText = TextView(context).apply {
-            textSize = 13f
-            setTextColor(Color.DKGRAY)
-            gravity = Gravity.CENTER
-            setPadding(
-                (10 * density).toInt(),
-                (5 * density).toInt(),
-                (10 * density).toInt(),
-                (8 * density).toInt()
-            )
-        }
-
-        val healthContainer = LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
-            visibility = View.GONE
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.RECTANGLE
-                cornerRadius = 14 * density
-                setColor(Color.rgb(238, 238, 238))
-            }
-
-            addView(
-                healthStatusText,
-                LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT
-                )
-            )
-
-            addView(
-                healthDetailsText,
-                LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT
-                )
-            )
-        }
-
-        mainContent.addView(
-            healthContainer,
-            2,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply {
-                leftMargin = (12 * density).toInt()
-                rightMargin = (12 * density).toInt()
-                topMargin = (6 * density).toInt()
-                bottomMargin = (6 * density).toInt()
-            }
-        )
-
         val createdBindings = Bindings(
             root = overlayRoot,
             windowParams = createWindowParams(),
             blockedBanner = blockedBanner,
-            healthContainer = healthContainer,
-            healthStatusText = healthStatusText,
-            healthDetailsText = healthDetailsText,
             priceValueText = popupView.findViewById(R.id.productPublicPriceText),
             articleCodeValueText = popupView.findViewById(R.id.productArticleCodeText),
             barcodeValueText = popupView.findViewById(R.id.productBarcodeText),
@@ -222,15 +164,27 @@ class ProductInfoPopup(
             productImageView = popupView.findViewById(R.id.productImagePlaceholder),
             favoriteButton = popupView.findViewById(R.id.productFavoriteButton),
             descriptionValueText = popupView.findViewById(R.id.productDescriptionText),
+            purchaseNetValueText = popupView.findViewById(R.id.productPurchaseNetText),
+            supplierNameValueText = popupView.findViewById(R.id.productSupplierNameText),
+            supplierCodeValueText = popupView.findViewById(R.id.productSupplierCodeText),
             yearValueText = popupView.findViewById(R.id.productYearText),
             seasonValueText = popupView.findViewById(R.id.productSeasonText),
             locationValueText = popupView.findViewById(R.id.productLocationText),
+            healthLastSaleText = popupView.findViewById(R.id.healthLastSaleText),
+            healthSold12Text = popupView.findViewById(R.id.healthSold12Text),
+            healthRotationText = popupView.findViewById(R.id.healthRotationText),
+            healthCoverageText = popupView.findViewById(R.id.healthCoverageText),
             taxablePriceValueText = popupView.findViewById(R.id.productTaxablePriceText),
             vatRateValueText = popupView.findViewById(R.id.productVatRateText),
             stockValueText = popupView.findViewById(R.id.productStockText),
+            availableStockValueText = popupView.findViewById(R.id.productAvailableStockText),
             stockStatusContainer = popupView.findViewById(R.id.productStockStatusContainer),
             stockStatusText = popupView.findViewById(R.id.productStockStatusText),
             reorderText = popupView.findViewById(R.id.productReorderText),
+            healthSection = popupView.findViewById(R.id.productHealthSection),
+            healthStatusText = popupView.findViewById(R.id.productHealthStatusText),
+            healthDetailsText = popupView.findViewById(R.id.productHealthDetailsText),
+            healthSecondaryText = popupView.findViewById(R.id.productHealthSecondaryText),
             minimumStockValueText = popupView.findViewById(R.id.productMinimumStockText),
             reorderLotValueText = popupView.findViewById(R.id.productReorderLotValueText),
             popupDurationSeekBar = popupView.findViewById(R.id.popupDurationSeekBar),
@@ -413,9 +367,6 @@ class ProductInfoPopup(
 
         if (product == null) {
             current.blockedBanner.visibility = View.GONE
-            current.healthContainer.visibility = View.GONE
-            current.healthStatusText.text = ""
-            current.healthDetailsText.text = ""
             current.priceValueText.text = "—"
             current.articleCodeValueText.text = "—"
             current.barcodeValueText.text = "—"
@@ -423,15 +374,23 @@ class ProductInfoPopup(
             current.barcodeImageView.visibility = View.GONE
             current.productImageView.setImageDrawable(null)
             current.descriptionValueText.text = "Nessun articolo letto"
+            current.purchaseNetValueText.text = "—"
+            current.supplierNameValueText.text = "—"
+            current.supplierCodeValueText.text = "—"
             current.yearValueText.text = "—"
             current.seasonValueText.text = "—"
             current.locationValueText.text = "—"
             current.taxablePriceValueText.text = "—"
             current.vatRateValueText.text = "—"
             current.stockValueText.text = "—"
+            current.availableStockValueText.text = "—"
             current.stockStatusContainer.visibility = View.GONE
             current.stockStatusText.text = ""
             current.reorderText.text = ""
+            current.healthSection.visibility = View.GONE
+            current.healthStatusText.text = ""
+            current.healthDetailsText.text = ""
+            current.healthSecondaryText.text = ""
             current.minimumStockValueText.text = ""
             current.reorderLotValueText.text = ""
             return null
@@ -440,11 +399,31 @@ class ProductInfoPopup(
         current.blockedBanner.visibility = if (product.active) View.GONE else View.VISIBLE
 
         current.priceValueText.text = formatPublicPrice(product.publicPrice)
+
         current.articleCodeValueText.text = valueOrLoading(product.articleCode)
         current.barcodeValueText.text = valueOrLoading(product.barcode)
         current.descriptionValueText.text = valueOrLoading(product.description)
-        current.taxablePriceValueText.text = valueOrLoading(product.taxablePrice)
-        current.vatRateValueText.text = valueOrLoading(product.vatRate)
+
+        // Il vero PREZZO ACQUISTO NETTO non è ancora presente nel ProductInfo.
+        // Lasciamo un segnaposto esplicito, pronto per il futuro dato Gateway.
+        current.purchaseNetValueText.text = "—"
+
+        current.supplierNameValueText.text =
+            product.supplierName.trim().ifEmpty { "—" }
+        current.supplierCodeValueText.text =
+            product.supplierArticleCode.trim().ifEmpty { "—" }
+
+        current.taxablePriceValueText.text =
+            product.taxablePrice.trim()
+                .takeIf { it.isNotEmpty() }
+                ?.let { "Imp. € ${formatPlainDecimal(it)}" }
+                ?: "Imp. —"
+
+        current.vatRateValueText.text =
+            product.vatRate.trim()
+                .takeIf { it.isNotEmpty() }
+                ?.let { "IVA ${formatPlainDecimal(it)}%" }
+                ?: "IVA —"
         current.seasonValueText.text = valueOrLoading(product.season)
         current.yearValueText.text = valueOrLoading(product.year)
         current.locationValueText.text = product.locations
@@ -458,6 +437,9 @@ class ProductInfoPopup(
         val stockText = valueOrLoading(product.stock)
 
         current.stockValueText.text = stockText
+        current.availableStockValueText.text =
+            product.availableStock.trim().ifEmpty { "—" }
+
         current.stockValueText.textSize = when {
             stockText.length >= 5 -> 40f
             stockText.length == 4 -> 46f
@@ -483,10 +465,6 @@ class ProductInfoPopup(
             current = current
         )
 
-        updateHealthStatus(
-            product = product,
-            current = current
-        )
 
         current.productImageView.setImageDrawable(null)
         current.productImageView.visibility = View.VISIBLE
@@ -553,133 +531,107 @@ class ProductInfoPopup(
         return stockSoundStatus
     }
 
-    private fun updateHealthStatus(
+    private fun updateHealthPanel(
         product: ProductInfo,
         current: Bindings
     ) {
         val health = product.health
-
         if (health == null) {
-            current.healthContainer.visibility = View.GONE
+            current.healthSection.visibility = View.GONE
             current.healthStatusText.text = ""
             current.healthDetailsText.text = ""
+            current.healthSecondaryText.text = ""
+            current.healthLastSaleText.text = "—"
+            current.healthSold12Text.text = "—"
+            current.healthRotationText.text = "—"
+            current.healthCoverageText.text = "—"
             return
         }
 
-        current.healthContainer.visibility = View.VISIBLE
-
-        android.util.Log.d(
-            "ProductInfoPopup",
-            "SALUTE VISIBILE stato=${health.statoSalute} fifo=${health.valoreFifo}"
-        )
+        current.healthSection.visibility = View.VISIBLE
 
         val state = health.statoSalute
             .trim()
             .uppercase(java.util.Locale.ITALY)
             .ifEmpty { "OK" }
 
-        val statusBackground = GradientDrawable().apply {
+        val bg = GradientDrawable().apply {
             shape = GradientDrawable.RECTANGLE
             cornerRadius = 14 * context.resources.displayMetrics.density
         }
 
         when (state) {
             "ROSSO" -> {
-                statusBackground.setColor(Color.rgb(198, 40, 40))
+                bg.setColor(Color.rgb(198, 40, 40))
                 current.healthStatusText.setTextColor(Color.WHITE)
+                current.healthDetailsText.setTextColor(Color.WHITE)
+                current.healthSecondaryText.setTextColor(Color.WHITE)
             }
-
             "ARANCIONE" -> {
-                statusBackground.setColor(Color.rgb(245, 124, 0))
+                bg.setColor(Color.rgb(245, 124, 0))
                 current.healthStatusText.setTextColor(Color.WHITE)
+                current.healthDetailsText.setTextColor(Color.WHITE)
+                current.healthSecondaryText.setTextColor(Color.WHITE)
             }
-
             "GIALLO" -> {
-                statusBackground.setColor(Color.rgb(255, 214, 0))
+                bg.setColor(Color.rgb(255, 214, 0))
                 current.healthStatusText.setTextColor(Color.BLACK)
+                current.healthDetailsText.setTextColor(Color.BLACK)
+                current.healthSecondaryText.setTextColor(Color.rgb(48, 76, 58))
             }
-
             else -> {
-                statusBackground.setColor(Color.rgb(0, 200, 83))
+                bg.setColor(Color.rgb(0, 200, 83))
                 current.healthStatusText.setTextColor(Color.BLACK)
+                current.healthDetailsText.setTextColor(Color.BLACK)
+                current.healthSecondaryText.setTextColor(Color.rgb(32, 68, 43))
             }
         }
 
-        current.healthStatusText.background = statusBackground
-        current.healthStatusText.text = "SALUTE  $state"
+        current.healthSection.background = bg
+        current.healthStatusText.text = "SALUTE $state"
 
-        fun formatQuantity(value: Double): String =
-            if (value == value.toLong().toDouble()) {
-                value.toLong().toString()
-            } else {
-                String.format(
-                    java.util.Locale.ITALY,
-                    "%.2f",
-                    value
-                )
-            }
+        fun dateShort(raw: String?): String {
+            val s = raw?.trim().orEmpty()
+            if (s.isEmpty()) return "Mai"
+            val d = s.take(10).split("-")
+            return if (d.size == 3) "${d[2]}/${d[1]}/${d[0].takeLast(2)}" else s.take(10)
+        }
 
-        fun formatDecimal(value: Double?): String =
+        fun n(value: Double?): String =
             value?.let {
-                String.format(
-                    java.util.Locale.ITALY,
-                    "%.2f",
-                    it
-                )
+                if (it == it.toLong().toDouble()) it.toLong().toString()
+                else String.format(java.util.Locale.ITALY, "%.2f", it)
             } ?: "—"
 
-        fun formatDate(value: String?): String {
-            val raw = value?.trim().orEmpty()
-            if (raw.isEmpty()) return "Mai"
+        val coverage = health.mesiCopertura?.let {
+            String.format(java.util.Locale.ITALY, "%.1f m", it)
+        } ?: "—"
 
-            val datePart = raw.take(10)
-            val pieces = datePart.split("-")
+        current.healthDetailsText.text =
+            "Ult. ${dateShort(health.ultimaVendita)}  •  12M ${n(health.venduto12M)}  •  Rot ${n(health.rotazione12M)}  •  Cop $coverage"
 
-            return if (
-                pieces.size == 3 &&
-                pieces[0].length == 4
-            ) {
-                "${pieces[2]}/${pieces[1]}/${pieces[0]}"
-            } else {
-                datePart
-            }
-        }
-
-        val description = health.descrizioneSalute
-            .trim()
-            .ifEmpty { "Regolare" }
-
-        val fifoValue = String.format(
+        val fifo = String.format(
             java.util.Locale.ITALY,
             "€ %.2f",
             health.valoreFifo
         )
 
-        current.healthDetailsText.text = buildString {
-            append(description)
-            append("\n")
-            append("Ultima vendita: ")
-            append(formatDate(health.ultimaVendita))
-            append("   •   12M: ")
-            append(formatQuantity(health.venduto12M))
-            append("   •   24M: ")
-            append(formatQuantity(health.venduto24M))
-            append("\n")
-            append("Rotazione: ")
-            append(formatDecimal(health.rotazione12M))
-            append("   •   Copertura: ")
-            append(
-                health.mesiCopertura?.let {
-                    String.format(
-                        java.util.Locale.ITALY,
-                        "%.1f mesi",
-                        it
-                    )
-                } ?: "—"
-            )
-            append("   •   FIFO: ")
-            append(fifoValue)
-        }
+        val description = health.descrizioneSalute
+            .trim()
+            .ifEmpty { "Regolare" }
+
+        current.healthSecondaryText.text =
+            "24M ${n(health.venduto24M)}  •  FIFO $fifo  •  $description"
+
+        current.healthLastSaleText.text = dateShort(health.ultimaVendita)
+        current.healthSold12Text.text = n(health.venduto12M)
+        current.healthRotationText.text = n(health.rotazione12M)
+        current.healthCoverageText.text = coverage
+
+        android.util.Log.d(
+            "ProductInfoPopup",
+            "SALUTE PANEL stato=$state fifo=${health.valoreFifo}"
+        )
     }
 
     private fun updateStockStatus(
@@ -730,6 +682,7 @@ class ProductInfoPopup(
             orderText.visibility = View.GONE
             orderText.text = ""
 
+            updateHealthPanel(product, current)
             return null
         }
 
@@ -741,6 +694,7 @@ class ProductInfoPopup(
             container.visibility = View.GONE
             statusText.text = ""
             orderText.text = ""
+            updateHealthPanel(product, current)
             return null
         }
 
@@ -799,6 +753,10 @@ class ProductInfoPopup(
         }
 
         container.background = background
+
+        updateHealthPanel(product, current)
+
+        container.background = background
         return soundStatus
     }
 
@@ -815,6 +773,21 @@ class ProductInfoPopup(
         } else {
             String.format(java.util.Locale.US, "%.2f", this)
         }
+
+    private fun formatPlainDecimal(raw: String): String {
+        val value = raw.trim()
+            .replace("€", "")
+            .replace(" ", "")
+            .replace(",", ".")
+            .toDoubleOrNull()
+            ?: return raw.trim()
+
+        return String.format(
+            java.util.Locale.ITALY,
+            "%.2f",
+            value
+        )
+    }
 
     private fun formatPublicPrice(rawValue: String): String {
         val cleaned = rawValue
@@ -893,7 +866,7 @@ class ProductInfoPopup(
         val quietZoneModules = 11
         val moduleWidth = 4
         val bitmapWidth = (modules.length + quietZoneModules * 2) * moduleWidth
-        val bitmapHeight = 220
+        val bitmapHeight = 110
 
         val bitmap = Bitmap.createBitmap(
             bitmapWidth,
