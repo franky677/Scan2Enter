@@ -1178,7 +1178,11 @@ class GatewayApiClient(
                     subCategoryId = item.optInt("subCategoryId", 0),
                     subCategory = item.optString("subCategory", "").trim(),
                     fifoValue = item.optDouble("fifoValue", 0.0),
-                    purchaseListValue = item.optDouble("purchaseListValue", 0.0)
+                    purchaseListValue = item.optDouble("purchaseListValue", 0.0),
+                    commercialScore = item.optInt("commercialScore", 0).coerceIn(0, 100),
+                    economicScore = item.optInt("economicScore", 0).coerceIn(0, 100),
+                    commercialDescription = item.optString("commercialDescription", "").trim(),
+                    economicDescription = item.optString("economicDescription", "").trim()
                 )
             )
         }
@@ -2030,7 +2034,11 @@ data class InventoryAnalysisItemDto(
     val subCategoryId: Int,
     val subCategory: String,
     val fifoValue: Double,
-    val purchaseListValue: Double
+    val purchaseListValue: Double,
+    val commercialScore: Int,
+    val economicScore: Int,
+    val commercialDescription: String,
+    val economicDescription: String
 )
 
 

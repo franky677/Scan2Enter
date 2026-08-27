@@ -54,14 +54,50 @@ class ProductHealthApiClient(
                 giacenzaFifo = item.optDouble("giacenzaFifo", 0.0),
                 valoreFifo = item.optDouble("valoreFifo", 0.0),
                 costoMedioFifo = item.optDouble("costoMedioFifo", 0.0),
-                ultimaVendita = if (item.isNull("ultimaVendita")) null else item.optString("ultimaVendita", "").trim(),
-                giorniDaUltimaVendita = if (item.isNull("giorniDaUltimaVendita")) null else item.optInt("giorniDaUltimaVendita"),
+
+                ultimaVendita =
+                    if (item.isNull("ultimaVendita")) null
+                    else item.optString("ultimaVendita", "").trim(),
+
+                giorniDaUltimaVendita =
+                    if (item.isNull("giorniDaUltimaVendita")) null
+                    else item.optInt("giorniDaUltimaVendita"),
+
                 venduto12M = item.optDouble("venduto12M", 0.0),
                 venduto24M = item.optDouble("venduto24M", 0.0),
-                rotazione12M = if (item.isNull("rotazione12M")) null else item.optDouble("rotazione12M"),
-                mesiCopertura = if (item.isNull("mesiCopertura")) null else item.optDouble("mesiCopertura"),
-                statoSalute = item.optString("statoSalute", "OK").trim(),
-                descrizioneSalute = item.optString("descrizioneSalute", "").trim()
+
+                vendutoAnnoPrecedente =
+                    item.optDouble("vendutoAnnoPrecedente", 0.0),
+
+                mesiConVendite12M =
+                    item.optInt("mesiConVendite12M", 0).coerceIn(0, 12),
+
+                punteggioCommerciale =
+                    item.optInt("punteggioCommerciale", 0).coerceIn(0, 100),
+
+                punteggioEconomico =
+                    item.optInt("punteggioEconomico", 0).coerceIn(0, 100),
+
+                descrizioneCommerciale =
+                    item.optString("descrizioneCommerciale", "").trim(),
+
+                descrizioneEconomica =
+                    item.optString("descrizioneEconomica", "").trim(),
+
+                rotazione12M =
+                    if (item.isNull("rotazione12M")) null
+                    else item.optDouble("rotazione12M"),
+
+                mesiCopertura =
+                    if (item.isNull("mesiCopertura")) null
+                    else item.optDouble("mesiCopertura"),
+
+                // Campi V1 mantenuti temporaneamente per compatibilità
+                statoSalute =
+                    item.optString("statoSalute", "OK").trim(),
+
+                descrizioneSalute =
+                    item.optString("descrizioneSalute", "").trim()
             )
         } finally {
             connection.disconnect()

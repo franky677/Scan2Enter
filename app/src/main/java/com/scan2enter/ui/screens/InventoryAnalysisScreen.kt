@@ -12,6 +12,9 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -25,6 +28,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -348,13 +352,18 @@ fun InventoryAnalysisScreen(onBack: () -> Unit) {
             )
         }
     ) { innerPadding ->
+        val baseModifier = Modifier
+            .fillMaxSize()
+            .padding(innerPadding)
+            .navigationBarsPadding()
+            .padding(12.dp)
+
         Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-                .navigationBarsPadding()
-                .padding(12.dp)
-                .verticalScroll(rememberScrollState()),
+            modifier = if (currentView == InventoryView.ITEMS) {
+                baseModifier
+            } else {
+                baseModifier.verticalScroll(rememberScrollState())
+            },
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             when (currentView) {
@@ -921,138 +930,153 @@ private fun ItemsView(
     onArticleClick: (InventoryAnalysisItemDto) -> Unit
 
 ) {
-    selectedRotation?.let {
-        Text(
-            "${it.articles} articoli • " +
-                    "${formatQuantity(it.quantity)} unità",
-            fontSize = 15.sp
-        )
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            ValueCard(
-                "FIFO",
-                formatEuro(it.fifoValue),
-                Modifier.weight(1f)
-            )
-
-            ValueCard(
-                "LISTINO",
-                formatEuro(it.purchaseListValue),
-                Modifier.weight(1f)
-            )
-        }
-    }
-
-    selectedSupplier?.let {
-        Text(
-            "${it.articles} articoli • " +
-                    "${formatQuantity(it.quantity)} unità",
-            fontSize = 15.sp
-        )
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            ValueCard(
-                "FIFO",
-                formatEuro(it.fifoValue),
-                Modifier.weight(1f)
-            )
-
-            ValueCard(
-                "LISTINO",
-                formatEuro(it.purchaseListValue),
-                Modifier.weight(1f)
-            )
-        }
-    }
-
-
-    selectedManufacturer?.let {
-        Text(
-            "${it.articles} articoli • ${formatQuantity(it.quantity)} unità",
-            fontSize = 15.sp
-        )
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            ValueCard("FIFO", formatEuro(it.fifoValue), Modifier.weight(1f))
-            ValueCard("LISTINO", formatEuro(it.purchaseListValue), Modifier.weight(1f))
-        }
-    }
-
-
-    selectedClassification?.let {
-        Text(
-            "${it.articles} articoli • ${formatQuantity(it.quantity)} unità",
-            fontSize = 15.sp
-        )
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            ValueCard("FIFO", formatEuro(it.fifoValue), Modifier.weight(1f))
-            ValueCard("LISTINO", formatEuro(it.purchaseListValue), Modifier.weight(1f))
-        }
-    }
-
-
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    Column(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Button(
-            onClick = onPrintFifo,
-            enabled = !reportLoading && !loading && error == null && items.isNotEmpty(),
-            modifier = Modifier.weight(1f)
-        ) {
-            Text(if (reportLoading) "ATTENDI…" else "STAMPA FIFO")
-        }
-
-        Button(
-            onClick = onPrintPurchase,
-            enabled = !reportLoading && !loading && error == null && items.isNotEmpty(),
-            modifier = Modifier.weight(1f)
-        ) {
-            Text(if (reportLoading) "ATTENDI…" else "STAMPA LISTINO")
-        }
-    }
-
-    reportError?.let { message ->
-        Text(
-            message,
-            color = MaterialTheme.colorScheme.error,
-            style = MaterialTheme.typography.bodySmall
-        )
-    }
-
-    HorizontalDivider()
-
-    when {
-        loading -> CenterLoader()
-
-        error != null -> {
-            ErrorCard(error, onRetry)
-        }
-
-        else -> {
+        selectedRotation?.let {
             Text(
-                "${items.size} articoli caricati",
-                fontWeight = FontWeight.Bold
+                "${it.articles} articoli • " +
+                        "${formatQuantity(it.quantity)} unità",
+                fontSize = 15.sp
             )
 
-            items.forEach {
-                InventoryItemCard(
-                    item = it,
-                    onClick = { onArticleClick(it) }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                ValueCard(
+                    "FIFO",
+                    formatEuro(it.fifoValue),
+                    Modifier.weight(1f)
                 )
+
+                ValueCard(
+                    "LISTINO",
+                    formatEuro(it.purchaseListValue),
+                    Modifier.weight(1f)
+                )
+            }
+        }
+
+        selectedSupplier?.let {
+            Text(
+                "${it.articles} articoli • " +
+                        "${formatQuantity(it.quantity)} unità",
+                fontSize = 15.sp
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                ValueCard(
+                    "FIFO",
+                    formatEuro(it.fifoValue),
+                    Modifier.weight(1f)
+                )
+
+                ValueCard(
+                    "LISTINO",
+                    formatEuro(it.purchaseListValue),
+                    Modifier.weight(1f)
+                )
+            }
+        }
+
+
+        selectedManufacturer?.let {
+            Text(
+                "${it.articles} articoli • ${formatQuantity(it.quantity)} unità",
+                fontSize = 15.sp
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                ValueCard("FIFO", formatEuro(it.fifoValue), Modifier.weight(1f))
+                ValueCard("LISTINO", formatEuro(it.purchaseListValue), Modifier.weight(1f))
+            }
+        }
+
+
+        selectedClassification?.let {
+            Text(
+                "${it.articles} articoli • ${formatQuantity(it.quantity)} unità",
+                fontSize = 15.sp
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                ValueCard("FIFO", formatEuro(it.fifoValue), Modifier.weight(1f))
+                ValueCard("LISTINO", formatEuro(it.purchaseListValue), Modifier.weight(1f))
+            }
+        }
+
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Button(
+                onClick = onPrintFifo,
+                enabled = !reportLoading && !loading && error == null && items.isNotEmpty(),
+                modifier = Modifier.weight(1f)
+            ) {
+                Text(if (reportLoading) "ATTENDI…" else "STAMPA FIFO")
+            }
+
+            Button(
+                onClick = onPrintPurchase,
+                enabled = !reportLoading && !loading && error == null && items.isNotEmpty(),
+                modifier = Modifier.weight(1f)
+            ) {
+                Text(if (reportLoading) "ATTENDI…" else "STAMPA LISTINO")
+            }
+        }
+
+        reportError?.let { message ->
+            Text(
+                message,
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodySmall
+            )
+        }
+
+        HorizontalDivider()
+
+        when {
+            loading -> CenterLoader()
+
+            error != null -> {
+                ErrorCard(error, onRetry)
+            }
+
+            else -> {
+                Text(
+                    "${items.size} articoli caricati",
+                    fontWeight = FontWeight.Bold
+                )
+
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(
+                        items = items,
+                        key = { it.articleId }
+                    ) { item ->
+                        InventoryItemCard(
+                            item = item,
+                            onClick = { onArticleClick(item) }
+                        )
+                    }
+                }
             }
         }
     }
@@ -1127,6 +1151,71 @@ private fun InventoryItemCard(
                     style = MaterialTheme.typography.bodySmall
                 )
             }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End
+            ) {
+                Column(
+                    modifier = Modifier.width(190.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    InventoryHealthBar(
+                        label = "COMM.",
+                        score = item.commercialScore,
+                        description = item.commercialDescription
+                    )
+                    InventoryHealthBar(
+                        label = "ECON.",
+                        score = item.economicScore,
+                        description = item.economicDescription
+                    )
+                }
+            }
+        }
+    }
+}
+
+
+@Composable
+private fun InventoryHealthBar(
+    label: String,
+    score: Int,
+    description: String
+) {
+    val safeScore = score.coerceIn(0, 100)
+
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(2.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(
+                label,
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold
+            )
+            Text(
+                "$safeScore/100",
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold
+            )
+        }
+
+        LinearProgressIndicator(
+            progress = { safeScore / 100f },
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        if (description.isNotBlank()) {
+            Text(
+                description,
+                style = MaterialTheme.typography.labelSmall,
+                maxLines = 1
+            )
         }
     }
 }

@@ -6,6 +6,7 @@ import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.drawable.GradientDrawable
 import android.view.Gravity
+import android.util.TypedValue
 import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.View
@@ -73,6 +74,14 @@ class ProductInfoPopup(
         val healthStatusText: TextView,
         val healthDetailsText: TextView,
         val healthSecondaryText: TextView,
+        val healthCommercialBar: FrameLayout,
+        val healthCommercialMarker: View,
+        val healthCommercialScoreText: TextView,
+        val healthCommercialDescriptionText: TextView,
+        val healthEconomicBar: FrameLayout,
+        val healthEconomicMarker: View,
+        val healthEconomicScoreText: TextView,
+        val healthEconomicDescriptionText: TextView,
         val minimumStockValueText: TextView,
         val reorderLotValueText: TextView,
         val popupDurationSeekBar: SeekBar,
@@ -153,6 +162,135 @@ class ProductInfoPopup(
             }
         )
 
+        /*
+         * SALUTE ARTICOLO V2
+         *
+         * Il layout XML esistente resta invariato: aggiungiamo qui le due barre
+         * Commerciale/Economica e nascondiamo i tre testi V1. In questo modo
+         * la modifica resta confinata al popup e non coinvolge scanner o workflow.
+         */
+        val healthSection = popupView.findViewById<LinearLayout>(R.id.productHealthSection)
+        val healthStatusText = popupView.findViewById<TextView>(R.id.productHealthStatusText)
+        val healthDetailsText = popupView.findViewById<TextView>(R.id.productHealthDetailsText)
+        val healthSecondaryText = popupView.findViewById<TextView>(R.id.productHealthSecondaryText)
+
+        healthStatusText.visibility = View.GONE
+        healthDetailsText.visibility = View.GONE
+        healthSecondaryText.visibility = View.GONE
+
+        fun createHealthGradientBar(): Pair<FrameLayout, View> {
+            val barHeight = (17 * density).toInt()
+            val markerWidth = (4 * density).toInt()
+            val markerHeight = (24 * density).toInt()
+
+            val frame = FrameLayout(context).apply {
+                background = GradientDrawable(
+                    GradientDrawable.Orientation.LEFT_RIGHT,
+                    intArrayOf(
+                        Color.rgb(0, 170, 70),     // verde
+                        Color.rgb(120, 200, 90),   // verde chiaro
+                        Color.rgb(245, 220, 60),   // giallo
+                        Color.rgb(196, 145, 45),   // ocra
+                        Color.rgb(245, 124, 0),    // arancione
+                        Color.rgb(210, 45, 45),    // rosso
+                        Color.rgb(120, 25, 45),    // bordeaux
+                        Color.rgb(85, 35, 110),    // viola
+                        Color.rgb(15, 15, 15)      // nero
+                    )
+                ).apply {
+                    shape = GradientDrawable.RECTANGLE
+                    cornerRadius = 9 * density
+                }
+                clipChildren = false
+                clipToPadding = false
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    barHeight
+                ).apply {
+                    topMargin = (3 * density).toInt()
+                    bottomMargin = (4 * density).toInt()
+                }
+            }
+
+            val marker = View(context).apply {
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.RECTANGLE
+                    cornerRadius = 2 * density
+                    setColor(Color.WHITE)
+                    setStroke((1 * density).toInt().coerceAtLeast(1), Color.BLACK)
+                }
+            }
+
+            frame.addView(
+                marker,
+                FrameLayout.LayoutParams(markerWidth, markerHeight).apply {
+                    gravity = Gravity.CENTER_VERTICAL or Gravity.START
+                }
+            )
+
+            return frame to marker
+        }
+
+        fun createHealthBlock(title: String): Array<View> {
+            val titleRow = LinearLayout(context).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+            }
+
+            val titleText = TextView(context).apply {
+                text = title
+                textSize = 13f
+                setTextColor(Color.BLACK)
+                setTypeface(typeface, android.graphics.Typeface.BOLD)
+            }
+
+            val scoreText = TextView(context).apply {
+                text = "0"
+                textSize = 18f
+                gravity = Gravity.END
+                setTextColor(Color.BLACK)
+                setTypeface(typeface, android.graphics.Typeface.BOLD)
+            }
+
+            titleRow.addView(
+                titleText,
+                LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            )
+            titleRow.addView(
+                scoreText,
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                )
+            )
+
+            val (bar, marker) = createHealthGradientBar()
+
+            val descriptionText = TextView(context).apply {
+                textSize = 12f
+                setTextColor(Color.rgb(55, 55, 55))
+                maxLines = 1
+                includeFontPadding = false
+                setAutoSizeTextTypeUniformWithConfiguration(
+                    9,
+                    12,
+                    1,
+                    TypedValue.COMPLEX_UNIT_SP
+                )
+                setPadding(0, 0, 0, (4 * density).toInt())
+            }
+
+            healthSection.addView(titleRow)
+            healthSection.addView(bar)
+            healthSection.addView(descriptionText)
+
+            return arrayOf(bar, marker, scoreText, descriptionText)
+        }
+
+        val commercialViews = createHealthBlock("COMMERCIALE")
+        val economicViews = createHealthBlock("ECONOMICA")
+
+
         val createdBindings = Bindings(
             root = overlayRoot,
             windowParams = createWindowParams(),
@@ -181,10 +319,18 @@ class ProductInfoPopup(
             stockStatusContainer = popupView.findViewById(R.id.productStockStatusContainer),
             stockStatusText = popupView.findViewById(R.id.productStockStatusText),
             reorderText = popupView.findViewById(R.id.productReorderText),
-            healthSection = popupView.findViewById(R.id.productHealthSection),
-            healthStatusText = popupView.findViewById(R.id.productHealthStatusText),
-            healthDetailsText = popupView.findViewById(R.id.productHealthDetailsText),
-            healthSecondaryText = popupView.findViewById(R.id.productHealthSecondaryText),
+            healthSection = healthSection,
+            healthStatusText = healthStatusText,
+            healthDetailsText = healthDetailsText,
+            healthSecondaryText = healthSecondaryText,
+            healthCommercialBar = commercialViews[0] as FrameLayout,
+            healthCommercialMarker = commercialViews[1],
+            healthCommercialScoreText = commercialViews[2] as TextView,
+            healthCommercialDescriptionText = commercialViews[3] as TextView,
+            healthEconomicBar = economicViews[0] as FrameLayout,
+            healthEconomicMarker = economicViews[1],
+            healthEconomicScoreText = economicViews[2] as TextView,
+            healthEconomicDescriptionText = economicViews[3] as TextView,
             minimumStockValueText = popupView.findViewById(R.id.productMinimumStockText),
             reorderLotValueText = popupView.findViewById(R.id.productReorderLotValueText),
             popupDurationSeekBar = popupView.findViewById(R.id.popupDurationSeekBar),
@@ -220,7 +366,7 @@ class ProductInfoPopup(
         }
 
         val horizontalMargin = (6 * density).toInt()
-        val topMargin = (42 * density).toInt()
+        val topMargin = (24 * density).toInt()
         val bottomMargin = (8 * density).toInt()
         val bottomBreathingRoom = (22 * density).toInt()
         val shadowOffset = (5 * density).toInt()
@@ -391,6 +537,10 @@ class ProductInfoPopup(
             current.healthStatusText.text = ""
             current.healthDetailsText.text = ""
             current.healthSecondaryText.text = ""
+            current.healthCommercialScoreText.text = ""
+            current.healthCommercialDescriptionText.text = ""
+            current.healthEconomicScoreText.text = ""
+            current.healthEconomicDescriptionText.text = ""
             current.minimumStockValueText.text = ""
             current.reorderLotValueText.text = ""
             return null
@@ -538,9 +688,10 @@ class ProductInfoPopup(
         val health = product.health
         if (health == null) {
             current.healthSection.visibility = View.GONE
-            current.healthStatusText.text = ""
-            current.healthDetailsText.text = ""
-            current.healthSecondaryText.text = ""
+            current.healthCommercialScoreText.text = ""
+            current.healthCommercialDescriptionText.text = ""
+            current.healthEconomicScoreText.text = ""
+            current.healthEconomicDescriptionText.text = ""
             current.healthLastSaleText.text = "—"
             current.healthSold12Text.text = "—"
             current.healthRotationText.text = "—"
@@ -550,45 +701,57 @@ class ProductInfoPopup(
 
         current.healthSection.visibility = View.VISIBLE
 
-        val state = health.statoSalute
-            .trim()
-            .uppercase(java.util.Locale.ITALY)
-            .ifEmpty { "OK" }
-
-        val bg = GradientDrawable().apply {
+        // V2: pannello neutro. Il significato cromatico è interamente nelle barre.
+        current.healthSection.background = GradientDrawable().apply {
             shape = GradientDrawable.RECTANGLE
             cornerRadius = 14 * context.resources.displayMetrics.density
+            setColor(Color.rgb(245, 245, 245))
+            setStroke(
+                (1 * context.resources.displayMetrics.density).toInt().coerceAtLeast(1),
+                Color.rgb(215, 215, 215)
+            )
         }
 
-        when (state) {
-            "ROSSO" -> {
-                bg.setColor(Color.rgb(198, 40, 40))
-                current.healthStatusText.setTextColor(Color.WHITE)
-                current.healthDetailsText.setTextColor(Color.WHITE)
-                current.healthSecondaryText.setTextColor(Color.WHITE)
-            }
-            "ARANCIONE" -> {
-                bg.setColor(Color.rgb(245, 124, 0))
-                current.healthStatusText.setTextColor(Color.WHITE)
-                current.healthDetailsText.setTextColor(Color.WHITE)
-                current.healthSecondaryText.setTextColor(Color.WHITE)
-            }
-            "GIALLO" -> {
-                bg.setColor(Color.rgb(255, 214, 0))
-                current.healthStatusText.setTextColor(Color.BLACK)
-                current.healthDetailsText.setTextColor(Color.BLACK)
-                current.healthSecondaryText.setTextColor(Color.rgb(48, 76, 58))
-            }
-            else -> {
-                bg.setColor(Color.rgb(0, 200, 83))
-                current.healthStatusText.setTextColor(Color.BLACK)
-                current.healthDetailsText.setTextColor(Color.BLACK)
-                current.healthSecondaryText.setTextColor(Color.rgb(32, 68, 43))
+        val commercialScore = health.punteggioCommerciale.coerceIn(0, 100)
+        val economicScore = health.punteggioEconomico.coerceIn(0, 100)
+
+        current.healthCommercialScoreText.text = commercialScore.toString()
+        current.healthCommercialDescriptionText.text =
+            health.descrizioneCommerciale.trim().ifEmpty { "—" }
+
+        current.healthEconomicScoreText.text = economicScore.toString()
+        current.healthEconomicDescriptionText.text =
+            health.descrizioneEconomica.trim().ifEmpty { "—" }
+
+        fun positionMarker(
+            bar: FrameLayout,
+            marker: View,
+            score: Int
+        ) {
+            bar.post {
+                val markerWidth = marker.layoutParams.width
+                val usableWidth = (bar.width - markerWidth).coerceAtLeast(0)
+                val x = usableWidth * (score.coerceIn(0, 100) / 100f)
+
+                (marker.layoutParams as? FrameLayout.LayoutParams)?.let { lp ->
+                    lp.leftMargin = x.toInt()
+                    lp.gravity = Gravity.CENTER_VERTICAL or Gravity.START
+                    marker.layoutParams = lp
+                }
             }
         }
 
-        current.healthSection.background = bg
-        current.healthStatusText.text = "SALUTE $state"
+        positionMarker(
+            current.healthCommercialBar,
+            current.healthCommercialMarker,
+            commercialScore
+        )
+
+        positionMarker(
+            current.healthEconomicBar,
+            current.healthEconomicMarker,
+            economicScore
+        )
 
         fun dateShort(raw: String?): String {
             val s = raw?.trim().orEmpty()
@@ -607,22 +770,7 @@ class ProductInfoPopup(
             String.format(java.util.Locale.ITALY, "%.1f m", it)
         } ?: "—"
 
-        current.healthDetailsText.text =
-            "Ult. ${dateShort(health.ultimaVendita)}  •  12M ${n(health.venduto12M)}  •  Rot ${n(health.rotazione12M)}  •  Cop $coverage"
-
-        val fifo = String.format(
-            java.util.Locale.ITALY,
-            "€ %.2f",
-            health.valoreFifo
-        )
-
-        val description = health.descrizioneSalute
-            .trim()
-            .ifEmpty { "Regolare" }
-
-        current.healthSecondaryText.text =
-            "24M ${n(health.venduto24M)}  •  FIFO $fifo  •  $description"
-
+        // Manteniamo aggiornati i quattro dati riepilogativi già presenti nel popup.
         current.healthLastSaleText.text = dateShort(health.ultimaVendita)
         current.healthSold12Text.text = n(health.venduto12M)
         current.healthRotationText.text = n(health.rotazione12M)
@@ -630,7 +778,7 @@ class ProductInfoPopup(
 
         android.util.Log.d(
             "ProductInfoPopup",
-            "SALUTE PANEL stato=$state fifo=${health.valoreFifo}"
+            "SALUTE V2 commerciale=$commercialScore economica=$economicScore fifo=${health.valoreFifo}"
         )
     }
 
