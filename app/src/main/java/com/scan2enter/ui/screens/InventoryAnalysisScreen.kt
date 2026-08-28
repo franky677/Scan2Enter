@@ -30,6 +30,8 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -66,6 +68,7 @@ private enum class InventoryView {
     SUBFAMILIES,
     CATEGORIES,
     SUBCATEGORIES,
+    VALUATION,
     ITEMS
 }
 
@@ -263,6 +266,7 @@ fun InventoryAnalysisScreen(onBack: () -> Unit) {
         InventoryView.SUBFAMILIES -> selectedFamily?.name ?: "Sottofamiglie"
         InventoryView.CATEGORIES -> selectedSubFamily?.name ?: "Categorie"
         InventoryView.SUBCATEGORIES -> selectedCategory?.name ?: "Sottocategorie"
+        InventoryView.VALUATION -> "Valorizzazione Magazzino"
         InventoryView.ITEMS ->
             selectedRotation?.rotation
                 ?: selectedSupplier?.supplier
@@ -303,6 +307,10 @@ fun InventoryAnalysisScreen(onBack: () -> Unit) {
             InventoryView.SUBCATEGORIES -> {
                 selectedCategory = null
                 currentView = InventoryView.CATEGORIES
+            }
+
+            InventoryView.VALUATION -> {
+                currentView = InventoryView.SUMMARY
             }
 
             InventoryView.ITEMS -> {
@@ -391,6 +399,9 @@ fun InventoryAnalysisScreen(onBack: () -> Unit) {
                             selectedCategory = null
                             selectedSubCategory = null
                             currentView = InventoryView.FAMILIES
+                        },
+                        onOpenValuation = {
+                            currentView = InventoryView.VALUATION
                         }
                     )
                 }
@@ -475,6 +486,47 @@ fun InventoryAnalysisScreen(onBack: () -> Unit) {
                                 }
 
                                 else -> Unit
+                            }
+                        }
+                    )
+                }
+
+                InventoryView.VALUATION -> {
+                    InventoryValuationView(
+                        reportLoading = reportLoading,
+                        reportError = reportError,
+                        onGenerateReport = { valuation, stockDate, showHealthBars,
+                                             showLastSale, showSupplier,
+                                             showManufacturer, showClassification ->
+                            if (!reportLoading) {
+                                reportLoading = true
+                                reportError = null
+
+                                scope.launch {
+                                    withContext(Dispatchers.IO) {
+                                        client.getInventoryAnalysisReportHtml(
+                                            valuation = valuation,
+                                            title = "VALORIZZAZIONE MAGAZZINO",
+                                            stockDate = stockDate,
+                                            showHealthBars = showHealthBars,
+                                            showLastSale = showLastSale,
+                                            showSupplier = showSupplier,
+                                            showManufacturer = showManufacturer,
+                                            showClassification = showClassification
+                                        )
+                                    }.onSuccess { html ->
+                                        printInventoryHtml(
+                                            context = context,
+                                            html = html,
+                                            jobName = "Valorizzazione Magazzino - ${valuation.uppercase()}"
+                                        )
+                                    }.onFailure { throwable ->
+                                        reportError =
+                                            throwable.message ?: "Errore generazione report"
+                                    }
+
+                                    reportLoading = false
+                                }
                             }
                         }
                     )
@@ -567,7 +619,8 @@ private fun SummaryView(
     onRotationClick: (InventoryRotationDto) -> Unit,
     onOpenSuppliers: () -> Unit,
     onOpenManufacturers: () -> Unit,
-    onOpenFamilies: () -> Unit
+    onOpenFamilies: () -> Unit,
+    onOpenValuation: () -> Unit
 ) {
     when {
         loading -> CenterLoader()
@@ -697,6 +750,15 @@ private fun SummaryView(
                 Text("FAMIGLIE")
             }
 
+            HorizontalDivider()
+
+            Button(
+                onClick = onOpenValuation,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("VALORIZZAZIONE MAGAZZINO")
+            }
+
             Button(
                 onClick = onRetry,
                 modifier = Modifier.fillMaxWidth()
@@ -706,6 +768,186 @@ private fun SummaryView(
         }
     }
 }
+
+@Composable
+private fun InventoryValuationView(
+    reportLoading: Boolean,
+    reportError: String?,
+    onGenerateReport: (
+        valuation: String,
+        stockDate: String?,
+        showHealthBars: Boolean,
+        showLastSale: Boolean,
+        showSupplier: Boolean,
+        showManufacturer: Boolean,
+        showClassification: Boolean
+    ) -> Unit
+) {
+    var valuation by remember { mutableStateOf("fifo") }
+    var stockDate by remember { mutableStateOf("") }
+    var showHealthBars by remember { mutableStateOf(true) }
+    var showLastSale by remember { mutableStateOf(true) }
+    var showSupplier by remember { mutableStateOf(true) }
+    var showManufacturer by remember { mutableStateOf(false) }
+    var showClassification by remember { mutableStateOf(false) }
+
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Text(
+            "Valorizzazione merce di magazzino",
+            fontSize = 20.sp,
+            fontWeight = FontWeight.Bold
+        )
+
+        Text(
+            "Prepara una copia completa del magazzino in formato A4. " +
+                    "Lascia vuota la data per usare la giacenza di oggi.",
+            style = MaterialTheme.typography.bodyMedium
+        )
+
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceVariant
+            )
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text("GIACENZE", fontWeight = FontWeight.Bold)
+
+                OutlinedTextField(
+                    value = stockDate,
+                    onValueChange = { stockDate = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    label = { Text("Data giacenza (AAAA-MM-GG)") },
+                    placeholder = { Text("Vuoto = OGGI") }
+                )
+
+                HorizontalDivider()
+
+                Text("VALORIZZAZIONE", fontWeight = FontWeight.Bold)
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Button(
+                        onClick = { valuation = "fifo" },
+                        enabled = valuation != "fifo",
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text(if (valuation == "fifo") "✓ FIFO" else "FIFO")
+                    }
+
+                    Button(
+                        onClick = { valuation = "purchase" },
+                        enabled = valuation != "purchase",
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text(
+                            if (valuation == "purchase") "✓ LISTINO"
+                            else "LISTINO"
+                        )
+                    }
+                }
+
+                HorizontalDivider()
+
+                Text("CONTENUTO REPORT", fontWeight = FontWeight.Bold)
+
+                ReportOptionRow(
+                    label = "Barre salute commerciale/economica",
+                    checked = showHealthBars,
+                    onCheckedChange = { showHealthBars = it }
+                )
+                ReportOptionRow(
+                    label = "Ultima vendita",
+                    checked = showLastSale,
+                    onCheckedChange = { showLastSale = it }
+                )
+                ReportOptionRow(
+                    label = "Fornitore",
+                    checked = showSupplier,
+                    onCheckedChange = { showSupplier = it }
+                )
+                ReportOptionRow(
+                    label = "Produttore / marca",
+                    checked = showManufacturer,
+                    onCheckedChange = { showManufacturer = it }
+                )
+                ReportOptionRow(
+                    label = "Classificazione",
+                    checked = showClassification,
+                    onCheckedChange = { showClassification = it }
+                )
+            }
+        }
+
+        Button(
+            onClick = {
+                onGenerateReport(
+                    valuation,
+                    stockDate.trim().ifBlank { null },
+                    showHealthBars,
+                    showLastSale,
+                    showSupplier,
+                    showManufacturer,
+                    showClassification
+                )
+            },
+            enabled = !reportLoading,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text(
+                if (reportLoading) "PREPARAZIONE REPORT…"
+                else "REPORT COMPLETO"
+            )
+        }
+
+        reportError?.let { message ->
+            Text(
+                message,
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodySmall
+            )
+        }
+
+        Text(
+            "La stampa usa A4 reale. La numerazione pagine (es. 3 di 12) " +
+                    "resta gestita dal report HTML del Gateway.",
+            style = MaterialTheme.typography.bodySmall
+        )
+    }
+}
+
+@Composable
+private fun ReportOptionRow(
+    label: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(
+            label,
+            modifier = Modifier
+                .weight(1f)
+                .padding(end = 12.dp)
+        )
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange
+        )
+    }
+}
+
 
 @Composable
 private fun SuppliersView(

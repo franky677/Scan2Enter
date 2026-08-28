@@ -1207,7 +1207,13 @@ class GatewayApiClient(
         subFamilyId: Int? = null,
         categoryId: Int? = null,
         subCategoryId: Int? = null,
-        query: String = ""
+        query: String = "",
+        stockDate: String? = null,
+        showHealthBars: Boolean = false,
+        showLastSale: Boolean = false,
+        showSupplier: Boolean = false,
+        showManufacturer: Boolean = false,
+        showClassification: Boolean = false
     ): Result<String> = runCatching {
         val normalizedValuation = valuation.trim().lowercase()
         require(normalizedValuation == "fifo" || normalizedValuation == "purchase") {
@@ -1220,6 +1226,11 @@ class GatewayApiClient(
         val body = JSONObject()
             .put("valuation", normalizedValuation)
             .put("title", title.trim())
+            .put("showHealthBars", showHealthBars)
+            .put("showLastSale", showLastSale)
+            .put("showSupplier", showSupplier)
+            .put("showManufacturer", showManufacturer)
+            .put("showClassification", showClassification)
 
         rotationId?.let { body.put("rotationId", it) }
         supplierId?.let { body.put("supplierId", it) }
@@ -1228,6 +1239,12 @@ class GatewayApiClient(
         subFamilyId?.let { body.put("subFamilyId", it) }
         categoryId?.let { body.put("categoryId", it) }
         subCategoryId?.let { body.put("subCategoryId", it) }
+
+        stockDate
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
+            ?.let { body.put("stockDate", it) }
+
         if (query.isNotBlank()) {
             body.put("q", query.trim())
         }
