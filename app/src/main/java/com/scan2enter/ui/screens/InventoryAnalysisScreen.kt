@@ -1505,6 +1505,56 @@ private fun InventoryQueryView(
             "Articoli problematici ordinati per valore FIFO immobilizzato.",
             style = MaterialTheme.typography.bodySmall
         )
+
+        HorizontalDivider()
+
+        Button(
+            onClick = { onRunQuery("growing", 12) },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("IN CRESCITA")
+        }
+
+        Text(
+            "Confronta gli ultimi 12 mesi con i 12 mesi precedenti e mostra gli articoli in aumento.",
+            style = MaterialTheme.typography.bodySmall
+        )
+
+        Button(
+            onClick = { onRunQuery("declining", 12) },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("IN CALO")
+        }
+
+        Text(
+            "Confronta gli ultimi 12 mesi con i 12 mesi precedenti e mostra gli articoli in diminuzione.",
+            style = MaterialTheme.typography.bodySmall
+        )
+
+        Button(
+            onClick = { onRunQuery("low-stock-fast-moving", 12) },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("ALTA ROTAZIONE / POCA GIACENZA")
+        }
+
+        Text(
+            "Articoli con vendite attive e copertura di magazzino fino a 3 mesi.",
+            style = MaterialTheme.typography.bodySmall
+        )
+
+        Button(
+            onClick = { onRunQuery("overstock", 12) },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("SOVRASTOCK")
+        }
+
+        Text(
+            "Articoli con almeno 24 mesi di copertura, ordinati per capitale FIFO immobilizzato.",
+            style = MaterialTheme.typography.bodySmall
+        )
     }
 }
 
@@ -1706,6 +1756,55 @@ private fun QueryInventoryItemCard(
                         )
                     }
                 }
+
+                "growing" -> {
+                    Text(
+                        "12M: ${formatQuantity(item.sold12M)} • " +
+                                "precedenti: ${formatQuantity(item.soldPrevious12M)}",
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        "Trend: ${formatSignedPercent(item.trendPercent)} • " +
+                                queryCoverageText(item.monthsCoverage),
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+
+                "declining" -> {
+                    Text(
+                        "12M: ${formatQuantity(item.sold12M)} • " +
+                                "precedenti: ${formatQuantity(item.soldPrevious12M)}",
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        "Trend: ${formatSignedPercent(item.trendPercent)} • " +
+                                queryCoverageText(item.monthsCoverage),
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+
+                "low-stock-fast-moving" -> {
+                    Text(
+                        "Venduto 12M: ${formatQuantity(item.sold12M)}",
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        queryCoverageText(item.monthsCoverage),
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+
+                "overstock" -> {
+                    Text(
+                        "Copertura: ${formatCoverageMonths(item.monthsCoverage)}",
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        "Venduto 12M: ${formatQuantity(item.sold12M)} • " +
+                                "FIFO ${formatEuro(item.fifoValue)}",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
             }
 
             if (item.supplier.isNotBlank()) {
@@ -1749,6 +1848,10 @@ private fun queryModeTitle(
         "top-sold" -> "Più venduti · $periodMonths mesi"
         "stopped" -> "Fermi da $periodMonths mesi"
         "dead-capital" -> "Capitale fermo"
+        "growing" -> "In crescita"
+        "declining" -> "In calo"
+        "low-stock-fast-moving" -> "Alta rotazione / poca giacenza"
+        "overstock" -> "Sovrastock"
         else -> "Interroga Magazzino"
     }
 
@@ -1766,6 +1869,14 @@ private fun queryModeDescription(
             "Articoli venduti in passato e fermi da almeno $periodMonths mesi."
         "dead-capital" ->
             "Articoli economicamente problematici ordinati per capitale FIFO immobilizzato."
+        "growing" ->
+            "Vendite ultimi 12 mesi superiori ai 12 mesi precedenti."
+        "declining" ->
+            "Vendite ultimi 12 mesi inferiori ai 12 mesi precedenti."
+        "low-stock-fast-moving" ->
+            "Articoli con vendite attive e copertura fino a 3 mesi."
+        "overstock" ->
+            "Articoli con almeno 24 mesi di copertura, ordinati per FIFO immobilizzato."
         else -> ""
     }
 
@@ -1775,6 +1886,21 @@ private fun queryCoverageText(monthsCoverage: Double?): String =
         "Copertura: -"
     } else {
         "Copertura: ${formatQuantity(monthsCoverage)} mesi"
+    }
+
+
+private fun formatSignedPercent(value: Double?): String {
+    if (value == null) return "-"
+    val formatted = String.format(Locale.ITALY, "%.2f", value)
+    return if (value > 0.0) "+$formatted%" else "$formatted%"
+}
+
+
+private fun formatCoverageMonths(value: Double?): String =
+    if (value == null) {
+        "-"
+    } else {
+        "${formatQuantity(value)} mesi"
     }
 
 

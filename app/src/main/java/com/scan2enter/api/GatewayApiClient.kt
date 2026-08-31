@@ -1207,6 +1207,10 @@ class GatewayApiClient(
      * - top-sold
      * - stopped
      * - dead-capital
+     * - growing
+     * - declining
+     * - low-stock-fast-moving
+     * - overstock
      */
     fun getInventoryAnalysisQuery(
         mode: String,
@@ -1215,10 +1219,16 @@ class GatewayApiClient(
     ): Result<List<InventoryAnalysisItemDto>> = runCatching {
         val normalizedMode = mode.trim().lowercase()
         require(
-            normalizedMode == "never-sold" ||
-                    normalizedMode == "top-sold" ||
-                    normalizedMode == "stopped" ||
-                    normalizedMode == "dead-capital"
+            normalizedMode in setOf(
+                "never-sold",
+                "top-sold",
+                "stopped",
+                "dead-capital",
+                "growing",
+                "declining",
+                "low-stock-fast-moving",
+                "overstock"
+            )
         ) {
             "Interrogazione non valida: $mode"
         }
@@ -1286,6 +1296,10 @@ class GatewayApiClient(
                     soldPeriod = item.optDouble("soldPeriod", 0.0),
                     sold12M = item.optDouble("sold12M", 0.0),
                     soldHistorical = item.optDouble("soldHistorical", 0.0),
+                    soldPrevious12M = item.optDouble("soldPrevious12M", 0.0),
+                    trendPercent =
+                        if (item.isNull("trendPercent")) null
+                        else item.optDouble("trendPercent", 0.0),
                     monthsCoverage =
                         if (item.isNull("monthsCoverage")) null
                         else item.optDouble("monthsCoverage", 0.0)
@@ -2176,6 +2190,8 @@ data class InventoryAnalysisItemDto(
     val soldPeriod: Double = 0.0,
     val sold12M: Double = 0.0,
     val soldHistorical: Double = 0.0,
+    val soldPrevious12M: Double = 0.0,
+    val trendPercent: Double? = null,
     val monthsCoverage: Double? = null
 )
 
