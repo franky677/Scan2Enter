@@ -1182,7 +1182,113 @@ class GatewayApiClient(
                     commercialScore = item.optInt("commercialScore", 0).coerceIn(0, 100),
                     economicScore = item.optInt("economicScore", 0).coerceIn(0, 100),
                     commercialDescription = item.optString("commercialDescription", "").trim(),
-                    economicDescription = item.optString("economicDescription", "").trim()
+                    economicDescription = item.optString("economicDescription", "").trim(),
+                    soldPeriod = item.optDouble("soldPeriod", 0.0),
+                    sold12M = item.optDouble("sold12M", 0.0),
+                    soldHistorical = item.optDouble("soldHistorical", 0.0),
+                    monthsCoverage =
+                        if (item.isNull("monthsCoverage")) null
+                        else item.optDouble("monthsCoverage", 0.0)
+                )
+            )
+        }
+
+        result
+    }
+
+
+    /**
+     * INTERROGA MAGAZZINO.
+     *
+     * GET /api/inventory-analysis/query
+     *
+     * mode:
+     * - never-sold
+     * - top-sold
+     * - stopped
+     * - dead-capital
+     */
+    fun getInventoryAnalysisQuery(
+        mode: String,
+        periodMonths: Int = 12,
+        limit: Int = 50000
+    ): Result<List<InventoryAnalysisItemDto>> = runCatching {
+        val normalizedMode = mode.trim().lowercase()
+        require(
+            normalizedMode == "never-sold" ||
+                    normalizedMode == "top-sold" ||
+                    normalizedMode == "stopped" ||
+                    normalizedMode == "dead-capital"
+        ) {
+            "Interrogazione non valida: $mode"
+        }
+
+        val safePeriod = periodMonths.coerceIn(1, 120)
+        val safeLimit = limit.coerceIn(1, 50000)
+
+        val url =
+            "${baseUrl.trimEnd('/')}/api/inventory-analysis/query" +
+                    "?mode=$normalizedMode" +
+                    "&periodMonths=$safePeriod" +
+                    "&limit=$safeLimit"
+
+        Log.d(TAG, "GATEWAY GET INVENTORY ANALYSIS QUERY")
+        Log.d(TAG, "URL = $url")
+
+        val response = executeGet(url)
+
+        Log.d(TAG, "GATEWAY INVENTORY QUERY HTTP=${response.code}")
+        Log.d(TAG, "BODY=${response.body.take(1500)}")
+
+        if (response.code !in 200..299) {
+            error("Gateway HTTP ${response.code}: ${response.body.take(500)}")
+        }
+
+        val root = JSONObject(response.body)
+        val array = root.optJSONArray("items")
+            ?: error("Risposta Gateway non valida: items mancanti")
+
+        val result = ArrayList<InventoryAnalysisItemDto>(array.length())
+
+        for (index in 0 until array.length()) {
+            val item = array.optJSONObject(index) ?: continue
+
+            result.add(
+                InventoryAnalysisItemDto(
+                    articleId = item.optLong("articleId", 0L),
+                    articleCode = item.optString("articleCode", "").trim(),
+                    description = item.optString("description", "").trim(),
+                    barcode = item.optString("barcode", "").trim(),
+                    quantity = item.optDouble("quantity", 0.0),
+                    lastSaleDate = item.optString("lastSaleDate", "").trim(),
+                    rotationId = item.optInt("rotationId", 0),
+                    rotation = item.optString("rotation", "").trim(),
+                    supplierId = item.optInt("supplierId", 0),
+                    supplier = item.optString("supplier", "").trim(),
+                    manufacturerId = item.optInt("manufacturerId", 0),
+                    manufacturer = item.optString("manufacturer", "").trim(),
+                    familyId = item.optInt("familyId", 0),
+                    family = item.optString("family", "").trim(),
+                    subFamilyId = item.optInt("subFamilyId", 0),
+                    subFamily = item.optString("subFamily", "").trim(),
+                    categoryId = item.optInt("categoryId", 0),
+                    category = item.optString("category", "").trim(),
+                    subCategoryId = item.optInt("subCategoryId", 0),
+                    subCategory = item.optString("subCategory", "").trim(),
+                    fifoValue = item.optDouble("fifoValue", 0.0),
+                    purchaseListValue = item.optDouble("purchaseListValue", 0.0),
+                    commercialScore = item.optInt("commercialScore", 0).coerceIn(0, 100),
+                    economicScore = item.optInt("economicScore", 0).coerceIn(0, 100),
+                    commercialDescription =
+                        item.optString("commercialDescription", "").trim(),
+                    economicDescription =
+                        item.optString("economicDescription", "").trim(),
+                    soldPeriod = item.optDouble("soldPeriod", 0.0),
+                    sold12M = item.optDouble("sold12M", 0.0),
+                    soldHistorical = item.optDouble("soldHistorical", 0.0),
+                    monthsCoverage =
+                        if (item.isNull("monthsCoverage")) null
+                        else item.optDouble("monthsCoverage", 0.0)
                 )
             )
         }
@@ -1213,7 +1319,9 @@ class GatewayApiClient(
         showLastSale: Boolean = false,
         showSupplier: Boolean = false,
         showManufacturer: Boolean = false,
-        showClassification: Boolean = false
+        showClassification: Boolean = false,
+        queryMode: String? = null,
+        periodMonths: Int = 12
     ): Result<String> = runCatching {
         val normalizedValuation = valuation.trim().lowercase()
         require(normalizedValuation == "fifo" || normalizedValuation == "purchase") {
@@ -1248,6 +1356,14 @@ class GatewayApiClient(
         if (query.isNotBlank()) {
             body.put("q", query.trim())
         }
+
+        queryMode
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
+            ?.let {
+                body.put("queryMode", it)
+                body.put("periodMonths", periodMonths.coerceIn(1, 120))
+            }
 
         Log.d(TAG, "GATEWAY POST INVENTORY ANALYSIS REPORT")
         Log.d(TAG, "URL = $url")
@@ -1560,6 +1676,7 @@ class GatewayApiClient(
             taxablePrice = item.optString("taxablePrice"),
             vatRate = item.optString("vatRate"),
             publicPrice = item.optString("publicPrice"),
+            purchaseTaxable = item.optString("purchaseTaxable"),
             season = item.optString("season"),
             year = item.optString("year"),
             location = item.optString("location"),
@@ -2055,7 +2172,11 @@ data class InventoryAnalysisItemDto(
     val commercialScore: Int,
     val economicScore: Int,
     val commercialDescription: String,
-    val economicDescription: String
+    val economicDescription: String,
+    val soldPeriod: Double = 0.0,
+    val sold12M: Double = 0.0,
+    val soldHistorical: Double = 0.0,
+    val monthsCoverage: Double? = null
 )
 
 

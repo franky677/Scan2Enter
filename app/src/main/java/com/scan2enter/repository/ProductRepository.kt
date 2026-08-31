@@ -81,6 +81,7 @@ class ProductRepository(
             taxablePrice = product.taxablePrice,
             vatRate = product.vatRate,
             publicPrice = product.publicPrice,
+            purchaseTaxable = product.purchaseTaxable,
             season = product.season,
             year = product.year,
             location = product.location,

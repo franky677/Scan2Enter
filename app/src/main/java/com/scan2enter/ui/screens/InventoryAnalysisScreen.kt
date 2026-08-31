@@ -1,6 +1,7 @@
 package com.scan2enter.ui.screens
 
 import android.content.Intent
+import android.app.DatePickerDialog
 import android.widget.Toast
 import android.content.Context
 import android.print.PrintAttributes
@@ -58,6 +59,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.text.NumberFormat
+import java.util.Calendar
 import java.util.Locale
 
 private enum class InventoryView {
@@ -69,6 +71,8 @@ private enum class InventoryView {
     CATEGORIES,
     SUBCATEGORIES,
     VALUATION,
+    QUERY,
+    QUERY_ITEMS,
     ITEMS
 }
 
@@ -124,6 +128,15 @@ fun InventoryAnalysisScreen(onBack: () -> Unit) {
         mutableStateOf<List<InventoryAnalysisItemDto>>(emptyList())
     }
     var itemsReloadKey by remember { mutableStateOf(0) }
+
+    var queryMode by remember { mutableStateOf<String?>(null) }
+    var queryPeriodMonths by remember { mutableStateOf(12) }
+    var queryItemsLoading by remember { mutableStateOf(false) }
+    var queryItemsError by remember { mutableStateOf<String?>(null) }
+    var queryItems by remember {
+        mutableStateOf<List<InventoryAnalysisItemDto>>(emptyList())
+    }
+    var queryReloadKey by remember { mutableStateOf(0) }
 
     LaunchedEffect(reloadKey) {
         loading = true
@@ -258,6 +271,39 @@ fun InventoryAnalysisScreen(onBack: () -> Unit) {
         itemsLoading = false
     }
 
+
+    LaunchedEffect(
+        currentView,
+        queryMode,
+        queryPeriodMonths,
+        queryReloadKey
+    ) {
+        if (currentView != InventoryView.QUERY_ITEMS) {
+            return@LaunchedEffect
+        }
+
+        val mode = queryMode ?: return@LaunchedEffect
+
+        queryItemsLoading = true
+        queryItemsError = null
+        queryItems = emptyList()
+
+        withContext(Dispatchers.IO) {
+            client.getInventoryAnalysisQuery(
+                mode = mode,
+                periodMonths = queryPeriodMonths,
+                limit = 50000
+            )
+        }.onSuccess {
+            queryItems = it
+        }.onFailure {
+            queryItemsError =
+                it.message ?: "Errore Interroga Magazzino"
+        }
+
+        queryItemsLoading = false
+    }
+
     val title = when (currentView) {
         InventoryView.SUMMARY -> "Analisi Magazzino"
         InventoryView.SUPPLIERS -> "Fornitori"
@@ -267,6 +313,8 @@ fun InventoryAnalysisScreen(onBack: () -> Unit) {
         InventoryView.CATEGORIES -> selectedSubFamily?.name ?: "Categorie"
         InventoryView.SUBCATEGORIES -> selectedCategory?.name ?: "Sottocategorie"
         InventoryView.VALUATION -> "Valorizzazione Magazzino"
+        InventoryView.QUERY -> "Interroga Magazzino"
+        InventoryView.QUERY_ITEMS -> queryModeTitle(queryMode, queryPeriodMonths)
         InventoryView.ITEMS ->
             selectedRotation?.rotation
                 ?: selectedSupplier?.supplier
@@ -311,6 +359,17 @@ fun InventoryAnalysisScreen(onBack: () -> Unit) {
 
             InventoryView.VALUATION -> {
                 currentView = InventoryView.SUMMARY
+            }
+
+            InventoryView.QUERY -> {
+                currentView = InventoryView.SUMMARY
+            }
+
+            InventoryView.QUERY_ITEMS -> {
+                queryItems = emptyList()
+                queryItemsError = null
+                queryMode = null
+                currentView = InventoryView.QUERY
             }
 
             InventoryView.ITEMS -> {
@@ -367,7 +426,10 @@ fun InventoryAnalysisScreen(onBack: () -> Unit) {
             .padding(12.dp)
 
         Column(
-            modifier = if (currentView == InventoryView.ITEMS) {
+            modifier = if (
+                currentView == InventoryView.ITEMS ||
+                currentView == InventoryView.QUERY_ITEMS
+            ) {
                 baseModifier
             } else {
                 baseModifier.verticalScroll(rememberScrollState())
@@ -402,6 +464,11 @@ fun InventoryAnalysisScreen(onBack: () -> Unit) {
                         },
                         onOpenValuation = {
                             currentView = InventoryView.VALUATION
+                        },
+                        onOpenQuery = {
+                            queryMode = null
+                            queryItems = emptyList()
+                            currentView = InventoryView.QUERY
                         }
                     )
                 }
@@ -515,10 +582,18 @@ fun InventoryAnalysisScreen(onBack: () -> Unit) {
                                             showClassification = showClassification
                                         )
                                     }.onSuccess { html ->
+                                        val extendedReport =
+                                            showHealthBars ||
+                                                    showLastSale ||
+                                                    showSupplier ||
+                                                    showManufacturer ||
+                                                    showClassification
+
                                         printInventoryHtml(
                                             context = context,
                                             html = html,
-                                            jobName = "Valorizzazione Magazzino - ${valuation.uppercase()}"
+                                            jobName = "Valorizzazione Magazzino - ${valuation.uppercase()}",
+                                            landscape = extendedReport
                                         )
                                     }.onFailure { throwable ->
                                         reportError =
@@ -527,6 +602,85 @@ fun InventoryAnalysisScreen(onBack: () -> Unit) {
 
                                     reportLoading = false
                                 }
+                            }
+                        }
+                    )
+                }
+
+                InventoryView.QUERY -> {
+                    InventoryQueryView(
+                        onRunQuery = { mode, periodMonths ->
+                            queryMode = mode
+                            queryPeriodMonths = periodMonths
+                            queryItemsError = null
+                            currentView = InventoryView.QUERY_ITEMS
+                        }
+                    )
+                }
+
+                InventoryView.QUERY_ITEMS -> {
+                    fun printQueryReport(valuation: String) {
+                        if (reportLoading) return
+
+                        val mode = queryMode ?: return
+                        reportLoading = true
+                        reportError = null
+
+                        scope.launch {
+                            withContext(Dispatchers.IO) {
+                                client.getInventoryAnalysisReportHtml(
+                                    valuation = valuation,
+                                    title = "INTERROGA MAGAZZINO - ${queryModeTitle(mode, queryPeriodMonths)}",
+                                    queryMode = mode,
+                                    periodMonths = queryPeriodMonths
+                                )
+                            }.onSuccess { html ->
+                                printInventoryHtml(
+                                    context = context,
+                                    html = html,
+                                    jobName = "Interroga Magazzino - ${queryModeTitle(mode, queryPeriodMonths)} - ${valuation.uppercase()}"
+                                )
+                            }.onFailure { throwable ->
+                                reportError =
+                                    throwable.message ?: "Errore generazione report"
+                            }
+
+                            reportLoading = false
+                        }
+                    }
+
+                    QueryItemsView(
+                        loading = queryItemsLoading,
+                        error = queryItemsError,
+                        items = queryItems,
+                        mode = queryMode.orEmpty(),
+                        periodMonths = queryPeriodMonths,
+                        reportLoading = reportLoading,
+                        reportError = reportError,
+                        onPrintFifo = { printQueryReport("fifo") },
+                        onPrintPurchase = { printQueryReport("purchase") },
+                        onRetry = { queryReloadKey++ },
+                        onArticleClick = { item ->
+                            if (item.barcode.isBlank()) {
+                                Toast.makeText(
+                                    context,
+                                    "Questo articolo non ha un barcode utilizzabile",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            } else {
+                                context.startService(
+                                    Intent(
+                                        context,
+                                        OverlayService::class.java
+                                    ).apply {
+                                        action =
+                                            OverlayService.ACTION_OPEN_SEARCH_ARTICLE
+                                        putExtra(
+                                            OverlayService.EXTRA_CURRENT_ARTICLE_BARCODE,
+                                            item.barcode
+                                        )
+                                    }
+                                )
                             }
                         }
                     )
@@ -620,7 +774,8 @@ private fun SummaryView(
     onOpenSuppliers: () -> Unit,
     onOpenManufacturers: () -> Unit,
     onOpenFamilies: () -> Unit,
-    onOpenValuation: () -> Unit
+    onOpenValuation: () -> Unit,
+    onOpenQuery: () -> Unit
 ) {
     when {
         loading -> CenterLoader()
@@ -753,6 +908,13 @@ private fun SummaryView(
             HorizontalDivider()
 
             Button(
+                onClick = onOpenQuery,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("INTERROGA MAGAZZINO")
+            }
+
+            Button(
                 onClick = onOpenValuation,
                 modifier = Modifier.fillMaxWidth()
             ) {
@@ -819,13 +981,81 @@ private fun InventoryValuationView(
             ) {
                 Text("GIACENZE", fontWeight = FontWeight.Bold)
 
-                OutlinedTextField(
-                    value = stockDate,
-                    onValueChange = { stockDate = it },
+                val context = LocalContext.current
+
+                val displayedStockDate =
+                    if (stockDate.isBlank()) {
+                        "OGGI"
+                    } else {
+                        stockDate
+                            .split("-")
+                            .takeIf { it.size == 3 }
+                            ?.let { parts ->
+                                "${parts[2]}/${parts[1]}/${parts[0]}"
+                            }
+                            ?: stockDate
+                    }
+
+                Row(
                     modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                    label = { Text("Data giacenza (AAAA-MM-GG)") },
-                    placeholder = { Text("Vuoto = OGGI") }
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Button(
+                        onClick = {
+                            val today = Calendar.getInstance()
+
+                            val initialDate = Calendar.getInstance().apply {
+                                if (stockDate.isNotBlank()) {
+                                    runCatching {
+                                        val parts = stockDate.split("-")
+                                        set(
+                                            parts[0].toInt(),
+                                            parts[1].toInt() - 1,
+                                            parts[2].toInt()
+                                        )
+                                    }
+                                }
+                            }
+
+                            DatePickerDialog(
+                                context,
+                                { _, year, month, dayOfMonth ->
+                                    stockDate = String.format(
+                                        Locale.ITALY,
+                                        "%04d-%02d-%02d",
+                                        year,
+                                        month + 1,
+                                        dayOfMonth
+                                    )
+                                },
+                                initialDate.get(Calendar.YEAR),
+                                initialDate.get(Calendar.MONTH),
+                                initialDate.get(Calendar.DAY_OF_MONTH)
+                            ).apply {
+                                datePicker.maxDate = today.timeInMillis
+                                show()
+                            }
+                        },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("📅 $displayedStockDate")
+                    }
+
+                    Button(
+                        onClick = { stockDate = "" },
+                        enabled = stockDate.isNotBlank()
+                    ) {
+                        Text("OGGI")
+                    }
+                }
+
+                Text(
+                    if (stockDate.isBlank()) {
+                        "Giacenza corrente"
+                    } else {
+                        "Giacenza storica al $displayedStockDate"
+                    },
+                    style = MaterialTheme.typography.bodySmall
                 )
 
                 HorizontalDivider()
@@ -1156,6 +1386,399 @@ private fun ClassificationView(
 }
 
 @Composable
+private fun InventoryQueryView(
+    onRunQuery: (mode: String, periodMonths: Int) -> Unit
+) {
+    var periodMonths by remember { mutableStateOf(12) }
+
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Text(
+            "Interroga il magazzino per articolo",
+            fontSize = 20.sp,
+            fontWeight = FontWeight.Bold
+        )
+
+        Text(
+            "Ogni risultato apre il popup completo dell'articolo. " +
+                    "Le interrogazioni usano solo articoli attivi con giacenza positiva.",
+            style = MaterialTheme.typography.bodyMedium
+        )
+
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceVariant
+            )
+        ) {
+            Column(
+                modifier = Modifier.padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text("PERIODO", fontWeight = FontWeight.Bold)
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    listOf(3, 6, 12, 24).forEach { months ->
+                        Button(
+                            onClick = { periodMonths = months },
+                            enabled = periodMonths != months,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text(
+                                if (periodMonths == months) "✓ $months M"
+                                else "$months M",
+                                fontSize = 12.sp
+                            )
+                        }
+                    }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    listOf(36, 60).forEach { months ->
+                        Button(
+                            onClick = { periodMonths = months },
+                            enabled = periodMonths != months,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text(
+                                if (periodMonths == months) "✓ $months MESI"
+                                else "$months MESI"
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        Button(
+            onClick = { onRunQuery("never-sold", 12) },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("MAI VENDUTI")
+        }
+
+        Text(
+            "Articoli con giacenza che non risultano mai venduti nello storico.",
+            style = MaterialTheme.typography.bodySmall
+        )
+
+        Button(
+            onClick = { onRunQuery("top-sold", periodMonths) },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("PIÙ VENDUTI · $periodMonths MESI")
+        }
+
+        Text(
+            "Classifica per quantità realmente venduta nel periodo scelto.",
+            style = MaterialTheme.typography.bodySmall
+        )
+
+        Button(
+            onClick = { onRunQuery("stopped", periodMonths) },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("FERMI DA ALMENO $periodMonths MESI")
+        }
+
+        Text(
+            "Articoli venduti almeno una volta, ma senza vendite da oltre il periodo scelto.",
+            style = MaterialTheme.typography.bodySmall
+        )
+
+        Button(
+            onClick = { onRunQuery("dead-capital", 12) },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("CAPITALE FERMO")
+        }
+
+        Text(
+            "Articoli problematici ordinati per valore FIFO immobilizzato.",
+            style = MaterialTheme.typography.bodySmall
+        )
+    }
+}
+
+
+@Composable
+private fun QueryItemsView(
+    loading: Boolean,
+    error: String?,
+    items: List<InventoryAnalysisItemDto>,
+    mode: String,
+    periodMonths: Int,
+    reportLoading: Boolean,
+    reportError: String?,
+    onPrintFifo: () -> Unit,
+    onPrintPurchase: () -> Unit,
+    onRetry: () -> Unit,
+    onArticleClick: (InventoryAnalysisItemDto) -> Unit
+) {
+    Column(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Text(
+            queryModeDescription(mode, periodMonths),
+            style = MaterialTheme.typography.bodySmall
+        )
+
+        if (!loading && error == null) {
+            Text(
+                "${items.size} articoli",
+                fontWeight = FontWeight.Bold
+            )
+        }
+
+        HorizontalDivider()
+
+        when {
+            loading -> CenterLoader()
+
+            error != null -> ErrorCard(error, onRetry)
+
+            else -> {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(
+                        items = items,
+                        key = { it.articleId }
+                    ) { item ->
+                        QueryInventoryItemCard(
+                            item = item,
+                            mode = mode,
+                            periodMonths = periodMonths,
+                            onClick = { onArticleClick(item) }
+                        )
+                    }
+                }
+            }
+        }
+
+        if (reportError != null) {
+            Text(
+                reportError,
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodySmall
+            )
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Button(
+                onClick = onPrintFifo,
+                enabled = !reportLoading && !loading && error == null && items.isNotEmpty(),
+                modifier = Modifier.weight(1f)
+            ) {
+                Text(
+                    if (reportLoading) "ATTENDI..."
+                    else "STAMPA FIFO",
+                    fontSize = 12.sp
+                )
+            }
+
+            Button(
+                onClick = onPrintPurchase,
+                enabled = !reportLoading && !loading && error == null && items.isNotEmpty(),
+                modifier = Modifier.weight(1f)
+            ) {
+                Text(
+                    if (reportLoading) "ATTENDI..."
+                    else "STAMPA LISTINO",
+                    fontSize = 12.sp
+                )
+            }
+        }
+    }
+}
+
+
+@Composable
+private fun QueryInventoryItemCard(
+    item: InventoryAnalysisItemDto,
+    mode: String,
+    periodMonths: Int,
+    onClick: () -> Unit
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+    ) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(5.dp)
+        ) {
+            Text(
+                item.description.ifBlank { "Senza descrizione" },
+                fontWeight = FontWeight.Bold,
+                fontSize = 15.sp
+            )
+
+            if (item.articleCode.isNotBlank()) {
+                Text(
+                    item.articleCode,
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text("Giacenza ${formatQuantity(item.quantity)}")
+                Text("FIFO ${formatEuro(item.fifoValue)}")
+            }
+
+            when (mode) {
+                "never-sold" -> {
+                    Text(
+                        "Mai venduto nello storico",
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        "Capitale fermo ${formatEuro(item.fifoValue)}",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+
+                "top-sold" -> {
+                    Text(
+                        "Venduto $periodMonths mesi: ${formatQuantity(item.soldPeriod)}",
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        "Venduto storico: ${formatQuantity(item.soldHistorical)} • " +
+                                queryCoverageText(item.monthsCoverage),
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+
+                "stopped" -> {
+                    Text(
+                        if (item.lastSaleDate.isBlank()) {
+                            "Ultima vendita: -"
+                        } else {
+                            "Ultima vendita: ${formatGatewayDate(item.lastSaleDate)}"
+                        },
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        "Venduto storico: ${formatQuantity(item.soldHistorical)}",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+
+                "dead-capital" -> {
+                    Text(
+                        "Capitale FIFO fermo: ${formatEuro(item.fifoValue)}",
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        "Venduto 12M: ${formatQuantity(item.sold12M)} • " +
+                                queryCoverageText(item.monthsCoverage),
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    if (item.lastSaleDate.isNotBlank()) {
+                        Text(
+                            "Ultima vendita: ${formatGatewayDate(item.lastSaleDate)}",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    } else {
+                        Text(
+                            "Mai venduto nello storico",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                }
+            }
+
+            if (item.supplier.isNotBlank()) {
+                Text(
+                    "Fornitore: ${item.supplier}",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End
+            ) {
+                Column(
+                    modifier = Modifier.width(190.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    InventoryHealthBar(
+                        label = "COMM.",
+                        score = item.commercialScore,
+                        description = item.commercialDescription
+                    )
+                    InventoryHealthBar(
+                        label = "ECON.",
+                        score = item.economicScore,
+                        description = item.economicDescription
+                    )
+                }
+            }
+        }
+    }
+}
+
+
+private fun queryModeTitle(
+    mode: String?,
+    periodMonths: Int
+): String =
+    when (mode) {
+        "never-sold" -> "Mai venduti"
+        "top-sold" -> "Più venduti · $periodMonths mesi"
+        "stopped" -> "Fermi da $periodMonths mesi"
+        "dead-capital" -> "Capitale fermo"
+        else -> "Interroga Magazzino"
+    }
+
+
+private fun queryModeDescription(
+    mode: String,
+    periodMonths: Int
+): String =
+    when (mode) {
+        "never-sold" ->
+            "Articoli con giacenza e nessuna vendita nello storico."
+        "top-sold" ->
+            "Articoli ordinati per quantità venduta negli ultimi $periodMonths mesi."
+        "stopped" ->
+            "Articoli venduti in passato e fermi da almeno $periodMonths mesi."
+        "dead-capital" ->
+            "Articoli economicamente problematici ordinati per capitale FIFO immobilizzato."
+        else -> ""
+    }
+
+
+private fun queryCoverageText(monthsCoverage: Double?): String =
+    if (monthsCoverage == null) {
+        "Copertura: -"
+    } else {
+        "Copertura: ${formatQuantity(monthsCoverage)} mesi"
+    }
+
+
+@Composable
 private fun ItemsView(
     loading: Boolean,
     error: String?,
@@ -1465,7 +2088,8 @@ private fun InventoryHealthBar(
 private fun printInventoryHtml(
     context: Context,
     html: String,
-    jobName: String
+    jobName: String,
+    landscape: Boolean = false
 ) {
     val webView = WebView(context)
 
@@ -1477,11 +2101,18 @@ private fun printInventoryHtml(
 
             val adapter = view.createPrintDocumentAdapter(jobName)
 
+            val mediaSize =
+                if (landscape) {
+                    PrintAttributes.MediaSize.ISO_A4.asLandscape()
+                } else {
+                    PrintAttributes.MediaSize.ISO_A4.asPortrait()
+                }
+
             printManager.print(
                 jobName,
                 adapter,
                 PrintAttributes.Builder()
-                    .setMediaSize(PrintAttributes.MediaSize.ISO_A4)
+                    .setMediaSize(mediaSize)
                     .build()
             )
         }

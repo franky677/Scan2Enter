@@ -554,9 +554,11 @@ class ProductInfoPopup(
         current.barcodeValueText.text = valueOrLoading(product.barcode)
         current.descriptionValueText.text = valueOrLoading(product.description)
 
-        // Il vero PREZZO ACQUISTO NETTO non è ancora presente nel ProductInfo.
-        // Lasciamo un segnaposto esplicito, pronto per il futuro dato Gateway.
-        current.purchaseNetValueText.text = "—"
+        current.purchaseNetValueText.text =
+            product.purchaseTaxable.trim()
+                .takeIf { it.isNotEmpty() }
+                ?.let { "€ ${formatPlainDecimal(it)}" }
+                ?: "—"
 
         current.supplierNameValueText.text =
             product.supplierName.trim().ifEmpty { "—" }

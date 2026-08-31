@@ -53,6 +53,11 @@ data class ProductInfo(
     val publicPrice: String = "",
 
     /**
+     * Prezzo acquisto netto del fornitore predefinito.
+     */
+    val purchaseTaxable: String = "",
+
+    /**
      * Stagione.
      */
     val season: String = "",

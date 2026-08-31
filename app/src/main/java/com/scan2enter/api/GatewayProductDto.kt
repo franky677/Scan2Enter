@@ -16,6 +16,7 @@ data class GatewayProductDto(
     val taxablePrice: String,
     val vatRate: String,
     val publicPrice: String,
+    val purchaseTaxable: String = "",
     val season: String,
     val year: String,
     val location: String,
