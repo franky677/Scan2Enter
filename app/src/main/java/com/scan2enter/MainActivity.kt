@@ -4,6 +4,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.app.AlertDialog
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -20,6 +21,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import com.scan2enter.api.DueRetailApiTest
+import com.scan2enter.api.GatewayApiClient
 import com.scan2enter.overlay.OverlayService
 import com.scan2enter.scanner.ScannerModeDetector
 import com.scan2enter.ui.screens.HomeScreen
@@ -37,6 +39,17 @@ class MainActivity : ComponentActivity() {
     private var currentScreenName: String = "HOME"
 
     private var requestedScreen by mutableStateOf<String?>(null)
+
+    private var expiryAlertChecked = false
+    private var expiryAlertDialog: AlertDialog? = null
+
+    private val expiryAlertHandler =
+        android.os.Handler(android.os.Looper.getMainLooper())
+
+    private val dismissExpiryAlertRunnable =
+        Runnable {
+            expiryAlertDialog?.takeIf { it.isShowing }?.dismiss()
+        }
 
     private var sunmiHomeReceiverRegistered = false
 
@@ -217,6 +230,96 @@ class MainActivity : ComponentActivity() {
         )
     }
 
+    private fun checkProductExpiryAlertsOnce() {
+        if (expiryAlertChecked) return
+        expiryAlertChecked = true
+
+        Thread {
+            val result =
+                GatewayApiClient()
+                    .getProductExpiryAlerts(months = 6)
+
+            runOnUiThread {
+                result
+                    .onSuccess { alert ->
+                        if (alert.hasAlerts && !isFinishing && !isDestroyed) {
+                            showProductExpiryAlert(
+                                expiredCount = alert.expiredCount,
+                                expiringCount = alert.expiringCount
+                            )
+                        }
+                    }
+                    .onFailure { error ->
+                        Log.w(
+                            "Scan2Enter",
+                            "Controllo scadenze all'avvio non riuscito",
+                            error
+                        )
+                    }
+            }
+        }.start()
+    }
+
+    private fun showProductExpiryAlert(
+        expiredCount: Int,
+        expiringCount: Int
+    ) {
+        if (expiryAlertDialog?.isShowing == true) return
+
+        val parts = mutableListOf<String>()
+
+        if (expiredCount > 0) {
+            parts += if (expiredCount == 1) {
+                "1 prodotto scaduto"
+            } else {
+                "$expiredCount prodotti scaduti"
+            }
+        }
+
+        if (expiringCount > 0) {
+            parts += if (expiringCount == 1) {
+                "1 prodotto in scadenza nei prossimi 6 mesi"
+            } else {
+                "$expiringCount prodotti in scadenza nei prossimi 6 mesi"
+            }
+        }
+
+        val message =
+            if (parts.isEmpty()) {
+                "Ci sono prodotti da controllare per scadenza."
+            } else {
+                "Ci sono ${parts.joinToString(" e ")}."
+            }
+
+        expiryAlertDialog =
+            AlertDialog.Builder(this)
+                .setTitle("PRODOTTI IN SCADENZA")
+                .setMessage(message)
+                .setPositiveButton("VEDI PRODOTTI") { dialog, _ ->
+                    dialog.dismiss()
+                    requestedScreen = "ANALISI_MAGAZZINO"
+                }
+                .setNegativeButton("CHIUDI") { dialog, _ ->
+                    dialog.dismiss()
+                }
+                .setOnDismissListener {
+                    expiryAlertHandler.removeCallbacks(
+                        dismissExpiryAlertRunnable
+                    )
+                    expiryAlertDialog = null
+                }
+                .show()
+
+        expiryAlertHandler.removeCallbacks(
+            dismissExpiryAlertRunnable
+        )
+        expiryAlertHandler.postDelayed(
+            dismissExpiryAlertRunnable,
+            4_000L
+        )
+    }
+
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -282,6 +385,8 @@ class MainActivity : ComponentActivity() {
         )
 
         SessionStore.initialize(applicationContext)
+
+        checkProductExpiryAlertsOnce()
 
         enableEdgeToEdge()
 
@@ -606,6 +711,11 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        expiryAlertHandler.removeCallbacks(
+            dismissExpiryAlertRunnable
+        )
+        expiryAlertDialog?.dismiss()
+        expiryAlertDialog = null
         unregisterSunmiHomeReceiver()
 
         super.onDestroy()

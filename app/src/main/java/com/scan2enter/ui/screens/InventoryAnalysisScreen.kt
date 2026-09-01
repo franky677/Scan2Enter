@@ -1571,14 +1571,14 @@ private fun InventoryQueryView(
         )
 
         Button(
-            onClick = { onRunQuery("expiring", 3) },
+            onClick = { onRunQuery("expiring", 6) },
             modifier = Modifier.fillMaxWidth()
         ) {
-            Text("IN SCADENZA · 3 MESI")
+            Text("IN SCADENZA · 6 MESI")
         }
 
         Text(
-            "Articoli non ancora scaduti con scadenza entro i prossimi 3 mesi.",
+            "Articoli non ancora scaduti con scadenza entro i prossimi 6 mesi.",
             style = MaterialTheme.typography.bodySmall
         )
     }
@@ -1857,7 +1857,7 @@ private fun QueryInventoryItemCard(
                         if (item.daysToExpiry != null) {
                             "Mancano ${item.daysToExpiry.coerceAtLeast(0)} giorni"
                         } else {
-                            "In scadenza entro 3 mesi"
+                            "In scadenza entro 6 mesi"
                         },
                         style = MaterialTheme.typography.bodySmall
                     )
@@ -1910,7 +1910,7 @@ private fun queryModeTitle(
         "low-stock-fast-moving" -> "Alta rotazione / poca giacenza"
         "overstock" -> "Sovrastock"
         "expired" -> "Scaduti"
-        "expiring" -> "In scadenza · 3 mesi"
+        "expiring" -> "In scadenza · 6 mesi"
         else -> "Interroga Magazzino"
     }
 
@@ -1939,7 +1939,7 @@ private fun queryModeDescription(
         "expired" ->
             "Articoli con giacenza positiva e scadenza già superata."
         "expiring" ->
-            "Articoli con giacenza positiva e scadenza entro i prossimi 3 mesi."
+            "Articoli con giacenza positiva e scadenza entro i prossimi 6 mesi."
         else -> ""
     }
 

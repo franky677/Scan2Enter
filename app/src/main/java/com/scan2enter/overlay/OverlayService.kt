@@ -644,6 +644,13 @@ class OverlayService : Service() {
     private var popupTimerPausedByUser = false
     private var expiryDialog: AlertDialog? = null
 
+    /*
+     * Evita di riprodurre più volte lo stesso avviso se il popup riceve
+     * più aggiornamenti asincroni dello stesso articolo.
+     */
+    private var lastExpiryAlertArticleId: Long? = null
+    private var lastExpiryAlertSignature: String? = null
+
     private var historyPopup: View? = null
     private var reorderListPopup: View? = null
     private var reorderConfirmationPopup: View? = null
@@ -4970,6 +4977,10 @@ class OverlayService : Service() {
 
                         if (currentId == articleId) {
                             productInfoPopupController.updateExpiry(expiry)
+
+                            if (expiry != null) {
+                                playExpiryAlertSoundIfNeeded(expiry)
+                            }
                         }
                     }
                     .onFailure { error ->
@@ -4988,6 +4999,68 @@ class OverlayService : Service() {
                     }
             }
         }.start()
+    }
+
+
+    private fun playExpiryAlertSoundIfNeeded(
+        expiry: com.scan2enter.api.ProductExpiryDto
+    ) {
+        if (!expiry.hasExpiry) return
+
+        val isExpiring =
+            !expiry.isExpired &&
+                    expiry.daysToExpiry <= 184
+
+        if (!expiry.isExpired && !isExpiring) {
+            return
+        }
+
+        if (!ScanFeedbackManager.isEnabled(applicationContext)) {
+            return
+        }
+
+        val signature =
+            "${expiry.articleId}:${expiry.month}:${expiry.year}:${expiry.isExpired}"
+
+        if (
+            lastExpiryAlertArticleId == expiry.articleId &&
+            lastExpiryAlertSignature == signature
+        ) {
+            return
+        }
+
+        lastExpiryAlertArticleId = expiry.articleId
+        lastExpiryAlertSignature = signature
+
+        if (expiry.isExpired) {
+            /*
+             * Avviso più netto per prodotto già scaduto.
+             * Nessuna sintesi vocale.
+             */
+            urgentStockTone?.startTone(
+                ToneGenerator.TONE_PROP_NACK,
+                550
+            )
+
+            android.util.Log.d(
+                "OverlayService",
+                "SUONO SCADUTO articleId=${expiry.articleId} scadenza=${expiry.monthYearText}"
+            )
+        } else {
+            /*
+             * Avviso più morbido per prodotto entro 6 mesi.
+             * Nessuna sintesi vocale.
+             */
+            urgentStockTone?.startTone(
+                ToneGenerator.TONE_PROP_PROMPT,
+                350
+            )
+
+            android.util.Log.d(
+                "OverlayService",
+                "SUONO IN SCADENZA articleId=${expiry.articleId} scadenza=${expiry.monthYearText}"
+            )
+        }
     }
 
 
@@ -6218,6 +6291,8 @@ class OverlayService : Service() {
          */
         popupHandler.removeCallbacks(dismissPopupRunnable)
         popupTimerPausedByUser = false
+        lastExpiryAlertArticleId = null
+        lastExpiryAlertSignature = null
 
         priceManagementPopupController.remove(
             notifyClosed = false

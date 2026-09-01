@@ -48,6 +48,7 @@ class ProductInfoPopup(
         val root: View,
         val windowParams: WindowManager.LayoutParams,
         val blockedBanner: TextView,
+        val expiryAlertBanner: TextView,
         val priceValueText: TextView,
         val articleCodeValueText: TextView,
         val barcodeValueText: TextView,
@@ -161,6 +162,43 @@ class ProductInfoPopup(
                 leftMargin = (12 * density).toInt()
                 rightMargin = (12 * density).toInt()
                 topMargin = (8 * density).toInt()
+                bottomMargin = (4 * density).toInt()
+            }
+        )
+
+        /*
+         * AVVISO SCADENZA.
+         *
+         * Fa parte fisicamente del popup: quando il popup viene rimosso,
+         * sparisce automaticamente insieme a lui.
+         */
+        val expiryAlertBanner = TextView(context).apply {
+            textSize = 17f
+            setTextColor(Color.WHITE)
+            gravity = Gravity.CENTER
+            setTypeface(
+                typeface,
+                android.graphics.Typeface.BOLD
+            )
+            setPadding(
+                (12 * density).toInt(),
+                (8 * density).toInt(),
+                (12 * density).toInt(),
+                (8 * density).toInt()
+            )
+            visibility = View.GONE
+        }
+
+        mainContent.addView(
+            expiryAlertBanner,
+            2,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                leftMargin = (12 * density).toInt()
+                rightMargin = (12 * density).toInt()
+                topMargin = (4 * density).toInt()
                 bottomMargin = (4 * density).toInt()
             }
         )
@@ -298,6 +336,7 @@ class ProductInfoPopup(
             root = overlayRoot,
             windowParams = createWindowParams(),
             blockedBanner = blockedBanner,
+            expiryAlertBanner = expiryAlertBanner,
             priceValueText = popupView.findViewById(R.id.productPublicPriceText),
             articleCodeValueText = popupView.findViewById(R.id.productArticleCodeText),
             barcodeValueText = popupView.findViewById(R.id.productBarcodeText),
@@ -386,7 +425,21 @@ class ProductInfoPopup(
                 true
             }
 
+            /*
+             * L'area tattile non è più limitata alla piccola TextView del valore:
+             * tutta la tessera SCADENZA risponde alla pressione lunga.
+             * L'aspetto grafico resta invariato.
+             */
             (parent as? ViewGroup)?.let { container ->
+                container.isClickable = true
+                container.isFocusable = true
+                container.isLongClickable = true
+
+                container.setOnLongClickListener {
+                    onExpiryLongClick()
+                    true
+                }
+
                 for (index in 0 until container.childCount) {
                     val child = container.getChildAt(index)
                     if (
@@ -580,6 +633,8 @@ class ProductInfoPopup(
             current.minimumStockValueText.text = ""
             current.reorderLotValueText.text = ""
             current.healthCoverageText.text = "—"
+            current.expiryAlertBanner.visibility = View.GONE
+            current.expiryAlertBanner.text = ""
             return null
         }
 
@@ -736,7 +791,7 @@ class ProductInfoPopup(
                 expiry.isExpired ->
                     Color.rgb(190, 30, 30)
 
-                expiry.daysToExpiry <= 92 ->
+                expiry.daysToExpiry <= 184 ->
                     Color.rgb(230, 120, 0)
 
                 else ->
@@ -755,8 +810,49 @@ class ProductInfoPopup(
                 else ->
                     "Scadenza ${expiry.monthYearText}"
             }
-    }
 
+        val banner = current.expiryAlertBanner
+
+        when {
+            expiry == null || !expiry.hasExpiry -> {
+                banner.visibility = View.GONE
+                banner.text = ""
+            }
+
+            expiry.isExpired -> {
+                banner.text =
+                    "⚠  PRODOTTO SCADUTO  •  ${expiry.monthYearText}"
+
+                banner.background = GradientDrawable().apply {
+                    shape = GradientDrawable.RECTANGLE
+                    cornerRadius =
+                        12 * context.resources.displayMetrics.density
+                    setColor(Color.rgb(183, 28, 28))
+                }
+
+                banner.visibility = View.VISIBLE
+            }
+
+            expiry.daysToExpiry <= 184 -> {
+                banner.text =
+                    "⚠  PRODOTTO IN SCADENZA  •  ${expiry.monthYearText}"
+
+                banner.background = GradientDrawable().apply {
+                    shape = GradientDrawable.RECTANGLE
+                    cornerRadius =
+                        12 * context.resources.displayMetrics.density
+                    setColor(Color.rgb(230, 120, 0))
+                }
+
+                banner.visibility = View.VISIBLE
+            }
+
+            else -> {
+                banner.visibility = View.GONE
+                banner.text = ""
+            }
+        }
+    }
 
     private fun updateHealthPanel(
         product: ProductInfo,

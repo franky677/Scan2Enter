@@ -382,6 +382,50 @@ class GatewayApiClient(
             .optBoolean("removed", false)
     }
 
+
+    /**
+     * Controlla gli articoli scaduti o in scadenza.
+     *
+     * GET /api/product-expiry/alerts?months=3
+     */
+    fun getProductExpiryAlerts(
+        months: Int = 3
+    ): Result<ProductExpiryAlertDto> = runCatching {
+        val safeMonths = months.coerceIn(1, 24)
+
+        val url =
+            "${baseUrl.trimEnd('/')}/api/product-expiry/alerts" +
+                    "?months=$safeMonths"
+
+        Log.d(TAG, "GATEWAY GET PRODUCT EXPIRY ALERTS")
+        Log.d(TAG, "URL = $url")
+
+        val response = executeGet(url)
+
+        Log.d(
+            TAG,
+            "GATEWAY PRODUCT EXPIRY ALERTS HTTP=${response.code}"
+        )
+        Log.d(TAG, "BODY=${response.body.take(1000)}")
+
+        if (response.code !in 200..299) {
+            error(
+                "Gateway HTTP ${response.code}: ${response.body.take(500)}"
+            )
+        }
+
+        val root = JSONObject(response.body)
+
+        ProductExpiryAlertDto(
+            count = root.optInt(
+                "totalCount",
+                root.optInt("count", 0)
+            ),
+            expiredCount = root.optInt("expiredCount", 0),
+            expiringCount = root.optInt("expiringCount", 0)
+        )
+    }
+
     /**
      * Recupera il prezzo corretto per un cliente e un articolo.
      *
@@ -2400,6 +2444,16 @@ data class InventoryClassificationDto(
     val fifoValue: Double,
     val purchaseListValue: Double
 )
+
+data class ProductExpiryAlertDto(
+    val count: Int,
+    val expiredCount: Int,
+    val expiringCount: Int
+) {
+    val hasAlerts: Boolean
+        get() = count > 0
+}
+
 
 data class ProductExpiryDto(
     val articleId: Long,
