@@ -1,6 +1,7 @@
 package com.scan2enter.overlay
 
 import android.app.Service
+import android.app.AlertDialog
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -30,6 +31,7 @@ import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ListView
+import android.widget.NumberPicker
 import android.widget.PopupMenu
 import android.widget.ScrollView
 import android.widget.SeekBar
@@ -640,6 +642,7 @@ class OverlayService : Service() {
     private var isPopupDurationAuto = false
     private var manualPopupDurationSeconds = DEFAULT_POPUP_DURATION_SECONDS
     private var popupTimerPausedByUser = false
+    private var expiryDialog: AlertDialog? = null
 
     private var historyPopup: View? = null
     private var reorderListPopup: View? = null
@@ -4948,11 +4951,271 @@ class OverlayService : Service() {
         )
     }
 
+
+    private fun refreshProductExpiry(articleId: Long) {
+        if (articleId <= 0L) {
+            productInfoPopupController.updateExpiry(null)
+            return
+        }
+
+        Thread {
+            val result =
+                gatewayApiClient.getProductExpiry(articleId)
+
+            popupHandler.post {
+                result
+                    .onSuccess { expiry ->
+                        val currentId =
+                            ProductInfoStore.current?.articleId
+
+                        if (currentId == articleId) {
+                            productInfoPopupController.updateExpiry(expiry)
+                        }
+                    }
+                    .onFailure { error ->
+                        android.util.Log.e(
+                            "OverlayService",
+                            "LETTURA SCADENZA FALLITA articleId=$articleId",
+                            error
+                        )
+
+                        val currentId =
+                            ProductInfoStore.current?.articleId
+
+                        if (currentId == articleId) {
+                            productInfoPopupController.updateExpiry(null)
+                        }
+                    }
+            }
+        }.start()
+    }
+
+
+    private fun showExpiryPickerPopup() {
+        if (expiryDialog?.isShowing == true) return
+
+        val product =
+            ProductInfoStore.current ?: return
+
+        if (product.articleId <= 0L) {
+            Toast.makeText(
+                this,
+                "ID articolo non disponibile",
+                Toast.LENGTH_SHORT
+            ).show()
+            return
+        }
+
+        popupHandler.removeCallbacks(dismissPopupRunnable)
+        popupTimerPausedByUser = true
+
+        Thread {
+            val currentExpiry =
+                gatewayApiClient
+                    .getProductExpiry(product.articleId)
+                    .getOrNull()
+
+            popupHandler.post {
+                showExpiryMonthYearDialog(
+                    articleId = product.articleId,
+                    currentMonth = currentExpiry?.month,
+                    currentYear = currentExpiry?.year
+                )
+            }
+        }.start()
+    }
+
+
+    private fun showExpiryMonthYearDialog(
+        articleId: Long,
+        currentMonth: Int?,
+        currentYear: Int?
+    ) {
+        val now = java.util.Calendar.getInstance()
+
+        val initialMonth =
+            currentMonth
+                ?.takeIf { it in 1..12 }
+                ?: (now.get(java.util.Calendar.MONTH) + 1)
+
+        val initialYear =
+            currentYear
+                ?.takeIf { it in 2000..2200 }
+                ?: now.get(java.util.Calendar.YEAR)
+
+        val density = resources.displayMetrics.density
+
+        val container =
+            LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER
+                setPadding(
+                    (20 * density).toInt(),
+                    (8 * density).toInt(),
+                    (20 * density).toInt(),
+                    (8 * density).toInt()
+                )
+            }
+
+        val monthPicker =
+            NumberPicker(this).apply {
+                minValue = 1
+                maxValue = 12
+                displayedValues = arrayOf(
+                    "GEN", "FEB", "MAR", "APR",
+                    "MAG", "GIU", "LUG", "AGO",
+                    "SET", "OTT", "NOV", "DIC"
+                )
+                value = initialMonth
+                wrapSelectorWheel = true
+            }
+
+        val yearPicker =
+            NumberPicker(this).apply {
+                minValue = now.get(java.util.Calendar.YEAR) - 1
+                maxValue = now.get(java.util.Calendar.YEAR) + 20
+                value = initialYear.coerceIn(minValue, maxValue)
+                wrapSelectorWheel = false
+            }
+
+        container.addView(
+            monthPicker,
+            LinearLayout.LayoutParams(
+                0,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                1f
+            )
+        )
+
+        container.addView(
+            yearPicker,
+            LinearLayout.LayoutParams(
+                0,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                1f
+            )
+        )
+
+        val dialog =
+            AlertDialog.Builder(this)
+                .setTitle("SCADENZA PRODOTTO")
+                .setMessage("Seleziona mese e anno")
+                .setView(container)
+                .setPositiveButton("SALVA", null)
+                .setNegativeButton("ANNULLA", null)
+                .setNeutralButton("RIMUOVI", null)
+                .create()
+
+        dialog.setOnDismissListener {
+            expiryDialog = null
+            popupTimerPausedByUser = false
+
+            if (productInfoPopup != null) {
+                scheduleProductPopupDismiss(
+                    ProductInfoStore.current
+                )
+            }
+        }
+
+        dialog.window?.setType(
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+        )
+
+        dialog.show()
+
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE)
+            .setOnClickListener {
+                val month = monthPicker.value
+                val year = yearPicker.value
+
+                dialog.getButton(AlertDialog.BUTTON_POSITIVE)
+                    .isEnabled = false
+
+                Thread {
+                    val result =
+                        gatewayApiClient.updateProductExpiry(
+                            articleId = articleId,
+                            month = month,
+                            year = year
+                        )
+
+                    popupHandler.post {
+                        dialog.getButton(
+                            AlertDialog.BUTTON_POSITIVE
+                        ).isEnabled = true
+
+                        result
+                            .onSuccess { expiry ->
+                                productInfoPopupController
+                                    .updateExpiry(expiry)
+
+                                Toast.makeText(
+                                    this,
+                                    "Scadenza ${expiry.monthYearText} salvata",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+
+                                dialog.dismiss()
+                            }
+                            .onFailure { error ->
+                                Toast.makeText(
+                                    this,
+                                    "Errore salvataggio scadenza: ${error.message}",
+                                    Toast.LENGTH_LONG
+                                ).show()
+                            }
+                    }
+                }.start()
+            }
+
+        dialog.getButton(AlertDialog.BUTTON_NEUTRAL)
+            .setOnClickListener {
+                Thread {
+                    val result =
+                        gatewayApiClient.deleteProductExpiry(
+                            articleId
+                        )
+
+                    popupHandler.post {
+                        result
+                            .onSuccess {
+                                productInfoPopupController
+                                    .updateExpiry(null)
+
+                                Toast.makeText(
+                                    this,
+                                    "Scadenza rimossa",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+
+                                dialog.dismiss()
+                            }
+                            .onFailure { error ->
+                                Toast.makeText(
+                                    this,
+                                    "Errore rimozione scadenza: ${error.message}",
+                                    Toast.LENGTH_LONG
+                                ).show()
+                            }
+                    }
+                }.start()
+            }
+
+        expiryDialog = dialog
+
+        android.util.Log.d(
+            "OverlayService",
+            "GESTIONE SCADENZA APERTA articleId=$articleId"
+        )
+    }
+
+
     private fun createProductInfoPopup() {
         val bindings = productInfoPopupController.create(
             onStockClick = ::showStockEditPopup,
             onLocationClick = ::showLocationManagementPopup,
             onPriceLongClick = ::showPriceManagementPopup,
+            onExpiryLongClick = ::showExpiryPickerPopup,
             onTouchStarted = {
                 popupTimerPausedByUser = true
                 popupHandler.removeCallbacks(dismissPopupRunnable)
@@ -4963,7 +5226,10 @@ class OverlayService : Service() {
                 )
             },
             onTouchFinished = {
-                if (priceManagementPopupController.isShowing()) {
+                if (
+                    priceManagementPopupController.isShowing() ||
+                    expiryDialog?.isShowing == true
+                ) {
                     popupTimerPausedByUser = true
                     popupHandler.removeCallbacks(
                         dismissPopupRunnable
@@ -4971,7 +5237,7 @@ class OverlayService : Service() {
 
                     android.util.Log.d(
                         "OverlayService",
-                        "TIMER POPUP RESTA IN PAUSA - GESTIONE PREZZI APERTA"
+                        "TIMER POPUP RESTA IN PAUSA - GESTIONE SECONDARIA APERTA"
                     )
                 } else {
                     popupTimerPausedByUser = false
@@ -4986,7 +5252,10 @@ class OverlayService : Service() {
                 }
             },
             onPopupTap = {
-                if (priceManagementPopupController.isShowing()) {
+                if (
+                    priceManagementPopupController.isShowing() ||
+                    expiryDialog?.isShowing == true
+                ) {
                     popupHandler.removeCallbacks(
                         dismissPopupRunnable
                     )
@@ -4994,7 +5263,7 @@ class OverlayService : Service() {
 
                     android.util.Log.d(
                         "OverlayService",
-                        "TAP POPUP IGNORATO - GESTIONE PREZZI APERTA"
+                        "TAP POPUP IGNORATO - GESTIONE SECONDARIA APERTA"
                     )
                 } else {
                     popupHandler.removeCallbacks(
@@ -5761,6 +6030,16 @@ class OverlayService : Service() {
             workflowCompleted = workflowCompleted
         )
 
+        if (
+            product != null &&
+            product.articleId > 0L &&
+            workflowCompleted
+        ) {
+            refreshProductExpiry(product.articleId)
+        } else if (product == null) {
+            productInfoPopupController.updateExpiry(null)
+        }
+
         /*
          * L'immagine prodotto viene già caricata da ProductInfoPopup.update().
          * Non lanciamo un secondo caricamento Coil concorrente sulla stessa View.
@@ -5931,6 +6210,8 @@ class OverlayService : Service() {
     }
 
     private fun removeProductInfoPopup() {
+        expiryDialog?.dismiss()
+        expiryDialog = null
         /*
          * Un callback di chiusura appartenente al popup precedente non deve
          * poter intervenire sul popup successivo.

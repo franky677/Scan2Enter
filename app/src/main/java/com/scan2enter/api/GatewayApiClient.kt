@@ -234,6 +234,154 @@ class GatewayApiClient(
         root.optBoolean("active", active)
     }
 
+
+    /**
+     * Legge la scadenza impostata manualmente per un articolo.
+     *
+     * GET /api/product/{articleId}/expiry
+     */
+    fun getProductExpiry(
+        articleId: Long
+    ): Result<ProductExpiryDto?> = runCatching {
+        require(articleId > 0L) {
+            "articleId non valido: $articleId"
+        }
+
+        val url =
+            "${baseUrl.trimEnd('/')}/api/product/$articleId/expiry"
+
+        Log.d(TAG, "GATEWAY GET PRODUCT EXPIRY")
+        Log.d(TAG, "ARTICLE ID=$articleId")
+        Log.d(TAG, "URL = $url")
+
+        val response = executeGet(url)
+
+        Log.d(TAG, "GATEWAY PRODUCT EXPIRY HTTP=${response.code}")
+        Log.d(TAG, "BODY=${response.body.take(500)}")
+
+        if (response.code == HttpURLConnection.HTTP_NOT_FOUND) {
+            return@runCatching null
+        }
+
+        if (response.code !in 200..299) {
+            error(
+                "Gateway HTTP ${response.code}: ${response.body.take(500)}"
+            )
+        }
+
+        val root = JSONObject(response.body)
+
+        ProductExpiryDto(
+            articleId = root.optLong("articleId", articleId),
+            articleCode = root.optString("articleCode", "").trim(),
+            description = root.optString("description", "").trim(),
+            barcode = root.optString("barcode", "").trim(),
+            month = root.optInt("month", 0),
+            year = root.optInt("year", 0),
+            expiryDate = root.optString("expiryDate", "").trim(),
+            isExpired = root.optBoolean("isExpired", false),
+            daysToExpiry = root.optInt("daysToExpiry", 0),
+            stock = root.optDouble("stock", 0.0),
+            updatedAt = root.optString("updatedAt", "").trim()
+        )
+    }
+
+    /**
+     * Imposta la scadenza manuale di un articolo.
+     *
+     * PUT /api/product/{articleId}/expiry
+     */
+    fun updateProductExpiry(
+        articleId: Long,
+        month: Int,
+        year: Int
+    ): Result<ProductExpiryDto> = runCatching {
+        require(articleId > 0L) {
+            "articleId non valido: $articleId"
+        }
+
+        require(month in 1..12) {
+            "Mese di scadenza non valido: $month"
+        }
+
+        require(year in 2000..2200) {
+            "Anno di scadenza non valido: $year"
+        }
+
+        val url =
+            "${baseUrl.trimEnd('/')}/api/product/$articleId/expiry"
+
+        val body = JSONObject()
+            .put("month", month)
+            .put("year", year)
+            .toString()
+
+        Log.d(TAG, "GATEWAY UPDATE PRODUCT EXPIRY")
+        Log.d(TAG, "ARTICLE ID=$articleId EXPIRY=$month/$year")
+        Log.d(TAG, "URL = $url")
+
+        val response = executeJson(
+            urlString = url,
+            method = "PUT",
+            jsonBody = body
+        )
+
+        Log.d(TAG, "GATEWAY UPDATE PRODUCT EXPIRY HTTP=${response.code}")
+        Log.d(TAG, "BODY=${response.body.take(500)}")
+
+        if (response.code !in 200..299) {
+            error(
+                "Gateway HTTP ${response.code}: ${response.body.take(500)}"
+            )
+        }
+
+        val root = JSONObject(response.body)
+
+        ProductExpiryDto(
+            articleId = root.optLong("articleId", articleId),
+            articleCode = root.optString("articleCode", "").trim(),
+            description = root.optString("description", "").trim(),
+            barcode = root.optString("barcode", "").trim(),
+            month = root.optInt("month", month),
+            year = root.optInt("year", year),
+            expiryDate = root.optString("expiryDate", "").trim(),
+            isExpired = root.optBoolean("isExpired", false),
+            daysToExpiry = root.optInt("daysToExpiry", 0),
+            stock = root.optDouble("stock", 0.0),
+            updatedAt = root.optString("updatedAt", "").trim()
+        )
+    }
+
+    /**
+     * Rimuove la scadenza manuale di un articolo.
+     *
+     * DELETE /api/product/{articleId}/expiry
+     */
+    fun deleteProductExpiry(
+        articleId: Long
+    ): Result<Boolean> = runCatching {
+        require(articleId > 0L) {
+            "articleId non valido: $articleId"
+        }
+
+        val url =
+            "${baseUrl.trimEnd('/')}/api/product/$articleId/expiry"
+
+        val response = executeWithoutBody(
+            urlString = url,
+            method = "DELETE"
+        )
+
+        if (response.code !in 200..299) {
+            error(
+                "Gateway HTTP ${response.code}: ${response.body.take(500)}"
+            )
+        }
+
+        JSONObject(response.body)
+            .optBoolean("removed", false)
+    }
+
     /**
      * Recupera il prezzo corretto per un cliente e un articolo.
      *
@@ -1188,7 +1336,18 @@ class GatewayApiClient(
                     soldHistorical = item.optDouble("soldHistorical", 0.0),
                     monthsCoverage =
                         if (item.isNull("monthsCoverage")) null
-                        else item.optDouble("monthsCoverage", 0.0)
+                        else item.optDouble("monthsCoverage", 0.0),
+                    expiryMonth =
+                        if (item.isNull("expiryMonth")) null
+                        else item.optInt("expiryMonth", 0).takeIf { it in 1..12 },
+                    expiryYear =
+                        if (item.isNull("expiryYear")) null
+                        else item.optInt("expiryYear", 0).takeIf { it > 0 },
+                    expiryDate =
+                        item.optString("expiryDate", "").trim().ifBlank { null },
+                    daysToExpiry =
+                        if (item.isNull("daysToExpiry")) null
+                        else item.optInt("daysToExpiry", 0)
                 )
             )
         }
@@ -1211,6 +1370,8 @@ class GatewayApiClient(
      * - declining
      * - low-stock-fast-moving
      * - overstock
+     * - expired
+     * - expiring
      */
     fun getInventoryAnalysisQuery(
         mode: String,
@@ -1227,7 +1388,9 @@ class GatewayApiClient(
                 "growing",
                 "declining",
                 "low-stock-fast-moving",
-                "overstock"
+                "overstock",
+                "expired",
+                "expiring"
             )
         ) {
             "Interrogazione non valida: $mode"
@@ -1302,7 +1465,18 @@ class GatewayApiClient(
                         else item.optDouble("trendPercent", 0.0),
                     monthsCoverage =
                         if (item.isNull("monthsCoverage")) null
-                        else item.optDouble("monthsCoverage", 0.0)
+                        else item.optDouble("monthsCoverage", 0.0),
+                    expiryMonth =
+                        if (item.isNull("expiryMonth")) null
+                        else item.optInt("expiryMonth", 0).takeIf { it in 1..12 },
+                    expiryYear =
+                        if (item.isNull("expiryYear")) null
+                        else item.optInt("expiryYear", 0).takeIf { it > 0 },
+                    expiryDate =
+                        item.optString("expiryDate", "").trim().ifBlank { null },
+                    daysToExpiry =
+                        if (item.isNull("daysToExpiry")) null
+                        else item.optInt("daysToExpiry", 0)
                 )
             )
         }
@@ -2192,7 +2366,11 @@ data class InventoryAnalysisItemDto(
     val soldHistorical: Double = 0.0,
     val soldPrevious12M: Double = 0.0,
     val trendPercent: Double? = null,
-    val monthsCoverage: Double? = null
+    val monthsCoverage: Double? = null,
+    val expiryMonth: Int? = null,
+    val expiryYear: Int? = null,
+    val expiryDate: String? = null,
+    val daysToExpiry: Int? = null
 )
 
 
@@ -2222,3 +2400,32 @@ data class InventoryClassificationDto(
     val fifoValue: Double,
     val purchaseListValue: Double
 )
+
+data class ProductExpiryDto(
+    val articleId: Long,
+    val articleCode: String,
+    val description: String,
+    val barcode: String,
+    val month: Int,
+    val year: Int,
+    val expiryDate: String,
+    val isExpired: Boolean,
+    val daysToExpiry: Int,
+    val stock: Double,
+    val updatedAt: String
+) {
+    val hasExpiry: Boolean
+        get() = month in 1..12 && year > 0
+
+    val monthYearText: String
+        get() =
+            if (hasExpiry) {
+                "%02d/%04d".format(
+                    java.util.Locale.ITALY,
+                    month,
+                    year
+                )
+            } else {
+                "—"
+            }
+}

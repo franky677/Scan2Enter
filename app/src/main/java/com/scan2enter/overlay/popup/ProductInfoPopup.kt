@@ -10,6 +10,7 @@ import android.util.TypedValue
 import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewGroup
 import android.view.ViewOutlineProvider
 import android.view.WindowManager
 import android.widget.FrameLayout
@@ -20,6 +21,7 @@ import android.widget.TextView
 import coil3.load
 import com.scan2enter.R
 import com.scan2enter.api.GatewayApiClient
+import com.scan2enter.api.ProductExpiryDto
 import com.scan2enter.model.ProductInfo
 import kotlin.math.min
 import com.scan2enter.favorites.FavoriteRepository
@@ -97,6 +99,7 @@ class ProductInfoPopup(
         onStockClick: () -> Unit,
         onLocationClick: () -> Unit,
         onPriceLongClick: () -> Unit,
+        onExpiryLongClick: () -> Unit,
         onTouchStarted: () -> Unit,
         onTouchFinished: () -> Unit,
         onPopupTap: () -> Unit
@@ -365,6 +368,39 @@ class ProductInfoPopup(
             }
         }
 
+        /*
+         * SCADENZA PRODOTTO
+         *
+         * Riutilizziamo la tessera che prima mostrava la copertura.
+         * Il dato di copertura continua a esistere nella Salute Articolo,
+         * ma questa icona del popup diventa l'accesso rapido alla scadenza.
+         */
+        createdBindings.healthCoverageText.apply {
+            text = "—"
+            isClickable = true
+            isFocusable = true
+            isLongClickable = true
+
+            setOnLongClickListener {
+                onExpiryLongClick()
+                true
+            }
+
+            (parent as? ViewGroup)?.let { container ->
+                for (index in 0 until container.childCount) {
+                    val child = container.getChildAt(index)
+                    if (
+                        child is TextView &&
+                        child !== this &&
+                        child.text.toString().trim().uppercase()
+                            .contains("COPERTURA")
+                    ) {
+                        child.text = "SCADENZA"
+                    }
+                }
+            }
+        }
+
         val horizontalMargin = (6 * density).toInt()
         val topMargin = (24 * density).toInt()
         val bottomMargin = (8 * density).toInt()
@@ -543,6 +579,7 @@ class ProductInfoPopup(
             current.healthEconomicDescriptionText.text = ""
             current.minimumStockValueText.text = ""
             current.reorderLotValueText.text = ""
+            current.healthCoverageText.text = "—"
             return null
         }
 
@@ -683,6 +720,44 @@ class ProductInfoPopup(
         return stockSoundStatus
     }
 
+    fun updateExpiry(expiry: ProductExpiryDto?) {
+        val current = bindings ?: return
+
+        current.healthCoverageText.text =
+            expiry?.takeIf { it.hasExpiry }
+                ?.monthYearText
+                ?: "—"
+
+        current.healthCoverageText.setTextColor(
+            when {
+                expiry == null || !expiry.hasExpiry ->
+                    Color.rgb(70, 70, 70)
+
+                expiry.isExpired ->
+                    Color.rgb(190, 30, 30)
+
+                expiry.daysToExpiry <= 92 ->
+                    Color.rgb(230, 120, 0)
+
+                else ->
+                    Color.rgb(40, 40, 40)
+            }
+        )
+
+        current.healthCoverageText.contentDescription =
+            when {
+                expiry == null || !expiry.hasExpiry ->
+                    "Scadenza non impostata"
+
+                expiry.isExpired ->
+                    "Scaduto ${expiry.monthYearText}"
+
+                else ->
+                    "Scadenza ${expiry.monthYearText}"
+            }
+    }
+
+
     private fun updateHealthPanel(
         product: ProductInfo,
         current: Bindings
@@ -697,7 +772,6 @@ class ProductInfoPopup(
             current.healthLastSaleText.text = "—"
             current.healthSold12Text.text = "—"
             current.healthRotationText.text = "—"
-            current.healthCoverageText.text = "—"
             return
         }
 
@@ -768,15 +842,11 @@ class ProductInfoPopup(
                 else String.format(java.util.Locale.ITALY, "%.2f", it)
             } ?: "—"
 
-        val coverage = health.mesiCopertura?.let {
-            String.format(java.util.Locale.ITALY, "%.1f m", it)
-        } ?: "—"
-
-        // Manteniamo aggiornati i quattro dati riepilogativi già presenti nel popup.
+        // La copertura resta disponibile nei dati Salute Articolo,
+        // ma la quarta tessera del popup è ora riservata alla SCADENZA.
         current.healthLastSaleText.text = dateShort(health.ultimaVendita)
         current.healthSold12Text.text = n(health.venduto12M)
         current.healthRotationText.text = n(health.rotazione12M)
-        current.healthCoverageText.text = coverage
 
         android.util.Log.d(
             "ProductInfoPopup",

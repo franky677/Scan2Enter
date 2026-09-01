@@ -1555,6 +1555,32 @@ private fun InventoryQueryView(
             "Articoli con almeno 24 mesi di copertura, ordinati per capitale FIFO immobilizzato.",
             style = MaterialTheme.typography.bodySmall
         )
+
+        HorizontalDivider()
+
+        Button(
+            onClick = { onRunQuery("expired", 3) },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("SCADUTI")
+        }
+
+        Text(
+            "Articoli con giacenza positiva e scadenza già superata.",
+            style = MaterialTheme.typography.bodySmall
+        )
+
+        Button(
+            onClick = { onRunQuery("expiring", 3) },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("IN SCADENZA · 3 MESI")
+        }
+
+        Text(
+            "Articoli non ancora scaduti con scadenza entro i prossimi 3 mesi.",
+            style = MaterialTheme.typography.bodySmall
+        )
     }
 }
 
@@ -1805,6 +1831,37 @@ private fun QueryInventoryItemCard(
                         style = MaterialTheme.typography.bodySmall
                     )
                 }
+
+                "expired" -> {
+                    Text(
+                        "Scadenza: ${formatExpiryMonthYear(item.expiryMonth, item.expiryYear)}",
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                    Text(
+                        if (item.daysToExpiry != null) {
+                            "Scaduto da ${kotlin.math.abs(item.daysToExpiry)} giorni"
+                        } else {
+                            "Scadenza superata"
+                        },
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+
+                "expiring" -> {
+                    Text(
+                        "Scadenza: ${formatExpiryMonthYear(item.expiryMonth, item.expiryYear)}",
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        if (item.daysToExpiry != null) {
+                            "Mancano ${item.daysToExpiry.coerceAtLeast(0)} giorni"
+                        } else {
+                            "In scadenza entro 3 mesi"
+                        },
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
             }
 
             if (item.supplier.isNotBlank()) {
@@ -1852,6 +1909,8 @@ private fun queryModeTitle(
         "declining" -> "In calo"
         "low-stock-fast-moving" -> "Alta rotazione / poca giacenza"
         "overstock" -> "Sovrastock"
+        "expired" -> "Scaduti"
+        "expiring" -> "In scadenza · 3 mesi"
         else -> "Interroga Magazzino"
     }
 
@@ -1877,7 +1936,27 @@ private fun queryModeDescription(
             "Articoli con vendite attive e copertura fino a 3 mesi."
         "overstock" ->
             "Articoli con almeno 24 mesi di copertura, ordinati per FIFO immobilizzato."
+        "expired" ->
+            "Articoli con giacenza positiva e scadenza già superata."
+        "expiring" ->
+            "Articoli con giacenza positiva e scadenza entro i prossimi 3 mesi."
         else -> ""
+    }
+
+
+private fun formatExpiryMonthYear(
+    month: Int?,
+    year: Int?
+): String =
+    if (month != null && month in 1..12 && year != null && year > 0) {
+        String.format(
+            Locale.ITALY,
+            "%02d/%04d",
+            month,
+            year
+        )
+    } else {
+        "—"
     }
 
 
