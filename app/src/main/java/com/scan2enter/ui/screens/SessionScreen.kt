@@ -12,6 +12,10 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
+import com.scan2enter.R
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -34,9 +38,12 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -52,11 +59,18 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -273,6 +287,12 @@ fun SessionScreen(
                         intent.getStringExtra("barcode_data")
                             ?.trim()
                             .orEmpty()
+                            .ifBlank {
+                                intent.getByteArrayExtra("source_byte")
+                                    ?.toString(Charsets.UTF_8)
+                                    ?.trim()
+                                    .orEmpty()
+                            }
 
                     routeHardwareBarcode(
                         barcode = barcode,
@@ -309,20 +329,24 @@ fun SessionScreen(
             }
 
         if (ScannerModeDetector.isSunmi()) {
-            context.registerReceiver(
+            androidx.core.content.ContextCompat.registerReceiver(
+                context,
                 sunmiReceiver,
                 IntentFilter(
                     "com.honeywell.tools.action.scan_result"
-                )
+                ),
+                androidx.core.content.ContextCompat.RECEIVER_EXPORTED
             )
         }
 
-        androidx.core.content.ContextCompat.registerReceiver(
-            context,
-            zebraReceiver,
-            IntentFilter("com.scan2enter.SCAN"),
-            androidx.core.content.ContextCompat.RECEIVER_EXPORTED
-        )
+        if (ScannerModeDetector.isZebra()) {
+            androidx.core.content.ContextCompat.registerReceiver(
+                context,
+                zebraReceiver,
+                IntentFilter("com.scan2enter.SCAN"),
+                androidx.core.content.ContextCompat.RECEIVER_EXPORTED
+            )
+        }
 
         onDispose {
             if (ScannerModeDetector.isSunmi()) {
@@ -333,10 +357,12 @@ fun SessionScreen(
                 }
             }
 
-            runCatching {
-                context.unregisterReceiver(
-                    zebraReceiver
-                )
+            if (ScannerModeDetector.isZebra()) {
+                runCatching {
+                    context.unregisterReceiver(
+                        zebraReceiver
+                    )
+                }
             }
         }
     }
@@ -422,7 +448,7 @@ fun SessionScreen(
 
                 Column {
                     Text(
-                        text = "📦 COLLO VELOCE",
+                        text = "📋 SESSIONE",
                         fontSize = 26.sp,
                         fontWeight = FontWeight.Bold
                     )
@@ -496,7 +522,7 @@ fun SessionScreen(
             if (sessionItems.isEmpty()) {
                 Text(
                     text =
-                        "Il collo veloce è vuoto.\n" +
+                        "La sessione è vuota.\n" +
                                 "Usa il grilletto laterale o CERCA.",
                     modifier = Modifier.padding(16.dp),
                     fontSize = 18.sp
@@ -728,7 +754,7 @@ fun SessionScreen(
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     Text(
-                        text = "Sto per eliminare dal collo veloce:",
+                        text = "Sto per eliminare dalla sessione:",
                         fontWeight = FontWeight.Bold,
                         color = Color(0xFF111111)
                     )
@@ -787,7 +813,12 @@ fun SessionScreen(
         )
     }
 
-    editingItem?.let { item ->
+    editingItem?.let { editingSnapshot ->
+        val item =
+            sessionItems.firstOrNull {
+                it.articleId == editingSnapshot.articleId
+            } ?: editingSnapshot
+
         QuantityDialog(
             item = item,
             onDismiss = {
@@ -818,7 +849,8 @@ fun SessionScreen(
                     priceListName,
                     listPrice,
                     finalPrice,
-                    markup ->
+                    markup,
+                    manualDiscount ->
                 SessionStore.setQuantityAndPricing(
                     articleId = item.articleId,
                     quantity = qty,
@@ -829,6 +861,14 @@ fun SessionScreen(
                     finalPrice = finalPrice,
                     effectiveMarkupPercent = markup
                 )
+
+                if (qty > 0) {
+                    SessionStore.setManualDiscount(
+                        articleId = item.articleId,
+                        manualDiscount = manualDiscount
+                    )
+                }
+
                 editingItem = null
             }
         )
@@ -969,6 +1009,10 @@ private fun SessionActionPanel(
         mutableStateOf(false)
     }
 
+    var paymentDialogOpen by remember {
+        mutableStateOf(false)
+    }
+
     val gatewayApiClient = remember {
         GatewayApiClient()
     }
@@ -978,13 +1022,7 @@ private fun SessionActionPanel(
 
     val totalEuro =
         items.sumOf { item ->
-            val unitPrice =
-                item.effectivePrice
-                    .replace(",", ".")
-                    .toDoubleOrNull()
-                    ?: 0.0
-
-            unitPrice * item.quantity
+            effectiveSessionUnitPrice(item) * item.quantity
         }
 
     Surface(
@@ -1102,12 +1140,20 @@ private fun SessionActionPanel(
 
             Button(
                 onClick = {
+                    paymentDialogOpen = true
+                },
+                enabled = items.isNotEmpty() && totalEuro >= 0.0,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("💶  PAGAMENTO / RESTO")
+            }
+
+            Button(
+                onClick = {
                     val payloadItems =
                         items.mapNotNull { item ->
                             val price =
-                                item.effectivePrice
-                                    .replace(",", ".")
-                                    .toDoubleOrNull()
+                                effectiveSessionUnitPrice(item)
 
                             if (
                                 item.barcode.isBlank() ||
@@ -1117,10 +1163,51 @@ private fun SessionActionPanel(
                             ) {
                                 null
                             } else {
+                                val listPrice =
+                                    item.listPrice
+                                        .replace(",", ".")
+                                        .toDoubleOrNull()
+
+                                val hasManualPrice =
+                                    item.manualPrice.isNotBlank()
+
                                 SessionColloItemDto(
                                     barcode = item.barcode,
                                     quantity = item.quantity,
-                                    price = price
+                                    price = price,
+                                    listPrice =
+                                        if (hasManualPrice) {
+                                            null
+                                        } else {
+                                            listPrice
+                                        },
+                                    discount1 =
+                                        if (hasManualPrice) 0.0
+                                        else item.discount1,
+                                    discount2 =
+                                        if (hasManualPrice) 0.0
+                                        else item.discount2,
+                                    discount3 =
+                                        if (hasManualPrice) 0.0
+                                        else item.discount3,
+                                    discount4 =
+                                        if (hasManualPrice) 0.0
+                                        else item.discount4,
+                                    manualDiscount =
+                                        if (hasManualPrice) 0.0
+                                        else item.manualDiscount,
+                                    priceListId =
+                                        if (hasManualPrice) {
+                                            null
+                                        } else {
+                                            item.priceListId
+                                                .takeIf { it > 0 }
+                                        },
+                                    targetNetTotal =
+                                        (
+                                                effectiveSessionUnitPrice(item) *
+                                                        item.quantity
+                                                )
                                 )
                             }
                         }
@@ -1215,7 +1302,7 @@ private fun SessionActionPanel(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text(
-                    text = "🗑️  SVUOTA TUTTO IL COLLO VELOCE",
+                    text = "🗑️  SVUOTA TUTTA LA SESSIONE",
                     color = Color(0xFFB00020),
                     fontWeight = FontWeight.Bold
                 )
@@ -1272,7 +1359,7 @@ private fun SessionActionPanel(
             containerColor = Color(0xFFFFDADA),
             title = {
                 Text(
-                    text = "⚠ SVUOTA COLLO VELOCE",
+                    text = "⚠ SVUOTA SESSIONE",
                     color = Color(0xFFB00020),
                     fontWeight = FontWeight.Bold
                 )
@@ -1282,7 +1369,7 @@ private fun SessionActionPanel(
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     Text(
-                        text = "Stai per eliminare TUTTI gli articoli del collo veloce.",
+                        text = "Stai per eliminare TUTTI gli articoli della sessione.",
                         fontWeight = FontWeight.Bold,
                         color = Color(0xFF111111)
                     )
@@ -1489,7 +1576,7 @@ private fun SessionActionPanel(
                         onClose()
                     }
                 ) {
-                    Text("FATTO • SVUOTA COLLO VELOCE")
+                    Text("FATTO • SVUOTA SESSIONE")
                 }
             },
             dismissButton = {
@@ -1498,11 +1585,20 @@ private fun SessionActionPanel(
                         createdCollo = null
                     }
                 ) {
-                    Text("TORNA AL COLLO VELOCE")
+                    Text("TORNA ALLA SESSIONE")
                 }
             }
         )
     }
+    if (paymentDialogOpen) {
+        PaymentDialog(
+            totalEuro = totalEuro,
+            onDismiss = {
+                paymentDialogOpen = false
+            }
+        )
+    }
+
 }
 
 @Composable
@@ -1871,10 +1967,13 @@ private fun SessionRow(
                         )
                     }
 
-                    val finalPriceValue =
+                    val baseCustomerPriceValue =
                         item.effectivePrice
                             .replace(",", ".")
                             .toDoubleOrNull()
+
+                    val displayedNetPriceValue =
+                        effectiveSessionUnitPrice(item)
 
                     val listPriceValue =
                         item.listPrice
@@ -1883,7 +1982,14 @@ private fun SessionRow(
                             .toDoubleOrNull()
 
                     val finalPriceText =
-                        finalPriceValue?.let {
+                        String.format(
+                            Locale.ITALY,
+                            "%.2f €",
+                            displayedNetPriceValue
+                        )
+
+                    val customerPriceText =
+                        baseCustomerPriceValue?.let {
                             String.format(
                                 Locale.ITALY,
                                 "%.2f €",
@@ -1912,50 +2018,47 @@ private fun SessionRow(
                         )
                     }
 
-                    val hasDiscount =
-                        item.discount1 > 0.0 &&
-                                listPriceValue != null &&
-                                finalPriceValue != null
+                    val hasAutomaticDiscount =
+                        listOf(
+                            item.discount1,
+                            item.discount2,
+                            item.discount3,
+                            item.discount4
+                        ).any { it > 0.0 }
 
-                    if (hasDiscount) {
-                        val discountText =
-                            if (item.discount1 % 1.0 == 0.0) {
-                                item.discount1
-                                    .toInt()
-                                    .toString()
-                            } else {
-                                String.format(
-                                    Locale.ITALY,
-                                    "%.1f",
-                                    item.discount1
-                                )
-                            }
-
-                        Text(
-                            text = "$listPriceText  (-$discountText%)",
-                            fontSize = 12.sp,
-                            color =
-                                MaterialTheme
-                                    .colorScheme
-                                    .onSurfaceVariant
+                    val discountSummary =
+                        formatDiscountSummary(
+                            discount1 = item.discount1,
+                            discount2 = item.discount2,
+                            discount3 = item.discount3,
+                            discount4 = item.discount4,
+                            manualDiscount = item.manualDiscount
                         )
-                    }
 
-                    Surface(
-                        shape = RoundedCornerShape(7.dp),
-                        color = Color.White,
-                        contentColor = Color.Black,
-                        tonalElevation = 1.dp
-                    ) {
+                    val priceLine =
+                        "💰 $listPriceText  ·  SC. $discountSummary  ·  $finalPriceText"
+
+                    Text(
+                        text = priceLine,
+                        fontSize = 14.sp,
+                        fontWeight =
+                            if (
+                                hasAutomaticDiscount ||
+                                item.manualDiscount > 0.0 ||
+                                item.manualPrice.isNotBlank()
+                            ) {
+                                FontWeight.SemiBold
+                            } else {
+                                FontWeight.Normal
+                            }
+                    )
+
+                    if (item.manualDiscount > 0.0) {
                         Text(
-                            text = finalPriceText,
-                            fontSize = 16.sp,
+                            text = "SCONTO RIGA ${formatDiscount(item.manualDiscount)}",
+                            fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
-                            color = Color.Black,
-                            modifier = Modifier.padding(
-                                horizontal = 9.dp,
-                                vertical = 4.dp
-                            )
+                            color = MaterialTheme.colorScheme.primary
                         )
                     }
 
@@ -2033,6 +2136,467 @@ private fun SessionRow(
     }
 }
 
+
+@Composable
+private fun PaymentDialog(
+    totalEuro: Double,
+    onDismiss: () -> Unit
+) {
+    val totalCents =
+        kotlin.math.round(totalEuro * 100.0)
+            .toInt()
+            .coerceAtLeast(0)
+
+    var insertedDenominations by remember(totalCents) {
+        mutableStateOf<List<Int>>(emptyList())
+    }
+
+    val receivedCents =
+        insertedDenominations.sum()
+
+    val differenceCents =
+        receivedCents - totalCents
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = "💶 PAGAMENTO",
+                fontWeight = FontWeight.Bold
+            )
+        },
+        text = {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    tonalElevation = 3.dp,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(5.dp)
+                    ) {
+                        PaymentAmountLine(
+                            label = "TOTALE",
+                            cents = totalCents,
+                            emphasized = true
+                        )
+
+                        PaymentAmountLine(
+                            label = "RICEVUTO",
+                            cents = receivedCents,
+                            emphasized = true
+                        )
+
+                        if (differenceCents >= 0) {
+                            PaymentAmountLine(
+                                label = "RESTO",
+                                cents = differenceCents,
+                                emphasized = true
+                            )
+                        } else {
+                            PaymentAmountLine(
+                                label = "MANCANO",
+                                cents = -differenceCents,
+                                emphasized = false
+                            )
+                        }
+                    }
+                }
+
+                Text(
+                    text = "BANCONOTE",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    EuroDenominationButton(
+                        cents = 10000,
+                        count = insertedDenominations.count { it == 10000 },
+                        modifier = Modifier.weight(1f),
+                        onClick = {
+                            insertedDenominations =
+                                insertedDenominations + 10000
+                        }
+                    )
+
+                    EuroDenominationButton(
+                        cents = 5000,
+                        count = insertedDenominations.count { it == 5000 },
+                        modifier = Modifier.weight(1f),
+                        onClick = {
+                            insertedDenominations =
+                                insertedDenominations + 5000
+                        }
+                    )
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    EuroDenominationButton(
+                        cents = 2000,
+                        count = insertedDenominations.count { it == 2000 },
+                        modifier = Modifier.weight(1f),
+                        onClick = {
+                            insertedDenominations =
+                                insertedDenominations + 2000
+                        }
+                    )
+
+                    EuroDenominationButton(
+                        cents = 1000,
+                        count = insertedDenominations.count { it == 1000 },
+                        modifier = Modifier.weight(1f),
+                        onClick = {
+                            insertedDenominations =
+                                insertedDenominations + 1000
+                        }
+                    )
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    EuroDenominationButton(
+                        cents = 500,
+                        count = insertedDenominations.count { it == 500 },
+                        modifier = Modifier.weight(1f),
+                        onClick = {
+                            insertedDenominations =
+                                insertedDenominations + 500
+                        }
+                    )
+
+                    Spacer(
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+
+                Text(
+                    text = "MONETE",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    EuroCoinButton(
+                        cents = 200,
+                        count = insertedDenominations.count { it == 200 },
+                        modifier = Modifier.weight(1f),
+                        onClick = {
+                            insertedDenominations =
+                                insertedDenominations + 200
+                        }
+                    )
+                    EuroCoinButton(
+                        cents = 100,
+                        count = insertedDenominations.count { it == 100 },
+                        modifier = Modifier.weight(1f),
+                        onClick = {
+                            insertedDenominations =
+                                insertedDenominations + 100
+                        }
+                    )
+                    EuroCoinButton(
+                        cents = 50,
+                        count = insertedDenominations.count { it == 50 },
+                        modifier = Modifier.weight(1f),
+                        onClick = {
+                            insertedDenominations =
+                                insertedDenominations + 50
+                        }
+                    )
+                    EuroCoinButton(
+                        cents = 20,
+                        count = insertedDenominations.count { it == 20 },
+                        modifier = Modifier.weight(1f),
+                        onClick = {
+                            insertedDenominations =
+                                insertedDenominations + 20
+                        }
+                    )
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    EuroCoinButton(
+                        cents = 10,
+                        count = insertedDenominations.count { it == 10 },
+                        modifier = Modifier.weight(1f),
+                        onClick = {
+                            insertedDenominations =
+                                insertedDenominations + 10
+                        }
+                    )
+                    EuroCoinButton(
+                        cents = 5,
+                        count = insertedDenominations.count { it == 5 },
+                        modifier = Modifier.weight(1f),
+                        onClick = {
+                            insertedDenominations =
+                                insertedDenominations + 5
+                        }
+                    )
+                    EuroCoinButton(
+                        cents = 2,
+                        count = insertedDenominations.count { it == 2 },
+                        modifier = Modifier.weight(1f),
+                        onClick = {
+                            insertedDenominations =
+                                insertedDenominations + 2
+                        }
+                    )
+                    EuroCoinButton(
+                        cents = 1,
+                        count = insertedDenominations.count { it == 1 },
+                        modifier = Modifier.weight(1f),
+                        onClick = {
+                            insertedDenominations =
+                                insertedDenominations + 1
+                        }
+                    )
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    TextButton(
+                        onClick = {
+                            insertedDenominations =
+                                insertedDenominations.dropLast(1)
+                        },
+                        enabled = insertedDenominations.isNotEmpty(),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("↶ ULTIMO")
+                    }
+
+                    TextButton(
+                        onClick = {
+                            insertedDenominations = emptyList()
+                        },
+                        enabled = insertedDenominations.isNotEmpty(),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("AZZERA")
+                    }
+
+                    TextButton(
+                        onClick = {
+                            insertedDenominations =
+                                if (totalCents > 0) {
+                                    listOf(totalCents)
+                                } else {
+                                    emptyList()
+                                }
+                        },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("ESATTO")
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = onDismiss
+            ) {
+                Text("CHIUDI")
+            }
+        }
+    )
+}
+
+@Composable
+private fun PaymentAmountLine(
+    label: String,
+    cents: Int,
+    emphasized: Boolean
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = label,
+            fontSize = if (emphasized) 15.sp else 13.sp,
+            fontWeight =
+                if (emphasized) FontWeight.Bold
+                else FontWeight.SemiBold
+        )
+
+        Text(
+            text = formatEuroCents(cents),
+            fontSize = if (emphasized) 24.sp else 18.sp,
+            fontWeight = FontWeight.Bold
+        )
+    }
+}
+
+@Composable
+private fun EuroDenominationButton(
+    cents: Int,
+    count: Int,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    val imageRes =
+        when (cents) {
+            500 -> R.drawable.euro_5_specimen
+            1000 -> R.drawable.euro_10_specimen
+            2000 -> R.drawable.euro_20_specimen
+            5000 -> R.drawable.euro_50_specimen
+            10000 -> R.drawable.euro_100_specimen
+            else -> R.drawable.euro_5_specimen
+        }
+
+    Surface(
+        modifier = modifier
+            .height(82.dp)
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(10.dp),
+        shadowElevation = if (count > 0) 9.dp else 3.dp,
+        color = MaterialTheme.colorScheme.surfaceVariant
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(4.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Image(
+                painter = painterResource(imageRes),
+                contentDescription = formatDenomination(cents),
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Fit
+            )
+
+            if (count > 0) {
+                Surface(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(3.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    color = Color.Black.copy(alpha = 0.78f)
+                ) {
+                    Text(
+                        text = "×$count",
+                        modifier = Modifier.padding(
+                            horizontal = 8.dp,
+                            vertical = 3.dp
+                        ),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun EuroCoinButton(
+    cents: Int,
+    count: Int,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    val imageRes =
+        when (cents) {
+            200 -> R.drawable.euro_coin_2euro
+            100 -> R.drawable.euro_coin_1euro
+            50 -> R.drawable.euro_coin_50cent
+            20 -> R.drawable.euro_coin_20cent
+            10 -> R.drawable.euro_coin_10cent
+            5 -> R.drawable.euro_coin_5cent
+            2 -> R.drawable.euro_coin_2cent
+            1 -> R.drawable.euro_coin_1cent
+            else -> R.drawable.euro_coin_1cent
+        }
+
+    Surface(
+        modifier = modifier
+            .height(68.dp)
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(34.dp),
+        shadowElevation = if (count > 0) 8.dp else 3.dp,
+        color = MaterialTheme.colorScheme.surfaceVariant
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(3.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Image(
+                painter = painterResource(imageRes),
+                contentDescription = formatDenomination(cents),
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Fit
+            )
+
+            if (count > 0) {
+                Surface(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(2.dp),
+                    shape = RoundedCornerShape(10.dp),
+                    color = Color.Black.copy(alpha = 0.78f)
+                ) {
+                    Text(
+                        text = "×$count",
+                        modifier = Modifier.padding(
+                            horizontal = 5.dp,
+                            vertical = 1.dp
+                        ),
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+                }
+            }
+        }
+    }
+}
+
+private fun formatEuroCents(
+    cents: Int
+): String =
+    String.format(
+        Locale.ITALY,
+        "%.2f €",
+        cents / 100.0
+    )
+
+private fun formatDenomination(
+    cents: Int
+): String =
+    if (cents >= 100) {
+        "${cents / 100} €"
+    } else {
+        "$cents c"
+    }
+
+
 @Composable
 private fun QuantityDialog(
     item: SessionItem,
@@ -2045,7 +2609,8 @@ private fun QuantityDialog(
         String,
         String,
         String,
-        Double?
+        Double?,
+        Double
     ) -> Unit
 ) {
     val gatewayApiClient = remember {
@@ -2094,10 +2659,42 @@ private fun QuantityDialog(
         mutableStateOf(item.effectiveMarkupPercent)
     }
 
+    /*
+     * Netto realmente modificato nell'editor.
+     * Deve vivere fuori dal contenuto dell'AlertDialog, così SALVA
+     * usa esattamente il valore visualizzato dall'utente.
+     */
+    var editedNetPrice by remember(
+        item.articleId,
+        item.manualPrice,
+        item.finalPrice
+    ) {
+        mutableStateOf(
+            item.manualPrice.ifBlank {
+                item.finalPrice.ifBlank {
+                    item.publicPrice
+                }
+            }
+        )
+    }
+
     var priceText by remember(item.articleId, item.manualPrice) {
         mutableStateOf(
             item.manualPrice.ifBlank {
                 item.finalPrice.ifBlank { item.publicPrice }
+            }
+        )
+    }
+
+    var discountText by remember(
+        item.articleId,
+        item.manualDiscount
+    ) {
+        mutableStateOf(
+            if (item.manualDiscount > 0.0) {
+                formatDiscountInput(item.manualDiscount)
+            } else {
+                ""
             }
         )
     }
@@ -2126,23 +2723,51 @@ private fun QuantityDialog(
                             ?: lists.firstOrNull()
 
                     if (selected != null) {
-                        selectedPriceListId = selected.priceListId
-                        selectedPriceListName = selected.name
-                        selectedListPrice =
-                            selected.salePrice?.let {
-                                String.format(
-                                    Locale.US,
-                                    "%.2f",
-                                    it
-                                )
-                            }.orEmpty()
-                        selectedFinalPrice = selectedListPrice
-                        selectedMarkup =
-                            selected.effectiveMarkupPercent
+                        /*
+                         * Il caricamento dei listini serve solo a popolare le
+                         * alternative selezionabili. Se la riga contiene già
+                         * condizioni salvate, quelle hanno la precedenza:
+                         * riaprire il dialog non deve riportarla ai valori
+                         * correnti del listino.
+                         */
+                        selectedPriceListId =
+                            item.priceListId.takeIf { it > 0 }
+                                ?: selected.priceListId
 
-                        if (item.manualPrice.isBlank()) {
-                            priceText = selectedFinalPrice
-                        }
+                        selectedPriceListName =
+                            item.priceListName.ifBlank {
+                                selected.name
+                            }
+
+                        selectedListPrice =
+                            item.listPrice.ifBlank {
+                                selected.salePrice?.let {
+                                    String.format(
+                                        Locale.US,
+                                        "%.2f",
+                                        it
+                                    )
+                                }.orEmpty()
+                            }
+
+                        selectedFinalPrice =
+                            item.finalPrice.ifBlank {
+                                selectedListPrice
+                            }
+
+                        selectedMarkup =
+                            item.effectiveMarkupPercent
+                                ?: selected.effectiveMarkupPercent
+
+                        priceText =
+                            item.manualPrice.ifBlank {
+                                selectedFinalPrice
+                            }
+
+                        editedNetPrice =
+                            item.manualPrice.ifBlank {
+                                selectedFinalPrice
+                            }
                     }
                 }.onFailure { error ->
                     priceListsError =
@@ -2207,143 +2832,1042 @@ private fun QuantityDialog(
                     }
 
                     else -> {
-                        val orderedPriceLists =
-                            priceLists.sortedBy { priceList ->
-                                when (priceList.priceListId) {
-                                    2 -> 1   // INSTALLATORI
-                                    3 -> 2   // ELETTRICISTI
-                                    1 -> 3   // AL PUBBLICO
-                                    4 -> 4   // EXTRA
-                                    6 -> 5   // MAX
-                                    else -> 99
-                                }
-                            }
+                        priceLists
+                            .sortedBy { priceListSortOrder(it.name) }
+                            .forEach { priceList ->
+                                val selected =
+                                    priceList.priceListId ==
+                                            selectedPriceListId
 
-                        orderedPriceLists.forEach { priceList ->
-                            val selected =
-                                priceList.priceListId ==
-                                        selectedPriceListId
+                                Surface(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            selectedPriceListId =
+                                                priceList.priceListId
+                                            selectedPriceListName =
+                                                priceList.name
+                                            selectedListPrice =
+                                                priceList.salePrice?.let {
+                                                    String.format(
+                                                        Locale.US,
+                                                        "%.2f",
+                                                        it
+                                                    )
+                                                }.orEmpty()
+                                            val autoMultiplier =
+                                                listOf(
+                                                    item.discount1,
+                                                    item.discount2,
+                                                    item.discount3,
+                                                    item.discount4
+                                                )
+                                                    .filter { it > 0.0 }
+                                                    .fold(1.0) { acc, d ->
+                                                        acc *
+                                                                (
+                                                                        1.0 -
+                                                                                d.coerceIn(
+                                                                                    0.0,
+                                                                                    100.0
+                                                                                ) / 100.0
+                                                                        )
+                                                    }
 
-                            Surface(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable {
-                                        selectedPriceListId =
-                                            priceList.priceListId
-                                        selectedPriceListName =
-                                            priceList.name
-                                        selectedListPrice =
-                                            priceList.salePrice?.let {
+                                            val gross =
+                                                selectedListPrice
+                                                    .replace(",", ".")
+                                                    .toDoubleOrNull()
+                                                    ?: 0.0
+
+                                            selectedFinalPrice =
                                                 String.format(
                                                     Locale.US,
                                                     "%.2f",
-                                                    it
+                                                    gross * autoMultiplier
                                                 )
-                                            }.orEmpty()
-                                        selectedFinalPrice =
-                                            selectedListPrice
-                                        selectedMarkup =
-                                            priceList.effectiveMarkupPercent
-                                        priceText =
-                                            selectedFinalPrice
-                                    },
-                                shape = RoundedCornerShape(10.dp),
-                                tonalElevation =
-                                    if (selected) 6.dp else 1.dp,
-                                color =
-                                    if (priceList.priceListId == 1) {
-                                        Color.White
-                                    } else {
-                                        MaterialTheme.colorScheme.surface
-                                    },
-                                contentColor =
-                                    if (priceList.priceListId == 1) {
-                                        Color.Black
-                                    } else {
-                                        MaterialTheme.colorScheme.onSurface
-                                    }
-                            ) {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(
-                                            horizontal = 10.dp,
-                                            vertical = 8.dp
-                                        ),
-                                    verticalAlignment =
-                                        Alignment.CenterVertically
+
+                                            selectedMarkup =
+                                                priceList.effectiveMarkupPercent
+
+                                            priceText =
+                                                selectedFinalPrice
+
+                                            discountText = ""
+                                        },
+                                    shape = RoundedCornerShape(10.dp),
+                                    tonalElevation =
+                                        if (selected) 6.dp else 1.dp
                                 ) {
-                                    Text(
-                                        text =
-                                            if (selected) "✓" else "",
-                                        fontWeight = FontWeight.Bold,
-                                        modifier = Modifier.width(22.dp)
-                                    )
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(
+                                                horizontal = 10.dp,
+                                                vertical = 8.dp
+                                            ),
+                                        verticalAlignment =
+                                            Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text =
+                                                if (selected) "✓" else "",
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier.width(22.dp)
+                                        )
 
-                                    Text(
-                                        text =
-                                            priceList.name
-                                                .substringAfter("-")
-                                                .ifBlank { priceList.name },
-                                        fontSize = 14.sp,
-                                        fontWeight =
-                                            if (selected) {
-                                                FontWeight.Bold
-                                            } else {
-                                                FontWeight.Normal
-                                            },
-                                        modifier = Modifier.weight(1f)
-                                    )
+                                        Text(
+                                            text =
+                                                priceList.name
+                                                    .substringAfter("-")
+                                                    .ifBlank { priceList.name },
+                                            fontSize = 14.sp,
+                                            fontWeight =
+                                                if (selected) {
+                                                    FontWeight.Bold
+                                                } else {
+                                                    FontWeight.Normal
+                                                },
+                                            modifier = Modifier.weight(1f)
+                                        )
 
-                                    Text(
-                                        text =
-                                            priceList.salePrice?.let {
-                                                String.format(
-                                                    Locale.ITALY,
-                                                    "%.2f €",
-                                                    it
-                                                )
-                                            } ?: "—",
-                                        fontSize = 15.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-
-                                    Spacer(
-                                        modifier = Modifier.width(10.dp)
-                                    )
-
-                                    Text(
-                                        text =
-                                            priceList.effectiveMarkupPercent
-                                                ?.let {
+                                        Text(
+                                            text =
+                                                priceList.salePrice?.let {
                                                     String.format(
                                                         Locale.ITALY,
-                                                        "+%.1f%%",
+                                                        "%.2f €",
                                                         it
                                                     )
                                                 } ?: "—",
-                                        fontSize = 14.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
+                                            fontSize = 15.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+
+                                        Spacer(
+                                            modifier = Modifier.width(10.dp)
+                                        )
+
+                                        Text(
+                                            text =
+                                                priceList.effectiveMarkupPercent
+                                                    ?.let {
+                                                        String.format(
+                                                            Locale.ITALY,
+                                                            "+%.1f%%",
+                                                            it
+                                                        )
+                                                    } ?: "—",
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
                                 }
                             }
+                    }
+                }
+
+                val keyboardController =
+                    LocalSoftwareKeyboardController.current
+
+                val automaticDiscountsTop =
+                    listOf(
+                        item.discount1,
+                        item.discount2,
+                        item.discount3,
+                        item.discount4
+                    ).filter { it > 0.0 }
+
+                val automaticMultiplierTop =
+                    automaticDiscountsTop.fold(1.0) { acc, discount ->
+                        acc *
+                                (
+                                        1.0 -
+                                                discount.coerceIn(
+                                                    0.0,
+                                                    100.0
+                                                ) / 100.0
+                                        )
+                    }
+
+                val initialGrossValue =
+                    item.listPrice
+                        .ifBlank { item.publicPrice }
+                        .replace(",", ".")
+                        .toDoubleOrNull()
+                        ?: 0.0
+
+                val initialNetValue =
+                    effectiveSessionUnitPrice(item)
+
+                val initialTotalDiscountValue =
+                    if (initialGrossValue > 0.0) {
+                        (
+                                1.0 -
+                                        initialNetValue /
+                                        initialGrossValue
+                                ) * 100.0
+                    } else {
+                        0.0
+                    }
+
+                val selectedPriceList =
+                    priceLists.firstOrNull {
+                        it.priceListId == selectedPriceListId
+                    }
+
+                val referenceSalePrice =
+                    selectedPriceList?.salePrice
+
+                val referenceMarkup =
+                    selectedPriceList
+                        ?.effectiveMarkupPercent
+
+                val referenceCost =
+                    if (
+                        referenceSalePrice != null &&
+                        referenceSalePrice > 0.0 &&
+                        referenceMarkup != null
+                    ) {
+                        referenceSalePrice /
+                                (
+                                        1.0 +
+                                                referenceMarkup / 100.0
+                                        )
+                    } else {
+                        null
+                    }
+
+                var grossField by remember(
+                    item.articleId,
+                    selectedPriceListId
+                ) {
+                    mutableStateOf(
+                        TextFieldValue(
+                            text =
+                                String.format(
+                                    Locale.US,
+                                    "%.2f",
+                                    initialGrossValue
+                                )
+                        )
+                    )
+                }
+
+                var discountField by remember(
+                    item.articleId,
+                    selectedPriceListId
+                ) {
+                    mutableStateOf(
+                        TextFieldValue(
+                            text =
+                                formatDiscountInput(
+                                    initialTotalDiscountValue
+                                        .coerceIn(
+                                            0.0,
+                                            100.0
+                                        )
+                                )
+                        )
+                    )
+                }
+
+                var netField by remember(
+                    item.articleId,
+                    selectedPriceListId
+                ) {
+                    mutableStateOf(
+                        TextFieldValue(
+                            text =
+                                String.format(
+                                    Locale.US,
+                                    "%.2f",
+                                    initialNetValue
+                                )
+                        )
+                    )
+                }
+
+                var markupField by remember(
+                    item.articleId,
+                    selectedPriceListId
+                ) {
+                    val initialMarkup =
+                        if (
+                            referenceCost != null &&
+                            referenceCost > 0.0
+                        ) {
+                            (
+                                    initialNetValue /
+                                            referenceCost - 1.0
+                                    ) * 100.0
+                        } else {
+                            selectedMarkup ?: 0.0
+                        }
+
+                    mutableStateOf(
+                        TextFieldValue(
+                            text =
+                                String.format(
+                                    Locale.US,
+                                    "%.1f",
+                                    initialMarkup
+                                )
+                        )
+                    )
+                }
+
+                var lastEditorPriceListId by remember(
+                    item.articleId
+                ) {
+                    mutableStateOf(item.priceListId)
+                }
+
+                /*
+                 * Se l'utente tocca un altro listino, l'editor deve
+                 * abbandonare le modifiche provvisorie e caricarsi
+                 * immediatamente con le condizioni di QUEL listino.
+                 *
+                 * Non lo facciamo al primo ingresso: in apertura devono
+                 * prevalere i valori già salvati nella SessionItem.
+                 */
+                LaunchedEffect(
+                    selectedPriceListId,
+                    selectedListPrice,
+                    selectedMarkup
+                ) {
+                    if (
+                        selectedPriceListId !=
+                        lastEditorPriceListId
+                    ) {
+                        val gross =
+                            selectedListPrice
+                                .replace(",", ".")
+                                .toDoubleOrNull()
+                                ?: 0.0
+
+                        val automaticDiscounts =
+                            listOf(
+                                item.discount1,
+                                item.discount2,
+                                item.discount3,
+                                item.discount4
+                            )
+                                .filter { it > 0.0 }
+
+                        val autoMultiplier =
+                            automaticDiscounts.fold(
+                                1.0
+                            ) { acc, discount ->
+                                acc *
+                                        (
+                                                1.0 -
+                                                        discount.coerceIn(
+                                                            0.0,
+                                                            100.0
+                                                        ) / 100.0
+                                                )
+                            }
+
+                        val automaticNet =
+                            gross * autoMultiplier
+
+                        grossField =
+                            TextFieldValue(
+                                text =
+                                    String.format(
+                                        Locale.US,
+                                        "%.2f",
+                                        gross
+                                    )
+                            )
+
+                        val totalAutoDiscount =
+                            if (gross > 0.0) {
+                                (
+                                        1.0 -
+                                                automaticNet / gross
+                                        ) * 100.0
+                            } else {
+                                0.0
+                            }
+
+                        discountField =
+                            TextFieldValue(
+                                text =
+                                    formatDiscountInput(
+                                        totalAutoDiscount
+                                            .coerceIn(
+                                                0.0,
+                                                100.0
+                                            )
+                                    )
+                            )
+
+                        netField =
+                            TextFieldValue(
+                                text =
+                                    String.format(
+                                        Locale.US,
+                                        "%.2f",
+                                        automaticNet
+                                    )
+                            )
+
+                        markupField =
+                            TextFieldValue(
+                                text =
+                                    selectedMarkup?.let {
+                                        String.format(
+                                            Locale.US,
+                                            "%.1f",
+                                            it
+                                        )
+                                    }.orEmpty()
+                            )
+
+                        editedNetPrice =
+                            netField.text
+
+                        selectedFinalPrice =
+                            netField.text
+
+                        priceText =
+                            grossField.text
+
+                        /*
+                         * Cambiare listino significa ripartire dalle
+                         * condizioni del listino scelto: nessuno sconto
+                         * aggiuntivo manuale residuo.
+                         */
+                        discountText = ""
+
+                        lastEditorPriceListId =
+                            selectedPriceListId
+                    }
+                }
+
+                fun currentGross(): Double =
+                    grossField.text
+                        .replace(",", ".")
+                        .toDoubleOrNull()
+                        ?: 0.0
+
+                fun currentNet(): Double =
+                    netField.text
+                        .replace(",", ".")
+                        .toDoubleOrNull()
+                        ?: 0.0
+
+                fun currentTotalDiscount(): Double =
+                    discountField.text
+                        .replace(",", ".")
+                        .toDoubleOrNull()
+                        ?.coerceIn(
+                            0.0,
+                            100.0
+                        )
+                        ?: 0.0
+
+                fun updateStoredManualDiscount(
+                    totalDiscount: Double
+                ) {
+                    val desiredMultiplier =
+                        1.0 -
+                                totalDiscount
+                                    .coerceIn(
+                                        0.0,
+                                        100.0
+                                    ) / 100.0
+
+                    val manualDiscount =
+                        if (
+                            automaticMultiplierTop <= 0.0
+                        ) {
+                            0.0
+                        } else {
+                            (
+                                    1.0 -
+                                            desiredMultiplier /
+                                            automaticMultiplierTop
+                                    ) * 100.0
+                        }
+
+                    discountText =
+                        if (manualDiscount <= 0.0001) {
+                            ""
+                        } else {
+                            formatDiscountInput(
+                                manualDiscount
+                                    .coerceIn(
+                                        0.0,
+                                        100.0
+                                    )
+                            )
+                        }
+                }
+
+                fun updateMarkupFromNet() {
+                    val net =
+                        currentNet()
+
+                    if (
+                        referenceCost != null &&
+                        referenceCost > 0.0
+                    ) {
+                        val markup =
+                            (
+                                    net /
+                                            referenceCost - 1.0
+                                    ) * 100.0
+
+                        markupField =
+                            TextFieldValue(
+                                text =
+                                    String.format(
+                                        Locale.US,
+                                        "%.1f",
+                                        markup
+                                    )
+                            )
+
+                        selectedMarkup = markup
+                    }
+                }
+
+                fun recalcFromGrossAndDiscount() {
+                    val gross =
+                        currentGross()
+
+                    val discount =
+                        currentTotalDiscount()
+
+                    val net =
+                        gross *
+                                (
+                                        1.0 -
+                                                discount / 100.0
+                                        )
+
+                    netField =
+                        TextFieldValue(
+                            text =
+                                String.format(
+                                    Locale.US,
+                                    "%.2f",
+                                    net
+                                )
+                        )
+
+                    selectedListPrice =
+                        String.format(
+                            Locale.US,
+                            "%.2f",
+                            gross
+                        )
+
+                    selectedFinalPrice =
+                        netField.text
+
+                    editedNetPrice =
+                        netField.text
+
+                    priceText =
+                        selectedListPrice
+
+                    updateStoredManualDiscount(
+                        discount
+                    )
+
+                    updateMarkupFromNet()
+                }
+
+                fun recalcFromNet() {
+                    val gross =
+                        currentGross()
+
+                    val net =
+                        currentNet()
+
+                    if (gross > 0.0) {
+                        val discount =
+                            (
+                                    1.0 -
+                                            net / gross
+                                    ) * 100.0
+
+                        val bounded =
+                            discount.coerceIn(
+                                0.0,
+                                100.0
+                            )
+
+                        discountField =
+                            TextFieldValue(
+                                text =
+                                    formatDiscountInput(
+                                        bounded
+                                    )
+                            )
+
+                        updateStoredManualDiscount(
+                            bounded
+                        )
+                    }
+
+                    selectedFinalPrice =
+                        String.format(
+                            Locale.US,
+                            "%.2f",
+                            net
+                        )
+
+                    editedNetPrice =
+                        selectedFinalPrice
+
+                    updateMarkupFromNet()
+                }
+
+                fun recalcFromMarkup() {
+                    val wantedMarkup =
+                        markupField.text
+                            .replace(",", ".")
+                            .toDoubleOrNull()
+                            ?: return
+
+                    if (
+                        referenceCost == null ||
+                        referenceCost <= 0.0
+                    ) {
+                        return
+                    }
+
+                    val wantedNet =
+                        referenceCost *
+                                (
+                                        1.0 +
+                                                wantedMarkup / 100.0
+                                        )
+
+                    /*
+                     * Se l'utente imposta direttamente il ricarico,
+                     * il prezzo a sinistra viene portato allo stesso
+                     * prezzo netto target e lo sconto torna a 0.
+                     * In questo modo PREZZO / SCONTO / NETTO restano
+                     * coerenti e il listino selezionato resta solo
+                     * l'etichetta commerciale di riferimento.
+                     */
+                    grossField =
+                        TextFieldValue(
+                            text =
+                                String.format(
+                                    Locale.US,
+                                    "%.2f",
+                                    wantedNet
+                                )
+                        )
+
+                    discountField =
+                        TextFieldValue(
+                            text = "0"
+                        )
+
+                    netField =
+                        TextFieldValue(
+                            text =
+                                String.format(
+                                    Locale.US,
+                                    "%.2f",
+                                    wantedNet
+                                )
+                        )
+
+                    selectedListPrice =
+                        grossField.text
+
+                    selectedFinalPrice =
+                        netField.text
+
+                    editedNetPrice =
+                        netField.text
+
+                    priceText =
+                        grossField.text
+
+                    discountText = ""
+
+                    selectedMarkup =
+                        wantedMarkup
+                }
+
+                fun selectAll(
+                    value: TextFieldValue
+                ): TextFieldValue =
+                    value.copy(
+                        selection =
+                            TextRange(
+                                0,
+                                value.text.length
+                            )
+                    )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment =
+                        Alignment.Bottom
+                ) {
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        horizontalAlignment =
+                            Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            text = "PREZZO",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color =
+                                MaterialTheme
+                                    .colorScheme
+                                    .onSurfaceVariant
+                        )
+
+                        Row(
+                            verticalAlignment =
+                                Alignment.CenterVertically,
+                            horizontalArrangement =
+                                Arrangement.Center
+                        ) {
+                            BasicTextField(
+                                value = grossField,
+                                onValueChange = {
+                                    grossField = it
+
+                                    if (
+                                        it.text.isEmpty() ||
+                                        it.text.matches(
+                                            Regex(
+                                                """\d{0,6}([,.]\d{0,2})?"""
+                                            )
+                                        )
+                                    ) {
+                                        recalcFromGrossAndDiscount()
+                                    }
+                                },
+                                singleLine = true,
+                                keyboardOptions =
+                                    KeyboardOptions(
+                                        keyboardType =
+                                            KeyboardType.Decimal,
+                                        imeAction =
+                                            ImeAction.Done
+                                    ),
+                                keyboardActions =
+                                    KeyboardActions(
+                                        onDone = {
+                                            recalcFromGrossAndDiscount()
+                                            keyboardController?.hide()
+                                        }
+                                    ),
+                                textStyle =
+                                    LocalTextStyle.current.copy(
+                                        fontSize = 17.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color.White,
+                                        textAlign =
+                                            TextAlign.End
+                                    ),
+                                modifier =
+                                    Modifier
+                                        .width(64.dp)
+                                        .clickable {
+                                            grossField =
+                                                selectAll(
+                                                    grossField
+                                                )
+                                        }
+                            )
+
+                            Text(
+                                text = "€",
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White,
+                                modifier =
+                                    Modifier.padding(start = 1.dp)
+                            )
+                        }
+                    }
+
+                    Text(
+                        text = "−",
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier =
+                            Modifier.padding(
+                                start = 3.dp,
+                                end = 3.dp,
+                                bottom = 1.dp
+                            )
+                    )
+
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        horizontalAlignment =
+                            Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            text = "SCONTO",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color =
+                                MaterialTheme
+                                    .colorScheme
+                                    .onSurfaceVariant
+                        )
+
+                        Row(
+                            verticalAlignment =
+                                Alignment.CenterVertically,
+                            horizontalArrangement =
+                                Arrangement.Center
+                        ) {
+                            BasicTextField(
+                                value = discountField,
+                                onValueChange = {
+                                    if (
+                                        it.text.isEmpty() ||
+                                        it.text.matches(
+                                            Regex(
+                                                """\d{0,3}([,.]\d{0,2})?"""
+                                            )
+                                        )
+                                    ) {
+                                        discountField = it
+                                        recalcFromGrossAndDiscount()
+                                    }
+                                },
+                                singleLine = true,
+                                keyboardOptions =
+                                    KeyboardOptions(
+                                        keyboardType =
+                                            KeyboardType.Decimal,
+                                        imeAction =
+                                            ImeAction.Done
+                                    ),
+                                keyboardActions =
+                                    KeyboardActions(
+                                        onDone = {
+                                            recalcFromGrossAndDiscount()
+                                            keyboardController?.hide()
+                                        }
+                                    ),
+                                textStyle =
+                                    LocalTextStyle.current.copy(
+                                        fontSize = 17.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color.White,
+                                        textAlign =
+                                            TextAlign.End
+                                    ),
+                                modifier =
+                                    Modifier
+                                        .width(48.dp)
+                                        .clickable {
+                                            discountField =
+                                                selectAll(
+                                                    discountField
+                                                )
+                                        }
+                            )
+
+                            Text(
+                                text = "%",
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White,
+                                modifier =
+                                    Modifier.padding(start = 1.dp)
+                            )
+                        }
+                    }
+
+                    Text(
+                        text = "=",
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier =
+                            Modifier.padding(
+                                start = 3.dp,
+                                end = 3.dp,
+                                bottom = 1.dp
+                            )
+                    )
+
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        horizontalAlignment =
+                            Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            text = "NETTO",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color =
+                                MaterialTheme
+                                    .colorScheme
+                                    .onSurfaceVariant
+                        )
+
+                        Row(
+                            verticalAlignment =
+                                Alignment.CenterVertically,
+                            horizontalArrangement =
+                                Arrangement.Center
+                        ) {
+                            BasicTextField(
+                                value = netField,
+                                onValueChange = {
+                                    if (
+                                        it.text.isEmpty() ||
+                                        it.text.matches(
+                                            Regex(
+                                                """\d{0,6}([,.]\d{0,2})?"""
+                                            )
+                                        )
+                                    ) {
+                                        netField = it
+                                        recalcFromNet()
+                                    }
+                                },
+                                singleLine = true,
+                                keyboardOptions =
+                                    KeyboardOptions(
+                                        keyboardType =
+                                            KeyboardType.Decimal,
+                                        imeAction =
+                                            ImeAction.Done
+                                    ),
+                                keyboardActions =
+                                    KeyboardActions(
+                                        onDone = {
+                                            recalcFromNet()
+                                            keyboardController?.hide()
+                                        }
+                                    ),
+                                textStyle =
+                                    LocalTextStyle.current.copy(
+                                        fontSize = 17.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color.White,
+                                        textAlign =
+                                            TextAlign.End
+                                    ),
+                                modifier =
+                                    Modifier
+                                        .width(64.dp)
+                                        .clickable {
+                                            netField =
+                                                selectAll(
+                                                    netField
+                                                )
+                                        }
+                            )
+
+                            Text(
+                                text = "€",
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White,
+                                modifier =
+                                    Modifier.padding(start = 1.dp)
+                            )
                         }
                     }
                 }
 
-                selectedMarkup?.let { markup ->
+                Row(
+                    modifier =
+                        Modifier.fillMaxWidth(),
+                    verticalAlignment =
+                        Alignment.CenterVertically,
+                    horizontalArrangement =
+                        Arrangement.spacedBy(8.dp)
+                ) {
                     Text(
                         text =
-                            "${selectedPriceListName.ifBlank { "LISTINO" }}  •  " +
-                                    formatPriceText(proposedPrice) +
-                                    "  •  " +
-                                    String.format(
-                                        Locale.ITALY,
-                                        "+%.1f%%",
-                                        markup
-                                    ),
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Bold
+                            selectedPriceListName
+                                .ifBlank { "LISTINO" },
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.weight(1f)
+                    )
+
+                    Text(
+                        text = "RICARICO",
+                        fontSize = 12.sp,
+                        color =
+                            MaterialTheme
+                                .colorScheme
+                                .onSurfaceVariant
+                    )
+
+                    BasicTextField(
+                        value = markupField,
+                        onValueChange = {
+                            if (
+                                it.text.isEmpty() ||
+                                it.text.matches(
+                                    Regex(
+                                        """-?\d{0,4}([,.]\d{0,2})?"""
+                                    )
+                                )
+                            ) {
+                                markupField = it
+                            }
+                        },
+                        singleLine = true,
+                        keyboardOptions =
+                            KeyboardOptions(
+                                keyboardType =
+                                    KeyboardType.Decimal,
+                                imeAction =
+                                    ImeAction.Done
+                            ),
+                        keyboardActions =
+                            KeyboardActions(
+                                onDone = {
+                                    recalcFromMarkup()
+                                    keyboardController?.hide()
+                                }
+                            ),
+                        textStyle =
+                            LocalTextStyle.current.copy(
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            ),
+                        modifier =
+                            Modifier
+                                .width(78.dp)
+                                .clickable {
+                                    markupField =
+                                        selectAll(
+                                            markupField
+                                        )
+                                },
+                        decorationBox = { inner ->
+                            Row(
+                                verticalAlignment =
+                                    Alignment.CenterVertically
+                            ) {
+                                inner()
+                                Text(
+                                    "%",
+                                    fontSize = 13.sp,
+                                    color = Color.White
+                                )
+                            }
+                        }
                     )
                 }
 
@@ -2403,56 +3927,6 @@ private fun QuantityDialog(
                 }
 
                 Text(
-                    text = "Prezzo collo",
-                    fontWeight = FontWeight.Bold
-                )
-
-                OutlinedTextField(
-                    value = priceText,
-                    onValueChange = { value ->
-                        if (
-                            value.isEmpty() ||
-                            value.matches(
-                                Regex("""\d{0,6}([,.]\d{0,2})?""")
-                            )
-                        ) {
-                            priceText = value
-                        }
-                    },
-                    singleLine = true,
-                    keyboardOptions =
-                        KeyboardOptions(
-                            keyboardType =
-                                KeyboardType.Decimal
-                        ),
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                if (
-                    priceText.trim().replace(",", ".") !=
-                    proposedPrice.trim().replace(",", ".")
-                ) {
-                    Text(
-                        text = "✏️ PREZZO MODIFICATO",
-                        color = Color(0xFFD50000),
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-
-                TextButton(
-                    onClick = {
-                        priceText = proposedPrice
-                    }
-                ) {
-                    Text(
-                        "RIPRISTINA ${
-                            formatPriceText(proposedPrice)
-                        }"
-                    )
-                }
-
-                Text(
                     text = "0 quantità rimuove l'articolo.",
                     fontSize = 12.sp
                 )
@@ -2465,33 +3939,86 @@ private fun QuantityDialog(
                         (quantityText.toIntOrNull() ?: 0)
                             .coerceIn(0, 9999)
 
-                    val normalizedPrice =
-                        priceText.trim()
+                    val gross =
+                        selectedListPrice
                             .replace(",", ".")
+                            .toDoubleOrNull()
+                            ?: item.listPrice
+                                .replace(",", ".")
+                                .toDoubleOrNull()
+                            ?: item.publicPrice
+                                .replace(",", ".")
+                                .toDoubleOrNull()
+                            ?: 0.0
 
-                    val proposedNormalized =
-                        proposedPrice.trim()
+                    val manualDiscount =
+                        discountText
                             .replace(",", ".")
+                            .toDoubleOrNull()
+                            ?.coerceIn(
+                                0.0,
+                                100.0
+                            )
+                            ?: 0.0
 
-                    val manualPrice =
-                        if (
-                            normalizedPrice.isBlank() ||
-                            normalizedPrice ==
-                            proposedNormalized
-                        ) {
-                            ""
-                        } else {
-                            normalizedPrice
-                        }
+                    val automaticBaseNet =
+                        gross *
+                                listOf(
+                                    item.discount1,
+                                    item.discount2,
+                                    item.discount3,
+                                    item.discount4
+                                )
+                                    .filter { it > 0.0 }
+                                    .fold(1.0) { acc, discount ->
+                                        acc *
+                                                (
+                                                        1.0 -
+                                                                discount.coerceIn(
+                                                                    0.0,
+                                                                    100.0
+                                                                ) / 100.0
+                                                        )
+                                    }
+
+                    val savedNetPrice =
+                        editedNetPrice
+                            .replace(",", ".")
+                            .toDoubleOrNull()
+                            ?.let {
+                                String.format(
+                                    Locale.US,
+                                    "%.2f",
+                                    it
+                                )
+                            }
+                            ?: String.format(
+                                Locale.US,
+                                "%.2f",
+                                automaticBaseNet *
+                                        (
+                                                1.0 -
+                                                        manualDiscount / 100.0
+                                                )
+                            )
 
                     onSave(
                         quantity,
-                        manualPrice,
+                        savedNetPrice,
                         selectedPriceListId,
                         selectedPriceListName,
-                        selectedListPrice,
-                        selectedFinalPrice,
-                        selectedMarkup
+                        String.format(
+                            Locale.US,
+                            "%.2f",
+                            gross
+                        ),
+                        String.format(
+                            Locale.US,
+                            "%.2f",
+                            automaticBaseNet
+                        ),
+                        selectedMarkup,
+                        manualDiscount
                     )
                 }
             ) {
@@ -2514,6 +4041,71 @@ private fun QuantityDialog(
             }
         }
     )
+}
+
+
+private fun formatDiscountInput(
+    value: Double
+): String {
+    val rounded =
+        kotlin.math.round(value * 100.0) / 100.0
+
+    return if (rounded % 1.0 == 0.0) {
+        rounded.toInt().toString()
+    } else {
+        String.format(
+            Locale.ITALY,
+            "%.2f",
+            rounded
+        ).trimEnd('0').trimEnd(',')
+    }
+}
+
+private fun priceListSortOrder(
+    name: String
+): Int {
+    val normalized =
+        name.uppercase(Locale.ITALY)
+
+    return when {
+        "INSTALLATOR" in normalized -> 0
+        "ELETTRIC" in normalized -> 1
+        "PUBBLIC" in normalized -> 2
+        "EXTRA" in normalized -> 3
+        "MAX" in normalized -> 4
+        else -> 100
+    }
+}
+
+private fun effectiveSessionUnitPrice(
+    item: SessionItem
+): Double {
+    val effective =
+        item.effectivePrice
+            .trim()
+            .replace(",", ".")
+            .toDoubleOrNull()
+            ?: 0.0
+
+    /*
+     * In V6 il SessionStore calcola l'arrotondamento commerciale
+     * sul NETTO FINALE della riga. Se roundingPrice è valorizzato,
+     * contiene già il prezzo netto definitivo e non va scontato di nuovo.
+     */
+    if (item.roundingPrice.isNotBlank()) {
+        return effective
+    }
+
+    if (item.manualPrice.isNotBlank()) {
+        return effective
+    }
+
+    if (item.manualDiscount <= 0.0) {
+        return effective
+    }
+
+    return effective *
+            (1.0 - item.manualDiscount.coerceIn(0.0, 100.0) / 100.0)
 }
 
 private fun formatPriceText(
@@ -2543,6 +4135,31 @@ private fun formatDiscount(
             "%.1f%%",
             value
         )
+    }
+}
+
+private fun formatDiscountSummary(
+    discount1: Double,
+    discount2: Double,
+    discount3: Double,
+    discount4: Double,
+    manualDiscount: Double
+): String {
+    val discounts =
+        listOf(
+            discount1,
+            discount2,
+            discount3,
+            discount4,
+            manualDiscount
+        )
+            .filter { it > 0.0 }
+            .map(::formatDiscount)
+
+    return if (discounts.isEmpty()) {
+        "0%"
+    } else {
+        discounts.joinToString(" + ")
     }
 }
 

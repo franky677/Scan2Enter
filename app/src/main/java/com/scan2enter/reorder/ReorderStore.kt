@@ -14,7 +14,7 @@ object ReorderStore {
     private const val PREFS_NAME = "reorder_store_preferences"
     private const val ITEMS_KEY = "reorder_items_json"
 
-    private val items = linkedMapOf<Long, ReorderItem>()
+    private val items = linkedMapOf<String, ReorderItem>()
     private val sizeListeners = linkedSetOf<(Int) -> Unit>()
 
     private var preferences: SharedPreferences? = null
@@ -73,13 +73,13 @@ object ReorderStore {
      */
     @Synchronized
     fun replaceAll(newItems: List<ReorderItem>) {
-        val replacement = linkedMapOf<Long, ReorderItem>()
+        val replacement = linkedMapOf<String, ReorderItem>()
 
         newItems.forEach { item ->
             if (item.articleId <= 0L) return@forEach
             if (item.quantityToOrder <= 0.0) return@forEach
 
-            replacement[item.articleId] = item
+            replacement[itemKey(item)] = item
         }
 
         if (items == replacement) {
@@ -236,43 +236,66 @@ object ReorderStore {
             quantityToOrder = quantityToOrder
         )
 
-        val previous = items[item.articleId]
+        val existingKeys = items
+            .filterValues { it.articleId == item.articleId }
+            .keys
+            .toList()
 
-        if (previous == item) {
+        if (existingKeys.isNotEmpty()) {
+            var changed = false
+
+            existingKeys.forEach { key ->
+                val current = items[key] ?: return@forEach
+                val updated = current.copy(
+                    barcode = item.barcode.ifBlank { current.barcode },
+                    articleCode = item.articleCode.ifBlank { current.articleCode },
+                    description = item.description.ifBlank { current.description },
+                    stock = stock,
+                    availableStock = availableStock,
+                    minimumStock = minimumStock,
+                    maximumStock = maximumStock,
+                    reorderLot = reorderLot,
+                    quantityToOrder = quantityToOrder
+                )
+
+                if (updated != current) {
+                    items[key] = updated
+                    changed = true
+                }
+            }
+
+            if (changed) {
+                saveToDisk()
+                notifySizeChanged()
+            }
+
             return true
         }
 
-        items[item.articleId] = item
+        items[itemKey(item)] = item
         saveToDisk()
+        logAdded(item)
 
-        if (previous == null) {
-            logAdded(item)
-        } else {
-            Log.d(
-                TAG,
-                "REORDER ARTICOLO AGGIORNATO " +
-                        "id=${item.articleId} code=${item.articleCode} " +
-                        "stock=${item.stock} minimum=${item.minimumStock} " +
-                        "quantity=${item.quantityToOrder}"
-            )
-        }
-
-        // Notifica anche gli aggiornamenti a parità di numero di righe,
-        // così un eventuale popup aperto viene ricostruito subito.
         notifySizeChanged()
         return true
     }
 
     @Synchronized
     fun remove(articleId: Long): Boolean {
-        val removed = items.remove(articleId) ?: return false
+        val keys = items
+            .filterValues { it.articleId == articleId }
+            .keys
+            .toList()
 
+        if (keys.isEmpty()) return false
+
+        keys.forEach { items.remove(it) }
         saveToDisk()
 
         Log.d(
             TAG,
-            "REORDER ARTICOLO RIMOSSO " +
-                    "id=${removed.articleId} code=${removed.articleCode}"
+            "REORDER ARTICOLO RIMOSSO DA TUTTI I FORNITORI " +
+                    "id=$articleId righe=${keys.size}"
         )
 
         notifySizeChanged()
@@ -281,7 +304,7 @@ object ReorderStore {
 
     @Synchronized
     fun contains(articleId: Long): Boolean =
-        items.containsKey(articleId)
+        items.values.any { it.articleId == articleId }
 
     @Synchronized
     fun getAll(): List<ReorderItem> =
@@ -306,20 +329,31 @@ object ReorderStore {
         articleId: Long,
         reason: String
     ): Boolean {
-        val removed = items.remove(articleId) ?: return false
+        val keys = items
+            .filterValues { it.articleId == articleId }
+            .keys
+            .toList()
+
+        if (keys.isEmpty()) return false
+
+        val sample = items[keys.first()]
+        keys.forEach { items.remove(it) }
 
         saveToDisk()
 
         Log.d(
             TAG,
-            "REORDER RIMOSSO AUTOMATICAMENTE " +
-                    "id=${removed.articleId} code=${removed.articleCode} " +
-                    "motivo=$reason"
+            "REORDER RIMOSSO AUTOMATICAMENTE DA TUTTI I FORNITORI " +
+                    "id=$articleId code=${sample?.articleCode.orEmpty()} " +
+                    "righe=${keys.size} motivo=$reason"
         )
 
         notifySizeChanged()
         return true
     }
+
+    private fun itemKey(item: ReorderItem): String =
+        "${item.articleId}:${item.supplierId}"
 
     private fun calculateQuantityToOrder(
         stock: Double,
@@ -373,7 +407,7 @@ object ReorderStore {
                     quantityToOrder = json.optDouble("quantityToOrder", 0.0)
                 )
 
-                items[item.articleId] = item
+                items[itemKey(item)] = item
             }
 
             Log.d(

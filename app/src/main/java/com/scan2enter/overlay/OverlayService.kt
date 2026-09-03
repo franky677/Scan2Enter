@@ -1549,11 +1549,19 @@ class OverlayService : Service() {
 
                         SessionStore.addOrIncrement(
                             product = productForSession,
+                            priceListId =
+                                clientPrice.priceListId,
                             priceListName =
                                 clientPrice.priceListName,
                             listPrice = listPriceText,
                             discount1 =
                                 clientPrice.discount1,
+                            discount2 =
+                                clientPrice.discount2,
+                            discount3 =
+                                clientPrice.discount3,
+                            discount4 =
+                                clientPrice.discount4,
                             finalPrice = finalPriceText
                         )
 

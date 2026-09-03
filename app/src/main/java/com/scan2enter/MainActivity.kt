@@ -40,8 +40,8 @@ class MainActivity : ComponentActivity() {
 
     private var requestedScreen by mutableStateOf<String?>(null)
 
-    private var expiryAlertChecked = false
     private var expiryAlertDialog: AlertDialog? = null
+    private var expiryAlertCheckOnNextStart = false
 
     private val expiryAlertHandler =
         android.os.Handler(android.os.Looper.getMainLooper())
@@ -230,10 +230,7 @@ class MainActivity : ComponentActivity() {
         )
     }
 
-    private fun checkProductExpiryAlertsOnce() {
-        if (expiryAlertChecked) return
-        expiryAlertChecked = true
-
+    private fun checkProductExpiryAlerts() {
         Thread {
             val result =
                 GatewayApiClient()
@@ -386,7 +383,7 @@ class MainActivity : ComponentActivity() {
 
         SessionStore.initialize(applicationContext)
 
-        checkProductExpiryAlertsOnce()
+        checkProductExpiryAlerts()
 
         enableEdgeToEdge()
 
@@ -696,6 +693,11 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         registerSunmiHomeReceiver()
+
+        if (expiryAlertCheckOnNextStart) {
+            expiryAlertCheckOnNextStart = false
+            checkProductExpiryAlerts()
+        }
     }
 
     override fun onPause() {
@@ -705,6 +707,14 @@ class MainActivity : ComponentActivity() {
 
     override fun onStop() {
         unregisterSunmiHomeReceiver()
+
+        expiryAlertCheckOnNextStart = true
+
+        expiryAlertHandler.removeCallbacks(
+            dismissExpiryAlertRunnable
+        )
+        expiryAlertDialog?.dismiss()
+        expiryAlertDialog = null
 
         super.onStop()
         Log.d("Scan2Enter", "MainActivity -> onStop")

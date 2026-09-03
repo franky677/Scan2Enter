@@ -920,6 +920,236 @@ class GatewayApiClient(
         }
     }
 
+
+    /**
+     * Legge tutti i fornitori associati a un articolo nella lista riordino.
+     *
+     * GET /api/reorder-list/{articleId}/suppliers?warehouseId=...
+     */
+    fun getReorderSuppliers(
+        articleId: Long,
+        warehouseId: Int = 0
+    ): Result<List<ReorderSupplierOptionDto>> = runCatching {
+        require(articleId > 0L) {
+            "articleId non valido: $articleId"
+        }
+
+        require(warehouseId >= 0) {
+            "warehouseId non valido: $warehouseId"
+        }
+
+        val url =
+            "${baseUrl.trimEnd('/')}/api/reorder-list/$articleId/suppliers" +
+                    "?warehouseId=$warehouseId"
+
+        Log.d(TAG, "GATEWAY GET REORDER SUPPLIERS")
+        Log.d(TAG, "ARTICLE ID=$articleId WAREHOUSE=$warehouseId")
+        Log.d(TAG, "URL = $url")
+
+        val response = executeGet(url)
+
+        Log.d(
+            TAG,
+            "GATEWAY REORDER SUPPLIERS HTTP=${response.code}"
+        )
+        Log.d(TAG, "BODY=${response.body.take(1500)}")
+
+        if (response.code !in 200..299) {
+            error(
+                "Gateway HTTP ${response.code}: ${response.body.take(500)}"
+            )
+        }
+
+        val root = JSONObject(response.body)
+        val array = root.optJSONArray("items")
+            ?: error(
+                "Risposta Gateway non valida: items fornitori mancanti"
+            )
+
+        val result =
+            ArrayList<ReorderSupplierOptionDto>(array.length())
+
+        for (index in 0 until array.length()) {
+            val item = array.optJSONObject(index) ?: continue
+            val supplierId = item.optLong("supplierId", 0L)
+
+            if (supplierId <= 0L) continue
+
+            result.add(
+                ReorderSupplierOptionDto(
+                    supplierId = supplierId,
+                    supplierName =
+                        item.optString("supplierName", "").trim(),
+                    supplierArticleCode =
+                        item.optString(
+                            "supplierArticleCode",
+                            ""
+                        ).trim(),
+                    isDefault =
+                        item.optBoolean("isDefault", false),
+                    isSelected =
+                        item.optBoolean("isSelected", false),
+                    purchaseTaxable =
+                        if (item.isNull("purchaseTaxable")) {
+                            null
+                        } else {
+                            item.optDouble("purchaseTaxable")
+                        },
+                    netPurchaseTaxable =
+                        if (item.isNull("netPurchaseTaxable")) {
+                            null
+                        } else {
+                            item.optDouble("netPurchaseTaxable")
+                        },
+                    purchasePrice =
+                        if (item.isNull("purchasePrice")) {
+                            null
+                        } else {
+                            item.optDouble("purchasePrice")
+                        },
+                    vatRate =
+                        if (item.isNull("vatRate")) {
+                            null
+                        } else {
+                            item.optDouble("vatRate")
+                        },
+                    updatedAt =
+                        item.optString("updatedAt", "")
+                            .trim()
+                            .ifBlank { null }
+                )
+            )
+        }
+
+        result
+    }
+
+    /**
+     * Seleziona il fornitore da usare per l'articolo nel ciclo
+     * di riordino corrente.
+     *
+     * PUT /api/reorder-list/{articleId}/supplier
+     */
+    fun updateReorderSupplier(
+        articleId: Long,
+        supplierId: Long,
+        warehouseId: Int = 0
+    ): Result<Boolean> = runCatching {
+        require(articleId > 0L) {
+            "articleId non valido: $articleId"
+        }
+
+        require(supplierId > 0L) {
+            "supplierId non valido: $supplierId"
+        }
+
+        require(warehouseId >= 0) {
+            "warehouseId non valido: $warehouseId"
+        }
+
+        val url =
+            "${baseUrl.trimEnd('/')}/api/reorder-list/$articleId/supplier"
+
+        val body = JSONObject()
+            .put("warehouseId", warehouseId)
+            .put("supplierId", supplierId)
+            .toString()
+
+        Log.d(TAG, "GATEWAY UPDATE REORDER SUPPLIER")
+        Log.d(
+            TAG,
+            "ARTICLE ID=$articleId SUPPLIER ID=$supplierId " +
+                    "WAREHOUSE=$warehouseId"
+        )
+        Log.d(TAG, "URL = $url")
+        Log.d(TAG, "BODY=$body")
+
+        val response = executeJson(
+            urlString = url,
+            method = "PUT",
+            jsonBody = body
+        )
+
+        Log.d(
+            TAG,
+            "GATEWAY UPDATE REORDER SUPPLIER HTTP=${response.code}"
+        )
+        Log.d(TAG, "BODY=${response.body.take(800)}")
+
+        if (response.code !in 200..299) {
+            val message = runCatching {
+                JSONObject(response.body)
+                    .optString("message", "")
+            }.getOrNull().orEmpty()
+
+            error(
+                message.ifBlank {
+                    "Gateway HTTP ${response.code}: " +
+                            response.body.take(500)
+                }
+            )
+        }
+
+        val root = JSONObject(response.body)
+
+        check(root.optBoolean("updated", false)) {
+            root.optString(
+                "message",
+                "Aggiornamento fornitore riordino non riuscito"
+            )
+        }
+
+        true
+    }
+
+    /**
+     * Rimuove la scelta temporanea e torna al fornitore
+     * predefinito di Due Retail.
+     *
+     * DELETE /api/reorder-list/{articleId}/supplier?warehouseId=...
+     */
+    fun resetReorderSupplier(
+        articleId: Long,
+        warehouseId: Int = 0
+    ): Result<Boolean> = runCatching {
+        require(articleId > 0L) {
+            "articleId non valido: $articleId"
+        }
+
+        require(warehouseId >= 0) {
+            "warehouseId non valido: $warehouseId"
+        }
+
+        val url =
+            "${baseUrl.trimEnd('/')}/api/reorder-list/$articleId/supplier" +
+                    "?warehouseId=$warehouseId"
+
+        Log.d(TAG, "GATEWAY RESET REORDER SUPPLIER")
+        Log.d(TAG, "ARTICLE ID=$articleId WAREHOUSE=$warehouseId")
+        Log.d(TAG, "URL = $url")
+
+        val response = executeWithoutBody(
+            urlString = url,
+            method = "DELETE"
+        )
+
+        Log.d(
+            TAG,
+            "GATEWAY RESET REORDER SUPPLIER HTTP=${response.code}"
+        )
+        Log.d(TAG, "BODY=${response.body.take(800)}")
+
+        if (response.code !in 200..299) {
+            error(
+                "Gateway HTTP ${response.code}: ${response.body.take(500)}"
+            )
+        }
+
+        JSONObject(response.body)
+            .optBoolean("removed", false)
+    }
+
+
     /**
      * Legge lo storico colli recente o completo.
      */
@@ -1065,6 +1295,25 @@ class GatewayApiClient(
                                 .put("barcode", item.barcode.trim())
                                 .put("quantity", item.quantity)
                                 .put("price", item.price)
+                                .apply {
+                                    item.listPrice?.let {
+                                        put("listPrice", it)
+                                    }
+                                    put("discount1", item.discount1)
+                                    put("discount2", item.discount2)
+                                    put("discount3", item.discount3)
+                                    put("discount4", item.discount4)
+                                    put(
+                                        "manualDiscount",
+                                        item.manualDiscount
+                                    )
+                                    item.priceListId?.let {
+                                        put("priceListId", it)
+                                    }
+                                    item.targetNetTotal?.let {
+                                        put("targetNetTotal", it)
+                                    }
+                                }
                         )
                     }
                 }
@@ -2297,7 +2546,15 @@ data class ColloHistoryDetailDto(
 data class SessionColloItemDto(
     val barcode: String,
     val quantity: Int,
-    val price: Double
+    val price: Double,
+    val listPrice: Double? = null,
+    val discount1: Double = 0.0,
+    val discount2: Double = 0.0,
+    val discount3: Double = 0.0,
+    val discount4: Double = 0.0,
+    val manualDiscount: Double = 0.0,
+    val priceListId: Int? = null,
+    val targetNetTotal: Double? = null
 )
 
 data class CreateColloResultDto(
@@ -2483,3 +2740,17 @@ data class ProductExpiryDto(
                 "—"
             }
 }
+
+data class ReorderSupplierOptionDto(
+    val supplierId: Long,
+    val supplierName: String,
+    val supplierArticleCode: String,
+    val isDefault: Boolean,
+    val isSelected: Boolean,
+    val purchaseTaxable: Double?,
+    val netPurchaseTaxable: Double?,
+    val purchasePrice: Double?,
+    val vatRate: Double?,
+    val updatedAt: String?
+)
+
