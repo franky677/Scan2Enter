@@ -80,6 +80,7 @@ class A4LabelsPopup(
      * Non può dipendere dall'ultimo elemento della pagina SCAFFALE.
      */
     private var selectedOfferItem: A4LabelItem? = null
+    private var presetOfferPrice: String? = null
 
     /*
      * Callback valorizzato mentre la finestra A4 è aperta.
@@ -90,6 +91,7 @@ class A4LabelsPopup(
 
     fun selectOfferItem(item: A4LabelItem) {
         selectedOfferItem = item
+        presetOfferPrice = null
 
         root?.post {
             if (currentSection == Section.OFFER) {
@@ -100,6 +102,21 @@ class A4LabelsPopup(
 
     fun isOfferSection(): Boolean {
         return currentSection == Section.OFFER
+    }
+
+    fun showOfferForItem(
+        item: A4LabelItem,
+        offerPrice: String,
+        onClosed: () -> Unit
+    ) {
+        selectedOfferItem = item
+        presetOfferPrice = offerPrice
+        currentSection = Section.OFFER
+
+        show(
+            onClosed = onClosed,
+            startAtHub = false
+        )
     }
 
     private val storeListener: () -> Unit = {
@@ -740,6 +757,7 @@ class A4LabelsPopup(
                 setOnClickListener {
                     currentSection = Section.OFFER
                     selectedOfferItem = null
+                    presetOfferPrice = null
                     remove(preserveSection = true)
                     onSearchRequested()
                 }
@@ -925,10 +943,14 @@ class A4LabelsPopup(
                                     .TYPE_NUMBER_FLAG_DECIMAL
 
                     setText(
-                        selectedItem?.publicPrice
+                        presetOfferPrice
                             ?.replace("€", "")
                             ?.trim()
-                            .orEmpty()
+                            ?.takeIf { it.isNotBlank() }
+                            ?: selectedItem?.publicPrice
+                                ?.replace("€", "")
+                                ?.trim()
+                                .orEmpty()
                     )
                 }
 
@@ -1702,6 +1724,7 @@ class A4LabelsPopup(
 
         if (!preserveSection) {
             currentSection = Section.HUB
+            presetOfferPrice = null
         }
     }
 

@@ -63,18 +63,23 @@ class PriceManagementPopup(
     private var onClosedCallback:
             (() -> Unit)? = null
 
+    private var onPromotionRequestedCallback:
+            ((ProductInfo) -> Unit)? = null
+
     fun isShowing(): Boolean = root != null
 
     fun show(
         product: ProductInfo,
         onSaved: (List<ProductPriceListDto>) -> Unit,
-        onClosed: () -> Unit
+        onClosed: () -> Unit,
+        onPromotionRequested: ((ProductInfo) -> Unit)? = null
     ) {
         remove(notifyClosed = false)
 
         currentProduct = product
         onSavedCallback = onSaved
         onClosedCallback = onClosed
+        onPromotionRequestedCallback = onPromotionRequested
 
         val density =
             context.resources.displayMetrics.density
@@ -180,6 +185,27 @@ class PriceManagementPopup(
                 gravity = Gravity.END or Gravity.CENTER_VERTICAL
             }
 
+        val promotionButton =
+            Button(context).apply {
+                text = "PROMOZIONE"
+                isEnabled = onPromotionRequestedCallback != null
+                setOnClickListener {
+                    val selectedProduct =
+                        currentProduct ?: return@setOnClickListener
+
+                    val callback =
+                        onPromotionRequestedCallback
+                            ?: return@setOnClickListener
+
+                    /*
+                     * Chiudiamo GESTIONE PREZZI senza notificare la chiusura:
+                     * il flusso continua direttamente nell'editor promozione.
+                     */
+                    remove(notifyClosed = false)
+                    callback(selectedProduct)
+                }
+            }
+
         val closeButton =
             Button(context).apply {
                 text = "CHIUDI"
@@ -204,7 +230,19 @@ class PriceManagementPopup(
                 LinearLayout.LayoutParams.WRAP_CONTENT,
                 1f
             ).apply {
-                marginEnd = dp(6)
+                marginEnd = dp(4)
+            }
+        )
+
+        buttons.addView(
+            promotionButton,
+            LinearLayout.LayoutParams(
+                0,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                1.25f
+            ).apply {
+                marginStart = dp(4)
+                marginEnd = dp(4)
             }
         )
 
@@ -215,7 +253,7 @@ class PriceManagementPopup(
                 LinearLayout.LayoutParams.WRAP_CONTENT,
                 1f
             ).apply {
-                marginStart = dp(6)
+                marginStart = dp(4)
             }
         )
 
@@ -1207,6 +1245,7 @@ class PriceManagementPopup(
 
         onSavedCallback = null
         onClosedCallback = null
+        onPromotionRequestedCallback = null
     }
 
     private fun roundedBackground(

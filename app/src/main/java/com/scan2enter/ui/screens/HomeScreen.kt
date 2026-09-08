@@ -40,7 +40,8 @@ fun HomeScreen(
     onOpenTrovaTutto: () -> Unit,
     onOpenSession: () -> Unit,
     onOpenSales: () -> Unit,
-    onOpenInventoryAnalysis: () -> Unit
+    onOpenInventoryAnalysis: () -> Unit,
+    onOpenPromotions: () -> Unit
 ) {
     val context = LocalContext.current
 
@@ -198,7 +199,7 @@ fun HomeScreen(
 
             HomeButtonRow(
                 leftText = "📄\nETICHETTE A4",
-                rightText = "🏷️\nGODEX",
+                rightText = "🏷️\nPROMOZIONI",
                 onLeftClick = {
                     context.startService(
                         Intent(
@@ -209,16 +210,7 @@ fun HomeScreen(
                         }
                     )
                 },
-                onRightClick = {
-                    context.startService(
-                        Intent(
-                            context,
-                            OverlayService::class.java
-                        ).apply {
-                            action = OverlayService.ACTION_SHOW_GODEX_SETUP
-                        }
-                    )
-                }
+                onRightClick = onOpenPromotions
             )
 
             HomeButtonRow(

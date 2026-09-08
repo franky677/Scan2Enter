@@ -40,6 +40,9 @@ class ZebraDataWedgeReceiver : BroadcastReceiver() {
 
         private const val SCREEN_SESSION =
             "SESSIONE"
+
+        private const val SCREEN_PROMOTION_SEARCH =
+            "TROVATUTTO_PROMOZIONE"
     }
 
     override fun onReceive(
@@ -100,6 +103,30 @@ class ZebraDataWedgeReceiver : BroadcastReceiver() {
          * Qui non dobbiamo duplicare la lettura.
          */
         if (currentScreen == SCREEN_SESSION) {
+            return
+        }
+
+        /*
+         * NUOVA PROMO:
+         * quando TrovaTutto promozioni ha aperto lo scanner hardware,
+         * il barcode deve aprire direttamente l'editor promozione.
+         */
+        if (currentScreen == SCREEN_PROMOTION_SEARCH) {
+            context.startService(
+                Intent(
+                    context,
+                    OverlayService::class.java
+                ).apply {
+                    action =
+                        OverlayService.ACTION_OPEN_PROMOTION_ARTICLE
+
+                    putExtra(
+                        OverlayService.EXTRA_CURRENT_ARTICLE_BARCODE,
+                        barcode
+                    )
+                }
+            )
+
             return
         }
 

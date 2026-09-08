@@ -30,6 +30,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -1022,7 +1023,7 @@ private fun SessionActionPanel(
 
     val totalEuro =
         items.sumOf { item ->
-            effectiveSessionUnitPrice(item) * item.quantity
+            effectiveSessionRowTotal(item)
         }
 
     Surface(
@@ -1204,10 +1205,7 @@ private fun SessionActionPanel(
                                                 .takeIf { it > 0 }
                                         },
                                     targetNetTotal =
-                                        (
-                                                effectiveSessionUnitPrice(item) *
-                                                        item.quantity
-                                                )
+                                        effectiveSessionRowTotal(item)
                                 )
                             }
                         }
@@ -1927,7 +1925,7 @@ private fun SessionRow(
                     .fillMaxWidth()
                     .padding(
                         start = 14.dp,
-                        end = 46.dp,
+                        end = 14.dp,
                         top = 14.dp,
                         bottom = 14.dp
                     ),
@@ -2079,54 +2077,89 @@ private fun SessionRow(
                     )
                 }
 
+                Spacer(
+                    modifier = Modifier.width(10.dp)
+                )
+
                 Column(
-                    horizontalAlignment = Alignment.CenterHorizontally
+                    horizontalAlignment = Alignment.End,
+                    verticalArrangement = Arrangement.Bottom
                 ) {
+                    val rowTotal =
+                        effectiveSessionRowTotal(item)
+
                     Text(
-                        text = "x${item.quantity}",
-                        fontSize = 24.sp,
+                        text =
+                            String.format(
+                                Locale.ITALY,
+                                "%.2f €",
+                                rowTotal
+                            ),
+                        fontSize = 20.sp,
                         fontWeight = FontWeight.Bold
                     )
 
                     Spacer(
-                        modifier = Modifier.height(4.dp)
+                        modifier = Modifier.height(8.dp)
                     )
 
                     Row(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                        horizontalArrangement =
+                            Arrangement.spacedBy(5.dp),
+                        verticalAlignment =
+                            Alignment.CenterVertically,
+                        modifier =
+                            Modifier.offset(y = 18.dp)
                     ) {
                         Surface(
-                            modifier = Modifier
-                                .clickable(onClick = onDecrement),
-                            shape = RoundedCornerShape(8.dp),
+                            modifier =
+                                Modifier.clickable(
+                                    onClick = onDecrement
+                                ),
+                            shape =
+                                RoundedCornerShape(8.dp),
                             tonalElevation = 4.dp
                         ) {
                             Text(
                                 text = "−",
-                                fontSize = 24.sp,
+                                fontSize = 22.sp,
                                 fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(
-                                    horizontal = 12.dp,
-                                    vertical = 3.dp
-                                )
+                                modifier =
+                                    Modifier.padding(
+                                        horizontal = 10.dp,
+                                        vertical = 2.dp
+                                    )
                             )
                         }
 
+                        Text(
+                            text = "${item.quantity}",
+                            fontSize = 21.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier =
+                                Modifier.padding(
+                                    horizontal = 3.dp
+                                )
+                        )
+
                         Surface(
-                            modifier = Modifier
-                                .clickable(onClick = onIncrement),
-                            shape = RoundedCornerShape(8.dp),
+                            modifier =
+                                Modifier.clickable(
+                                    onClick = onIncrement
+                                ),
+                            shape =
+                                RoundedCornerShape(8.dp),
                             tonalElevation = 4.dp
                         ) {
                             Text(
                                 text = "+",
-                                fontSize = 24.sp,
+                                fontSize = 22.sp,
                                 fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(
-                                    horizontal = 12.dp,
-                                    vertical = 3.dp
-                                )
+                                modifier =
+                                    Modifier.padding(
+                                        horizontal = 10.dp,
+                                        vertical = 2.dp
+                                    )
                             )
                         }
                     }
@@ -4087,15 +4120,6 @@ private fun effectiveSessionUnitPrice(
             .toDoubleOrNull()
             ?: 0.0
 
-    /*
-     * In V6 il SessionStore calcola l'arrotondamento commerciale
-     * sul NETTO FINALE della riga. Se roundingPrice è valorizzato,
-     * contiene già il prezzo netto definitivo e non va scontato di nuovo.
-     */
-    if (item.roundingPrice.isNotBlank()) {
-        return effective
-    }
-
     if (item.manualPrice.isNotBlank()) {
         return effective
     }
@@ -4106,6 +4130,22 @@ private fun effectiveSessionUnitPrice(
 
     return effective *
             (1.0 - item.manualDiscount.coerceIn(0.0, 100.0) / 100.0)
+}
+
+private fun effectiveSessionRowTotal(
+    item: SessionItem
+): Double {
+    val baseTotal =
+        effectiveSessionUnitPrice(item) * item.quantity
+
+    val roundingAdjustment =
+        item.roundingAdjustment
+            .trim()
+            .replace(",", ".")
+            .toDoubleOrNull()
+            ?: 0.0
+
+    return baseTotal + roundingAdjustment
 }
 
 private fun formatPriceText(

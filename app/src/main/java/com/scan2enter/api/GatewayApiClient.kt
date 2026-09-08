@@ -184,6 +184,302 @@ class GatewayApiClient(
     }
 
     /**
+     * Legge la promo Scan2Enter configurata per un articolo.
+     *
+     * GET /api/product/{articleId}/promo-discount
+     */
+    fun getProductPromo(
+        articleId: Long
+    ): Result<ProductPromoDto?> = runCatching {
+        require(articleId > 0L) {
+            "articleId non valido: $articleId"
+        }
+
+        val url =
+            "${baseUrl.trimEnd('/')}/api/product/$articleId/promo-discount"
+
+        Log.d(TAG, "GATEWAY GET PRODUCT PROMO")
+        Log.d(TAG, "ARTICLE ID=$articleId")
+        Log.d(TAG, "URL = $url")
+
+        val response = executeGet(url)
+
+        Log.d(TAG, "GATEWAY PRODUCT PROMO HTTP=${response.code}")
+        Log.d(TAG, "BODY=${response.body.take(800)}")
+
+        if (response.code == HttpURLConnection.HTTP_NOT_FOUND) {
+            return@runCatching null
+        }
+
+        if (response.code !in 200..299) {
+            error(
+                "Gateway HTTP ${response.code}: ${response.body.take(500)}"
+            )
+        }
+
+        parseProductPromo(
+            json = JSONObject(response.body),
+            fallbackArticleId = articleId
+        )
+    }
+
+    /**
+     * Imposta o modifica lo sconto promo Scan2Enter.
+     *
+     * validFrom / validTo usano il formato ISO locale accettato dal Gateway,
+     * per esempio 2026-09-08T00:00:00 e 2026-09-30T23:59:59.
+     * null = nessun limite su quel lato.
+     *
+     * PUT /api/product/{articleId}/promo-discount
+     */
+    fun updateProductPromo(
+        articleId: Long,
+        discountPercent: Double,
+        validFrom: String? = null,
+        validTo: String? = null
+    ): Result<ProductPromoDto?> = runCatching {
+        require(articleId > 0L) {
+            "articleId non valido: $articleId"
+        }
+
+        require(discountPercent in 0.0..100.0) {
+            "Sconto promo non valido: $discountPercent"
+        }
+
+        val url =
+            "${baseUrl.trimEnd('/')}/api/product/$articleId/promo-discount"
+
+        val body = JSONObject()
+            .put("discountPercent", discountPercent)
+            .apply {
+                put(
+                    "validFrom",
+                    validFrom?.trim()?.takeIf { it.isNotBlank() }
+                        ?: JSONObject.NULL
+                )
+                put(
+                    "validTo",
+                    validTo?.trim()?.takeIf { it.isNotBlank() }
+                        ?: JSONObject.NULL
+                )
+            }
+            .toString()
+
+        Log.d(TAG, "GATEWAY UPDATE PRODUCT PROMO")
+        Log.d(
+            TAG,
+            "ARTICLE ID=$articleId DISCOUNT=$discountPercent " +
+                    "VALID FROM=$validFrom VALID TO=$validTo"
+        )
+        Log.d(TAG, "URL = $url")
+
+        val response = executeJson(
+            urlString = url,
+            method = "PUT",
+            jsonBody = body
+        )
+
+        Log.d(TAG, "GATEWAY UPDATE PRODUCT PROMO HTTP=${response.code}")
+        Log.d(TAG, "BODY=${response.body.take(1000)}")
+
+        if (response.code !in 200..299) {
+            error(
+                "Gateway HTTP ${response.code}: ${response.body.take(500)}"
+            )
+        }
+
+        val root = JSONObject(response.body)
+
+        check(root.optBoolean("updated", false)) {
+            root.optString(
+                "message",
+                "Aggiornamento promo non riuscito"
+            )
+        }
+
+        if (discountPercent == 0.0 || root.optBoolean("removed", false)) {
+            null
+        } else {
+            val promo = root.optJSONObject("promo")
+                ?: error("Risposta Gateway non valida: promo mancante")
+
+            parseProductPromo(
+                json = promo,
+                fallbackArticleId = articleId
+            )
+        }
+    }
+
+    /**
+     * Rimuove la promo Scan2Enter da un articolo.
+     *
+     * DELETE /api/product/{articleId}/promo-discount
+     */
+    fun deleteProductPromo(
+        articleId: Long
+    ): Result<Boolean> = runCatching {
+        require(articleId > 0L) {
+            "articleId non valido: $articleId"
+        }
+
+        val url =
+            "${baseUrl.trimEnd('/')}/api/product/$articleId/promo-discount"
+
+        val response = executeWithoutBody(
+            urlString = url,
+            method = "DELETE"
+        )
+
+        if (response.code !in 200..299) {
+            error(
+                "Gateway HTTP ${response.code}: ${response.body.take(500)}"
+            )
+        }
+
+        JSONObject(response.body)
+            .optBoolean("removed", false)
+    }
+
+    /**
+     * Elenco promozioni Scan2Enter.
+     *
+     * status: ATTIVE, IN_CORSO, SENZA_SCADENZA, PROGRAMMATA, SCADUTA.
+     * query: ricerca per id articolo, codice, descrizione o barcode.
+     *
+     * GET /api/promotions?status=...&q=...
+     */
+    fun getPromotions(
+        status: String? = null,
+        query: String = ""
+    ): Result<List<ProductPromotionListItemDto>> = runCatching {
+        val normalizedStatus =
+            status?.trim()?.uppercase()?.takeIf { it.isNotBlank() }
+
+        val allowedStatuses = setOf(
+            "ATTIVE",
+            "IN_CORSO",
+            "SENZA_SCADENZA",
+            "PROGRAMMATA",
+            "SCADUTA"
+        )
+
+        require(
+            normalizedStatus == null ||
+                    normalizedStatus in allowedStatuses
+        ) {
+            "Stato promo non valido: $status"
+        }
+
+        val params = mutableListOf<String>()
+
+        normalizedStatus?.let {
+            params += "status=" + URLEncoder.encode(
+                it,
+                StandardCharsets.UTF_8.name()
+            )
+        }
+
+        if (query.isNotBlank()) {
+            params += "q=" + URLEncoder.encode(
+                query.trim(),
+                StandardCharsets.UTF_8.name()
+            )
+        }
+
+        val url =
+            "${baseUrl.trimEnd('/')}/api/promotions" +
+                    if (params.isEmpty()) {
+                        ""
+                    } else {
+                        "?" + params.joinToString("&")
+                    }
+
+        Log.d(TAG, "GATEWAY GET PROMOTIONS")
+        Log.d(TAG, "URL = $url")
+
+        val response = executeGet(url)
+
+        Log.d(TAG, "GATEWAY PROMOTIONS HTTP=${response.code}")
+        Log.d(TAG, "BODY=${response.body.take(1500)}")
+
+        if (response.code !in 200..299) {
+            error(
+                "Gateway HTTP ${response.code}: ${response.body.take(500)}"
+            )
+        }
+
+        val root = JSONObject(response.body)
+        val array = root.optJSONArray("items")
+            ?: error("Risposta Gateway non valida: items promozioni mancanti")
+
+        val result =
+            ArrayList<ProductPromotionListItemDto>(array.length())
+
+        for (index in 0 until array.length()) {
+            val item = array.optJSONObject(index) ?: continue
+            val articleId = item.optLong("articleId", 0L)
+            if (articleId <= 0L) continue
+
+            result.add(
+                ProductPromotionListItemDto(
+                    articleId = articleId,
+                    code = item.optString("code", "").trim(),
+                    description =
+                        item.optString("description", "").trim(),
+                    barcode = item.optString("barcode", "").trim(),
+                    discountPercent =
+                        item.optDouble("discountPercent", 0.0),
+                    publicPrice =
+                        item.optDouble("publicPrice", 0.0),
+                    offerPrice =
+                        item.optDouble("offerPrice", 0.0),
+                    validFrom =
+                        item.optNullablePromoString("validFrom"),
+                    validTo =
+                        item.optNullablePromoString("validTo"),
+                    status =
+                        item.optString("status", "").trim(),
+                    isActive =
+                        item.optBoolean("isActive", false),
+                    primaryHash =
+                        item.optNullablePromoString("primaryHash"),
+                    updatedAt =
+                        item.optString("updatedAt", "").trim()
+                )
+            )
+        }
+
+        result
+    }
+
+    private fun parseProductPromo(
+        json: JSONObject,
+        fallbackArticleId: Long
+    ): ProductPromoDto {
+        return ProductPromoDto(
+            articleId = json.optLong("articleId", fallbackArticleId),
+            discountPercent = json.optDouble("discountPercent", 0.0),
+            publicPrice = json.optDouble("publicPrice", 0.0),
+            offerPrice = json.optDouble("offerPrice", 0.0),
+            validFrom = json.optNullablePromoString("validFrom"),
+            validTo = json.optNullablePromoString("validTo"),
+            primaryHash = json.optNullablePromoString("primaryHash"),
+            updatedAt = json.optString("updatedAt", "").trim()
+        )
+    }
+
+    private fun JSONObject.optNullablePromoString(
+        key: String
+    ): String? {
+        if (!has(key) || isNull(key)) return null
+
+        return optString(key, "")
+            .trim()
+            .ifBlank { null }
+    }
+
+
+    /**
      * Blocca o sblocca un articolo nel Gateway.
      *
      * PUT /api/product/{articleId}/active
@@ -2592,6 +2888,33 @@ data class ClientPriceDto(
     val finalPrice: Double?
 )
 
+data class ProductPromoDto(
+    val articleId: Long,
+    val discountPercent: Double,
+    val publicPrice: Double,
+    val offerPrice: Double,
+    val validFrom: String?,
+    val validTo: String?,
+    val primaryHash: String?,
+    val updatedAt: String
+)
+
+data class ProductPromotionListItemDto(
+    val articleId: Long,
+    val code: String,
+    val description: String,
+    val barcode: String,
+    val discountPercent: Double,
+    val publicPrice: Double,
+    val offerPrice: Double,
+    val validFrom: String?,
+    val validTo: String?,
+    val status: String,
+    val isActive: Boolean,
+    val primaryHash: String?,
+    val updatedAt: String
+)
+
 data class DeleteLocationResult(
     val deleted: Boolean,
     val usageCount: Int,
@@ -2753,4 +3076,3 @@ data class ReorderSupplierOptionDto(
     val vatRate: Double?,
     val updatedAt: String?
 )
-

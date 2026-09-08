@@ -60,6 +60,7 @@ import com.scan2enter.overlay.popup.LocationManagementPopup
 import com.scan2enter.overlay.popup.LabelPrintPopup
 import com.scan2enter.overlay.popup.ProductInfoPopup
 import com.scan2enter.overlay.popup.PriceManagementPopup
+import com.scan2enter.overlay.popup.PromotionManagementPopup
 import com.scan2enter.overlay.popup.StockSettingsPopup
 import com.scan2enter.repository.ProductRepositoryProvider
 import com.scan2enter.reorder.ReorderItem
@@ -119,6 +120,9 @@ class OverlayService : Service() {
 
         const val ACTION_OPEN_SEARCH_ARTICLE =
             "com.scan2enter.action.OPEN_SEARCH_ARTICLE"
+
+        const val ACTION_OPEN_PROMOTION_ARTICLE =
+            "com.scan2enter.action.OPEN_PROMOTION_ARTICLE"
 
         const val ACTION_OPEN_SESSION_ARTICLE_DETAIL =
             "com.scan2enter.action.OPEN_SESSION_ARTICLE_DETAIL"
@@ -222,6 +226,13 @@ class OverlayService : Service() {
 
     private val priceManagementPopupController by lazy {
         PriceManagementPopup(
+            context = this,
+            windowManager = windowManager
+        )
+    }
+
+    private val promotionManagementPopupController by lazy {
+        PromotionManagementPopup(
             context = this,
             windowManager = windowManager
         )
@@ -619,6 +630,17 @@ class OverlayService : Service() {
     private var productInfoPopupParams: WindowManager.LayoutParams? = null
 
     private var priceValueText: TextView? = null
+
+    /*
+     * Stato PROMO del solo popup articolo.
+     * Il ProductInfo continua a conservare il vero prezzo pubblico:
+     * il prezzo promo viene applicato soltanto alla visualizzazione.
+     */
+    private var currentPromoArticleId: Long? = null
+    private var currentPromoOfferPrice: Double? = null
+    private var currentPromoActive = false
+    private var defaultPriceBackground: android.graphics.drawable.Drawable? = null
+    private var defaultPriceTextColor: Int? = null
     private var articleCodeValueText: TextView? = null
     private var barcodeValueText: TextView? = null
     private var barcodeImageView: ImageView? = null
@@ -1433,6 +1455,36 @@ class OverlayService : Service() {
                 )
             }
 
+            ACTION_OPEN_PROMOTION_ARTICLE -> {
+                keepQuickScanDockAlive()
+
+                val barcode = intent.getStringExtra(
+                    EXTRA_CURRENT_ARTICLE_BARCODE
+                ).orEmpty()
+
+                android.util.Log.d(
+                    "OverlayService",
+                    "PROMOZIONI -> APRO EDITOR ean=$barcode"
+                )
+
+                scanOverlay.hide()
+
+                openCurrentArticleFromApi(
+                    rawBarcode = barcode,
+                    uiYear = "",
+                    uiSeason = "",
+                    uiLocation = "",
+                    addToHistory = false,
+                    addToReorder = false,
+                    addToSession = false,
+                    showPopup = false,
+                    onLoaded = { loadedProduct ->
+                        showPromotionManagementPopup(loadedProduct)
+                        bringQuickScanDockToFront()
+                    }
+                )
+            }
+
             ACTION_OPEN_SESSION_ARTICLE_DETAIL -> {
                 val barcode = intent.getStringExtra(
                     EXTRA_CURRENT_ARTICLE_BARCODE
@@ -1495,7 +1547,8 @@ class OverlayService : Service() {
     }
 
     private fun addProductToSessionWithCustomerPrice(
-        product: ProductInfo
+        product: ProductInfo,
+        promoOfferPrice: Double? = null
     ) {
         val customer = SessionCustomerStore.current.value
         val barcode = product.barcode.trim()
@@ -1514,12 +1567,23 @@ class OverlayService : Service() {
 
             result
                 .onSuccess { clientPrice ->
-                    val finalPriceValue =
+                    val customerFinalPriceValue =
                         clientPrice.finalPrice
                             ?: product.publicPrice
                                 .replace(",", ".")
                                 .toDoubleOrNull()
                             ?: 0.0
+
+                    /*
+                     * Una promo Scan2Enter attiva e' un PREZZO IMPOSTO: non e'
+                     * uno sconto manuale di riga. Nel Collo veloce usiamo quindi
+                     * direttamente il prezzo offerta come netto effettivo,
+                     * lasciando separati manualDiscount e gli sconti cliente.
+                     */
+                    val finalPriceValue =
+                        promoOfferPrice
+                            ?.takeIf { it >= 0.0 }
+                            ?: customerFinalPriceValue
 
                     val listPriceValue =
                         clientPrice.listPrice
@@ -1577,6 +1641,7 @@ class OverlayService : Service() {
                                     "prezzoListino=$listPriceText " +
                                     "sconto=${clientPrice.discount1} " +
                                     "prezzoFinale=$finalPriceText " +
+                                    "promo=${promoOfferPrice ?: "-"} " +
                                     "qta=${SessionStore.quantityFor(product.articleId)}"
                         )
                     }
@@ -1647,10 +1712,60 @@ class OverlayService : Service() {
         Thread {
             val result = productRepository.getProduct(barcode)
 
-            popupHandler.post {
-                currentArticleLoading = false
+            result.onSuccess { product ->
+                /*
+                 * Il prezzo pubblico arriva dal normale endpoint articolo.
+                 * Se Scan2Enter ha una promo configurata e ATTIVA per questo
+                 * articolo, il popup deve però mostrare subito il prezzo promo
+                 * anche quando l'articolo viene riaperto da TrovaTutto/scanner.
+                 *
+                 * Non alteriamo la semantica del prezzo cliente/sessione:
+                 * qui sostituiamo soltanto il prezzo visualizzato nel ProductInfo.
+                 */
+                val promoResult =
+                    if (product.articleId > 0L) {
+                        gatewayApiClient.getProductPromo(product.articleId)
+                    } else {
+                        null
+                    }
 
-                result.onSuccess { product ->
+                val promo = promoResult?.getOrNull()
+                val now = System.currentTimeMillis()
+
+                fun promoDateMillis(raw: String?): Long? {
+                    if (raw.isNullOrBlank()) return null
+                    val clean = raw.take(19)
+                    return runCatching {
+                        java.text.SimpleDateFormat(
+                            "yyyy-MM-dd'T'HH:mm:ss",
+                            Locale.US
+                        ).apply {
+                            isLenient = false
+                        }.parse(clean)?.time
+                    }.getOrNull()
+                }
+
+                val validFromMillis = promoDateMillis(promo?.validFrom)
+                val validToMillis = promoDateMillis(promo?.validTo)
+
+                val promoIsActive =
+                    promo != null &&
+                            (validFromMillis == null || now >= validFromMillis) &&
+                            (validToMillis == null || now <= validToMillis)
+
+                popupHandler.post {
+                    currentArticleLoading = false
+
+                    /*
+                     * IMPORTANTE: non sostituiamo product.publicPrice.
+                     * Serve ancora come prezzo pubblico reale per PREZZI,
+                     * editor promozione, listini e Collo veloce.
+                     */
+                    currentPromoArticleId = product.articleId
+                    currentPromoActive = promoIsActive
+                    currentPromoOfferPrice =
+                        if (promoIsActive) promo?.offerPrice else null
+
                     val enrichedProduct = product.copy(
                         year = uiYear.ifBlank { product.year },
                         season = uiSeason.ifBlank { product.season },
@@ -1669,7 +1784,9 @@ class OverlayService : Service() {
 
                     if (addToSession) {
                         addProductToSessionWithCustomerPrice(
-                            enrichedProduct
+                            product = enrichedProduct,
+                            promoOfferPrice =
+                                if (promoIsActive) promo?.offerPrice else null
                         )
                     }
 
@@ -1686,9 +1803,15 @@ class OverlayService : Service() {
 
                     android.util.Log.d(
                         "OverlayService",
-                        "ARTICOLO APERTO CARICATO VIA API EAN=$barcode"
+                        "ARTICOLO APERTO CARICATO VIA API EAN=$barcode " +
+                                "promoAttiva=$promoIsActive " +
+                                "prezzoPubblico=${enrichedProduct.publicPrice} " +
+                                "prezzoPromo=${currentPromoOfferPrice}"
                     )
-                }.onFailure { error ->
+                }
+            }.onFailure { error ->
+                popupHandler.post {
+                    currentArticleLoading = false
                     val suppressSessionError =
                         addToSession && !showPopup
 
@@ -4962,6 +5085,121 @@ class OverlayService : Service() {
                     "OverlayService",
                     "GESTIONE PREZZI CHIUSA"
                 )
+            },
+            onPromotionRequested = { selectedProduct ->
+                showPromotionManagementPopup(selectedProduct)
+            }
+        )
+    }
+
+    private fun showPromotionManagementPopup(
+        product: ProductInfo
+    ) {
+        popupHandler.removeCallbacks(dismissPopupRunnable)
+        popupTimerPausedByUser = true
+
+        android.util.Log.d(
+            "OverlayService",
+            "APRO PROMOZIONE articleId=${product.articleId}"
+        )
+
+        promotionManagementPopupController.show(
+            product = product,
+            onSaved = { promo ->
+                /*
+                 * Due FRONT può avere ancora la promo precedente in memoria.
+                 * Per Scan2Enter mostriamo invece subito il prezzo restituito
+                 * dal Gateway, che è il valore appena salvato.
+                 */
+                currentPromoArticleId = product.articleId
+                currentPromoActive = true
+                currentPromoOfferPrice = promo.offerPrice
+
+                updatePromoPriceAppearance(
+                    ProductInfoStore.current ?: product
+                )
+
+                popupTimerPausedByUser = false
+
+                if (productInfoPopup != null) {
+                    scheduleProductPopupDismiss(
+                        ProductInfoStore.current
+                    )
+                }
+
+                android.util.Log.d(
+                    "OverlayService",
+                    "PROMOZIONE SALVATA articleId=${product.articleId} " +
+                            "sconto=${promo.discountPercent} " +
+                            "prezzo=${promo.offerPrice}"
+                )
+            },
+            onDeleted = {
+                /*
+                 * Dopo l'eliminazione ripristiniamo visivamente il prezzo
+                 * pubblico già presente nell'articolo corrente.
+                 */
+                currentPromoArticleId = product.articleId
+                currentPromoActive = false
+                currentPromoOfferPrice = null
+
+                updatePromoPriceAppearance(
+                    ProductInfoStore.current ?: product
+                )
+
+                popupTimerPausedByUser = false
+
+                if (productInfoPopup != null) {
+                    scheduleProductPopupDismiss(
+                        ProductInfoStore.current
+                    )
+                }
+
+                android.util.Log.d(
+                    "OverlayService",
+                    "PROMOZIONE ELIMINATA articleId=${product.articleId}"
+                )
+            },
+            onClosed = {
+                popupTimerPausedByUser = false
+
+                if (productInfoPopup != null) {
+                    scheduleProductPopupDismiss(
+                        ProductInfoStore.current
+                    )
+                }
+
+                android.util.Log.d(
+                    "OverlayService",
+                    "PROMOZIONE CHIUSA"
+                )
+            },
+            onPrintRequested = { selectedProduct, offerPrice ->
+                android.util.Log.d(
+                    "OverlayService",
+                    "STAMPA PROMO articleId=${selectedProduct.articleId} prezzo=$offerPrice"
+                )
+
+                a4LabelsPopupController.showOfferForItem(
+                    item = A4LabelItem.fromProduct(selectedProduct),
+                    offerPrice = offerPrice,
+                    onClosed = {
+                        popupTimerPausedByUser = false
+
+                        if (productInfoPopup != null) {
+                            scheduleProductPopupDismiss(
+                                ProductInfoStore.current
+                            )
+                        }
+
+                        android.util.Log.d(
+                            "OverlayService",
+                            "STAMPA PROMO CHIUSA"
+                        )
+                    }
+                )
+
+                bringQuickScanDockToFront()
             }
         )
     }
@@ -5375,6 +5613,18 @@ class OverlayService : Service() {
         productInfoPopup = bindings.root
         productInfoPopupParams = bindings.windowParams
         priceValueText = bindings.priceValueText
+
+        if (defaultPriceBackground == null) {
+            defaultPriceBackground =
+                bindings.priceValueText.background
+                    ?.constantState
+                    ?.newDrawable()
+                    ?.mutate()
+
+            defaultPriceTextColor =
+                bindings.priceValueText.currentTextColor
+        }
+
         articleCodeValueText = bindings.articleCodeValueText
         barcodeValueText = bindings.barcodeValueText
         barcodeImageView = bindings.barcodeImageView
@@ -6100,6 +6350,81 @@ class OverlayService : Service() {
         }
     }
 
+    private fun updatePromoPriceAppearance(
+        product: ProductInfo?
+    ) {
+        val priceText = priceValueText ?: return
+
+        val promoApplies =
+            product != null &&
+                    currentPromoActive &&
+                    currentPromoArticleId == product.articleId &&
+                    currentPromoOfferPrice != null
+
+        if (promoApplies) {
+            val promoPrice = currentPromoOfferPrice ?: return
+
+            val promoPriceText =
+                String.format(
+                    Locale.ITALY,
+                    "%.2f €",
+                    promoPrice
+                )
+
+            val promoLabel = "PROMO ATTIVA"
+            val combinedText = "$promoPriceText\n$promoLabel"
+
+            priceText.text =
+                android.text.SpannableString(combinedText).apply {
+                    setSpan(
+                        android.text.style.RelativeSizeSpan(0.42f),
+                        promoPriceText.length + 1,
+                        combinedText.length,
+                        android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+                    )
+                }
+
+            priceText.gravity = Gravity.CENTER
+            priceText.maxLines = 2
+
+            priceText.setTextColor(Color.WHITE)
+
+            priceText.background =
+                GradientDrawable().apply {
+                    shape = GradientDrawable.RECTANGLE
+                    setColor(Color.rgb(198, 40, 40))
+                    cornerRadius =
+                        8f * resources.displayMetrics.density
+                }
+        } else {
+            if (product != null) {
+                val publicPrice =
+                    product.publicPrice
+                        .replace(",", ".")
+                        .toDoubleOrNull()
+
+                if (publicPrice != null) {
+                    priceText.text =
+                        String.format(
+                            Locale.ITALY,
+                            "%.2f €",
+                            publicPrice
+                        )
+                }
+            }
+
+            priceText.background =
+                defaultPriceBackground
+                    ?.constantState
+                    ?.newDrawable()
+                    ?.mutate()
+
+            defaultPriceTextColor?.let {
+                priceText.setTextColor(it)
+            }
+        }
+    }
+
     private fun updateProductInfoPopup(
         product: ProductInfo?,
         workflowCompleted: Boolean,
@@ -6110,6 +6435,8 @@ class OverlayService : Service() {
             product = product,
             workflowCompleted = workflowCompleted
         )
+
+        updatePromoPriceAppearance(product)
 
         if (
             product != null &&

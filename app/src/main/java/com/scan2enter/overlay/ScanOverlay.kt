@@ -57,6 +57,10 @@ class ScanOverlay(
         const val MODE_INFO = "INFO"
         const val MODE_LABELS_GODEX = "ETICHETTE_GODEX"
         const val MODE_LABELS_A4 = "ETICHETTE_A4"
+
+        const val UI_STATE_PREFS = "scan_ui_state"
+        const val UI_SCREEN_KEY = "current_screen"
+        const val SCREEN_PROMOTION_SEARCH = "TROVATUTTO_PROMOZIONE"
     }
 
     private val timeoutRunnable = Runnable {
@@ -272,7 +276,29 @@ class ScanOverlay(
 
                 closing = true
 
-                if (directToSession) {
+                if (isPromotionSearch()) {
+                    Log.d(
+                        TAG,
+                        "CAMERA BARCODE -> PROMOZIONE = $barcode"
+                    )
+
+                    context.startService(
+                        Intent(
+                            context,
+                            OverlayService::class.java
+                        ).apply {
+                            action =
+                                OverlayService.ACTION_OPEN_PROMOTION_ARTICLE
+
+                            putExtra(
+                                OverlayService.EXTRA_CURRENT_ARTICLE_BARCODE,
+                                barcode
+                            )
+                        }
+                    )
+
+                    hide()
+                } else if (directToSession) {
                     Log.d(
                         TAG,
                         "CAMERA BARCODE -> SESSIONE DIRETTA = $barcode"
@@ -344,15 +370,39 @@ class ScanOverlay(
         val normalized = barcode.trim()
         if (normalized.isBlank()) return
 
-        Log.d(
-            TAG,
-            "SUNMI BARCODE -> SCANSESSION = $normalized"
-        )
-
         closing = true
 
-        scanSession.onBarcodeRead(normalized) {
+        if (isPromotionSearch()) {
+            Log.d(
+                TAG,
+                "SUNMI BARCODE -> PROMOZIONE = $normalized"
+            )
+
+            context.startService(
+                Intent(
+                    context,
+                    OverlayService::class.java
+                ).apply {
+                    action =
+                        OverlayService.ACTION_OPEN_PROMOTION_ARTICLE
+
+                    putExtra(
+                        OverlayService.EXTRA_CURRENT_ARTICLE_BARCODE,
+                        normalized
+                    )
+                }
+            )
+
             hide()
+        } else {
+            Log.d(
+                TAG,
+                "SUNMI BARCODE -> SCANSESSION = $normalized"
+            )
+
+            scanSession.onBarcodeRead(normalized) {
+                hide()
+            }
         }
     }
 
@@ -395,6 +445,18 @@ class ScanOverlay(
             TAG,
             "SCANNER DISATTIVATO device=${ScannerModeDetector.current()}"
         )
+    }
+
+    private fun isPromotionSearch(): Boolean {
+        return context.applicationContext
+            .getSharedPreferences(
+                UI_STATE_PREFS,
+                Context.MODE_PRIVATE
+            )
+            .getString(
+                UI_SCREEN_KEY,
+                ""
+            ) == SCREEN_PROMOTION_SEARCH
     }
 
     private fun loadCurrentMode(): String {

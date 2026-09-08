@@ -416,77 +416,56 @@ object OfferPdfGenerator {
 
             /*
              * FOTO: parte bassa sinistra.
-             * Se disattivata, non lasciamo cornici o segnaposto.
+             * L'immagine vive sempre dentro una cornice dedicata e viene
+             * adattata proporzionalmente (fit-center), senza mai invadere
+             * descrizione, prezzo o bordo esterno del cartello.
              */
             if (showImage) {
-                val imagePadding =
+                val frameInset =
                     when (format) {
                         OfferFormat.SMALL_7X10 -> mm(1.5f)
                         OfferFormat.MEDIUM_15X20 -> mm(3f)
                         OfferFormat.A4_FULL -> mm(4f)
                     }
 
-                val originalLeft =
-                    leftFooter.left + imagePadding
-
-                val originalTop =
-                    leftFooter.top + imagePadding
-
-                val originalRight =
-                    leftFooter.right - imagePadding
-
-                val originalBottom =
-                    leftFooter.bottom - imagePadding
-
-                val originalWidth =
-                    originalRight - originalLeft
-
-                val originalHeight =
-                    originalBottom - originalTop
-
-                val imageWidth =
-                    originalWidth * 1.35f
-
-                val imageHeight =
-                    originalHeight * 1.35f
-
-                val centerX =
-                    (originalLeft + originalRight) / 2f -
-                            when (format) {
-                                OfferFormat.SMALL_7X10 -> mm(5f)
-                                OfferFormat.MEDIUM_15X20 -> mm(10f)
-                                OfferFormat.A4_FULL -> mm(10f)
-                            }
-
-                val centerY =
-                    (originalTop + originalBottom) / 2f - mm(2f)
-
-                val desiredLeft =
-                    centerX - imageWidth / 2f
-
-                val desiredRight =
-                    centerX + imageWidth / 2f
-
-                val minImageLeft =
-                    inner.left + mm(1f)
-
-                val correctionX =
-                    maxOf(
-                        0f,
-                        minImageLeft - desiredLeft
-                    )
-
-                val imageBounds = RectF(
-                    desiredLeft + correctionX,
-                    centerY - imageHeight / 2f,
-                    desiredRight + correctionX,
-                    centerY + imageHeight / 2f
+                val frameBounds = RectF(
+                    leftFooter.left + frameInset,
+                    leftFooter.top + frameInset,
+                    leftFooter.right - frameInset,
+                    leftFooter.bottom - frameInset
                 )
 
-                val bitmap =
-                    loadProductImage(
-                        item.barcode
-                    )
+                val framePaint =
+                    Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                        color = Color.LTGRAY
+                        style = Paint.Style.STROKE
+                        strokeWidth =
+                            mm(
+                                when (format) {
+                                    OfferFormat.SMALL_7X10 -> 0.35f
+                                    OfferFormat.MEDIUM_15X20 -> 0.55f
+                                    OfferFormat.A4_FULL -> 0.7f
+                                }
+                            )
+                    }
+
+                canvas.drawRect(frameBounds, framePaint)
+
+                val contentPadding =
+                    when (format) {
+                        OfferFormat.SMALL_7X10 -> mm(1.8f)
+                        OfferFormat.MEDIUM_15X20 -> mm(3.5f)
+                        OfferFormat.A4_FULL -> mm(5f)
+                    }
+
+                val imageBounds = RectF(
+                    frameBounds.left + contentPadding,
+                    frameBounds.top + contentPadding,
+                    frameBounds.right - contentPadding,
+                    frameBounds.bottom - contentPadding
+                )
+
+                val bitmap = loadProductImage(item.barcode)
 
                 if (bitmap != null) {
                     drawBitmapFitCenter(

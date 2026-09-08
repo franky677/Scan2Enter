@@ -30,6 +30,7 @@ import com.scan2enter.ui.screens.SessionScreen
 import com.scan2enter.ui.screens.SalesScreen
 import com.scan2enter.ui.screens.InventoryAnalysisScreen
 import com.scan2enter.ui.screens.ColloHistoryScreen
+import com.scan2enter.promotions.PromotionsScreen
 import com.scan2enter.session.SessionStore
 import com.scan2enter.ui.theme.Scan2EnterTheme
 
@@ -72,7 +73,10 @@ class MainActivity : ComponentActivity() {
                  */
                 if (
                     !ScannerModeDetector.isSunmi() ||
-                    currentScreenName != "HOME"
+                    (
+                            currentScreenName != "HOME" &&
+                                    currentScreenName != "TROVATUTTO_PROMOZIONE"
+                            )
                 ) {
                     return
                 }
@@ -122,17 +126,23 @@ class MainActivity : ComponentActivity() {
                         OverlayService::class.java
                     ).apply {
                         action =
-                            OverlayService.ACTION_OPEN_CURRENT_ARTICLE
+                            if (currentScreenName == "TROVATUTTO_PROMOZIONE") {
+                                OverlayService.ACTION_OPEN_PROMOTION_ARTICLE
+                            } else {
+                                OverlayService.ACTION_OPEN_CURRENT_ARTICLE
+                            }
 
                         putExtra(
                             OverlayService.EXTRA_CURRENT_ARTICLE_BARCODE,
                             barcode
                         )
 
-                        putExtra(
-                            OverlayService.EXTRA_FORCE_STOCK_SOUND,
-                            true
-                        )
+                        if (currentScreenName == "HOME") {
+                            putExtra(
+                                OverlayService.EXTRA_FORCE_STOCK_SOUND,
+                                true
+                            )
+                        }
                     }
                 )
             }
@@ -472,6 +482,32 @@ class MainActivity : ComponentActivity() {
                         )
                     }
 
+                    "TROVATUTTO_PROMOZIONE" -> {
+                        TrovaTuttoScreen(
+                            onBack = {
+                                currentScreen = "PROMOZIONI"
+                            },
+                            onArticleSelected = { barcode ->
+                                currentScreen = "PROMOZIONI"
+
+                                startService(
+                                    Intent(
+                                        this@MainActivity,
+                                        OverlayService::class.java
+                                    ).apply {
+                                        action =
+                                            OverlayService.ACTION_OPEN_PROMOTION_ARTICLE
+
+                                        putExtra(
+                                            OverlayService.EXTRA_CURRENT_ARTICLE_BARCODE,
+                                            barcode
+                                        )
+                                    }
+                                )
+                            }
+                        )
+                    }
+
 
                     "TROVATUTTO_GODEX" -> {
                         TrovaTuttoScreen(
@@ -542,6 +578,62 @@ class MainActivity : ComponentActivity() {
                         )
                     }
 
+                    "PROMOZIONI" -> {
+                        PromotionsScreen(
+                            onBack = {
+                                currentScreen = "HOME"
+                            },
+                            onPromotionSelected = { barcode ->
+                                startService(
+                                    Intent(
+                                        this@MainActivity,
+                                        OverlayService::class.java
+                                    ).apply {
+                                        action =
+                                            OverlayService.ACTION_OPEN_PROMOTION_ARTICLE
+
+                                        putExtra(
+                                            OverlayService.EXTRA_CURRENT_ARTICLE_BARCODE,
+                                            barcode
+                                        )
+                                    }
+                                )
+                            },
+                            onNewPromotion = {
+                                currentScreen = "TROVATUTTO_PROMOZIONE"
+
+                                applicationContext
+                                    .getSharedPreferences(
+                                        "scan_ui_state",
+                                        MODE_PRIVATE
+                                    )
+                                    .edit()
+                                    .putString(
+                                        "current_screen",
+                                        "TROVATUTTO_PROMOZIONE"
+                                    )
+                                    .apply()
+
+                                /*
+                                 * Zebra usa DataWedge/hardware scanner:
+                                 * non apriamo la fotocamera quando parte NUOVA PROMO.
+                                 * Su S24 e altri dispositivi camera manteniamo invece
+                                 * l'apertura automatica dello scanner.
+                                 */
+                                if (!ScannerModeDetector.isZebra()) {
+                                    startService(
+                                        Intent(
+                                            this@MainActivity,
+                                            OverlayService::class.java
+                                        ).apply {
+                                            action = OverlayService.ACTION_OPEN_SCANNER
+                                        }
+                                    )
+                                }
+                            }
+                        )
+                    }
+
                     "VENDITE" -> {
                         SalesScreen(
                             onBack = {
@@ -596,6 +688,9 @@ class MainActivity : ComponentActivity() {
                             },
                             onOpenInventoryAnalysis = {
                                 currentScreen = "ANALISI_MAGAZZINO"
+                            },
+                            onOpenPromotions = {
+                                currentScreen = "PROMOZIONI"
                             }
                         )
                     }
