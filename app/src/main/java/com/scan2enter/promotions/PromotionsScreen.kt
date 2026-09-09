@@ -1,6 +1,7 @@
 package com.scan2enter.promotions
 
 import android.widget.Toast
+import android.view.WindowManager
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -10,16 +11,19 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -36,6 +40,9 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.dp
 import com.scan2enter.api.GatewayApiClient
 import com.scan2enter.api.ProductPromotionListItemDto
+import com.scan2enter.api.ProductPromotionGroupDto
+import com.scan2enter.api.ProductPromotionProducerOptionDto
+import com.scan2enter.overlay.popup.PromotionGroupManagementPopup
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import kotlinx.coroutines.Dispatchers
@@ -55,20 +62,45 @@ fun PromotionsScreen(
 
     val context = LocalContext.current
     val api = remember { GatewayApiClient() }
+    val windowManager = remember {
+        context.getSystemService(WindowManager::class.java)
+    }
+    val groupPopup = remember {
+        PromotionGroupManagementPopup(
+            context = context.applicationContext,
+            windowManager = windowManager
+        )
+    }
 
     var selectedStatus by remember { mutableStateOf<String?>( "ATTIVE" ) }
     var query by remember { mutableStateOf("") }
     var appliedQuery by remember { mutableStateOf("") }
     var items by remember { mutableStateOf<List<ProductPromotionListItemDto>>(emptyList()) }
+    var groups by remember { mutableStateOf<List<ProductPromotionGroupDto>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var reloadKey by remember { mutableStateOf(0) }
+
+    var showNewPromotionChoice by remember { mutableStateOf(false) }
+    var showManufacturerPicker by remember { mutableStateOf(false) }
+    var manufacturerQuery by remember { mutableStateOf("") }
+    var manufacturers by remember {
+        mutableStateOf<List<ProductPromotionProducerOptionDto>>(emptyList())
+    }
+    var manufacturersLoading by remember { mutableStateOf(false) }
+    var manufacturersError by remember { mutableStateOf<String?>(null) }
 
     /*
      * L'editor PROMO è un overlay del servizio: tornando visibile/attiva
      * questa schermata ricarichiamo l'elenco dal Gateway, così SALVA ed
      * ELIMINA si riflettono subito senza uscire e rientrare nel modulo.
      */
+    DisposableEffect(groupPopup) {
+        onDispose {
+            groupPopup.remove(notifyClosed = false)
+        }
+    }
+
     val lifecycleOwner = LocalLifecycleOwner.current
 
     DisposableEffect(lifecycleOwner) {
@@ -97,15 +129,217 @@ fun PromotionsScreen(
         }
 
         result
-            .onSuccess {
-                items = it
+            .onSuccess { response ->
+                items = response.items
+                groups = response.groups
             }
             .onFailure {
                 items = emptyList()
+                groups = emptyList()
                 errorMessage = it.message ?: "Errore Gateway"
             }
 
         isLoading = false
+    }
+
+
+    LaunchedEffect(showManufacturerPicker) {
+        if (!showManufacturerPicker) return@LaunchedEffect
+
+        manufacturersLoading = true
+        manufacturersError = null
+
+        val result = withContext(Dispatchers.IO) {
+            api.getPromotionProducerOptions()
+        }
+
+        result
+            .onSuccess { list ->
+                manufacturers = list
+                    .filter { it.producerId > 0L && it.producerDescription.isNotBlank() }
+                    .sortedBy { it.producerDescription.uppercase(Locale.ITALY) }
+            }
+            .onFailure {
+                manufacturers = emptyList()
+                manufacturersError = it.message ?: "Errore caricamento marche"
+            }
+
+        manufacturersLoading = false
+    }
+
+    if (showNewPromotionChoice) {
+        AlertDialog(
+            onDismissRequest = { showNewPromotionChoice = false },
+            title = {
+                Text(
+                    text = "NUOVA PROMO",
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Text("Scegli se creare una promo per un singolo articolo o per una marca.")
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showNewPromotionChoice = false
+                        manufacturerQuery = ""
+                        showManufacturerPicker = true
+                    }
+                ) {
+                    Text("MARCA")
+                }
+            },
+            dismissButton = {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    TextButton(
+                        onClick = { showNewPromotionChoice = false }
+                    ) {
+                        Text("ANNULLA")
+                    }
+
+                    Button(
+                        onClick = {
+                            showNewPromotionChoice = false
+                            onNewPromotion()
+                        }
+                    ) {
+                        Text("ARTICOLO")
+                    }
+                }
+            }
+        )
+    }
+
+    if (showManufacturerPicker) {
+        val normalizedQuery = manufacturerQuery.trim()
+        val filteredManufacturers =
+            if (normalizedQuery.isBlank()) {
+                manufacturers
+            } else {
+                manufacturers.filter { item ->
+                    item.producerDescription.contains(normalizedQuery, ignoreCase = true) ||
+                            item.producerCode.orEmpty().contains(normalizedQuery, ignoreCase = true) ||
+                            item.producerId.toString().contains(normalizedQuery)
+                }
+            }
+
+        AlertDialog(
+            onDismissRequest = { showManufacturerPicker = false },
+            title = {
+                Text(
+                    text = "NUOVA PROMO MARCA",
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Column {
+                    OutlinedTextField(
+                        value = manufacturerQuery,
+                        onValueChange = { manufacturerQuery = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        label = { Text("Cerca marca") }
+                    )
+
+                    Spacer(Modifier.height(8.dp))
+
+                    when {
+                        manufacturersLoading -> {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.Center
+                            ) {
+                                CircularProgressIndicator()
+                            }
+                        }
+
+                        manufacturersError != null -> {
+                            Text(
+                                text = manufacturersError.orEmpty(),
+                                color = MaterialTheme.colorScheme.error
+                            )
+                        }
+
+                        filteredManufacturers.isEmpty() -> {
+                            Text("Nessuna marca trovata")
+                        }
+
+                        else -> {
+                            LazyColumn(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(max = 420.dp),
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                items(
+                                    items = filteredManufacturers,
+                                    key = { "producer-${it.producerId}" }
+                                ) { manufacturer ->
+                                    val manufacturerId = manufacturer.producerId
+                                    if (manufacturerId > 0L) {
+                                        Card(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clickable {
+                                                    showManufacturerPicker = false
+
+                                                    val newGroup =
+                                                        ProductPromotionGroupDto(
+                                                            idPromoGroup = 0L,
+                                                            groupType = "PRODUTTORE",
+                                                            groupId = manufacturerId,
+                                                            groupCode = manufacturer.producerCode.orEmpty(),
+                                                            groupDescription = manufacturer.producerDescription,
+                                                            discountPercent = 0.0,
+                                                            validFrom = null,
+                                                            validTo = null,
+                                                            enabled = true,
+                                                            status = "NUOVA",
+                                                            eligibleArticles = manufacturer.eligibleArticles,
+                                                            materializedArticles = 0,
+                                                            createdAt = "",
+                                                            updatedAt = ""
+                                                        )
+
+                                                    groupPopup.show(
+                                                        promo = newGroup,
+                                                        onSaved = { reloadKey++ },
+                                                        onDeleted = { reloadKey++ },
+                                                        onClosed = { reloadKey++ }
+                                                    )
+                                                }
+                                        ) {
+                                            Column(
+                                                modifier = Modifier.padding(10.dp)
+                                            ) {
+                                                Text(
+                                                    text = manufacturer.producerDescription,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                                Text(
+                                                    text = "${formatArticleCount(manufacturer.eligibleArticles)} articoli",
+                                                    style = MaterialTheme.typography.bodySmall
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = { showManufacturerPicker = false }
+                ) {
+                    Text("CHIUDI")
+                }
+            }
+        )
     }
 
     Column(
@@ -131,7 +365,7 @@ fun PromotionsScreen(
                 )
             }
 
-            Button(onClick = onNewPromotion) {
+            Button(onClick = { showNewPromotionChoice = true }) {
                 Text("+ NUOVA PROMO")
             }
         }
@@ -221,7 +455,7 @@ fun PromotionsScreen(
                 )
             }
 
-            items.isEmpty() -> {
+            items.isEmpty() && groups.isEmpty() -> {
                 Text(
                     text = "Nessuna promozione trovata",
                     modifier = Modifier.padding(top = 20.dp)
@@ -232,9 +466,34 @@ fun PromotionsScreen(
                 LazyColumn(
                     verticalArrangement = Arrangement.spacedBy(9.dp)
                 ) {
+                    if (groups.isNotEmpty()) {
+                        items(
+                            items = groups,
+                            key = { "group-${it.idPromoGroup}" }
+                        ) { promoGroup ->
+                            PromotionGroupCard(
+                                promo = promoGroup,
+                                onClick = {
+                                    groupPopup.show(
+                                        promo = promoGroup,
+                                        onSaved = {
+                                            reloadKey++
+                                        },
+                                        onDeleted = {
+                                            reloadKey++
+                                        },
+                                        onClosed = {
+                                            reloadKey++
+                                        }
+                                    )
+                                }
+                            )
+                        }
+                    }
+
                     items(
                         items = items,
-                        key = { it.articleId }
+                        key = { "article-${it.articleId}" }
                     ) { promo ->
                         PromotionCard(
                             promo = promo,
@@ -279,6 +538,81 @@ private fun PromoFilterButton(
         )
     }
 }
+
+@Composable
+private fun PromotionGroupCard(
+    promo: ProductPromotionGroupDto,
+    onClick: () -> Unit
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+    ) {
+        Column(
+            modifier = Modifier.padding(14.dp)
+        ) {
+            Text(
+                text = promo.groupDescription.ifBlank {
+                    promo.groupCode.ifBlank { "PROMO GRUPPO" }
+                },
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
+            )
+
+            Text(
+                text = buildString {
+                    append("PROMO MARCA")
+                    if (promo.groupCode.isNotBlank()) {
+                        append("  •  ${promo.groupCode}")
+                    }
+                    append("  •  ${prettyStatus(promo.status)}")
+                },
+                style = MaterialTheme.typography.bodySmall
+            )
+
+            Spacer(Modifier.height(7.dp))
+
+            Text(
+                text = "Sconto ${formatPercent(promo.discountPercent)}%",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold
+            )
+
+            Text(
+                text = formatGroupValidity(promo),
+                style = MaterialTheme.typography.bodyMedium
+            )
+
+            Text(
+                text = buildString {
+                    append("${formatArticleCount(promo.eligibleArticles)} articoli")
+                    if (promo.materializedArticles >= 0) {
+                        append("  •  ${formatArticleCount(promo.materializedArticles)} materializzati")
+                    }
+                },
+                style = MaterialTheme.typography.bodySmall
+            )
+        }
+    }
+}
+
+private fun formatGroupValidity(
+    promo: ProductPromotionGroupDto
+): String {
+    val from = formatDate(promo.validFrom)
+    val to = formatDate(promo.validTo)
+
+    return when {
+        from == null && to == null -> "Senza scadenza"
+        from != null && to != null -> "Dal $from al $to"
+        from != null -> "Dal $from"
+        else -> "Fino al $to"
+    }
+}
+
+private fun formatArticleCount(value: Int): String =
+    NumberFormat.getIntegerInstance(Locale.ITALY).format(value)
 
 @Composable
 private fun PromotionCard(

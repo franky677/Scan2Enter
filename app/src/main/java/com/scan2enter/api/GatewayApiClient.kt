@@ -351,7 +351,7 @@ class GatewayApiClient(
     fun getPromotions(
         status: String? = null,
         query: String = ""
-    ): Result<List<ProductPromotionListItemDto>> = runCatching {
+    ): Result<PromotionsDto> = runCatching {
         val normalizedStatus =
             status?.trim()?.uppercase()?.takeIf { it.isNotBlank() }
 
@@ -449,7 +449,271 @@ class GatewayApiClient(
             )
         }
 
+        val groupsArray = root.optJSONArray("groups") ?: JSONArray()
+        val groups =
+            ArrayList<ProductPromotionGroupDto>(groupsArray.length())
+
+        for (index in 0 until groupsArray.length()) {
+            val item = groupsArray.optJSONObject(index) ?: continue
+            val idPromoGroup = item.optLong("idPromoGroup", 0L)
+            if (idPromoGroup <= 0L) continue
+
+            groups.add(
+                ProductPromotionGroupDto(
+                    idPromoGroup = idPromoGroup,
+                    groupType = item.optString("groupType", "").trim(),
+                    groupId = item.optLong("groupId", 0L),
+                    groupCode = item.optString("groupCode", "").trim(),
+                    groupDescription =
+                        item.optString("groupDescription", "").trim(),
+                    discountPercent =
+                        item.optDouble("discountPercent", 0.0),
+                    validFrom =
+                        item.optNullablePromoString("validFrom"),
+                    validTo =
+                        item.optNullablePromoString("validTo"),
+                    enabled = item.optBoolean("enabled", false),
+                    status = item.optString("status", "").trim(),
+                    eligibleArticles =
+                        item.optInt("eligibleArticles", 0),
+                    materializedArticles =
+                        item.optInt("materializedArticles", 0),
+                    createdAt =
+                        item.optString("createdAt", "").trim(),
+                    updatedAt =
+                        item.optString("updatedAt", "").trim()
+                )
+            )
+        }
+
+        PromotionsDto(
+            items = result,
+            groups = groups,
+            count = root.optInt("count", result.size + groups.size),
+            individualCount = root.optInt("individualCount", result.size),
+            groupCount = root.optInt("groupCount", groups.size),
+            generatedAt = root.optString("generatedAt", "").trim()
+        )
+    }
+
+    /**
+     * Cerca produttori/marche eleggibili per una nuova promo di gruppo.
+     *
+     * Usa l'endpoint dedicato alle promo, quindi il conteggio coincide con
+     * l'eleggibilita' della materializzazione:
+     * articolo attivo + listino pubblico 1 + prezzo > 0.
+     *
+     * GET /api/promotion-groups/producers?q=...
+     */
+    fun getPromotionProducerOptions(
+        query: String = ""
+    ): Result<List<ProductPromotionProducerOptionDto>> = runCatching {
+        val encodedQuery = URLEncoder.encode(
+            query.trim(),
+            StandardCharsets.UTF_8.name()
+        )
+
+        val url =
+            "${baseUrl.trimEnd('/')}/api/promotion-groups/producers" +
+                    if (query.isBlank()) "" else "?q=$encodedQuery"
+
+        Log.d(TAG, "GATEWAY GET PROMOTION PRODUCERS")
+        Log.d(TAG, "URL = $url")
+
+        val response = executeGet(url)
+
+        Log.d(TAG, "GATEWAY PROMOTION PRODUCERS HTTP=${response.code}")
+        Log.d(TAG, "BODY=${response.body.take(1500)}")
+
+        if (response.code !in 200..299) {
+            error(
+                "Gateway HTTP ${response.code}: ${response.body.take(500)}"
+            )
+        }
+
+        val root = JSONObject(response.body)
+        val array = root.optJSONArray("items")
+            ?: error(
+                "Risposta Gateway non valida: items produttori promo mancanti"
+            )
+
+        val result =
+            ArrayList<ProductPromotionProducerOptionDto>(array.length())
+
+        for (index in 0 until array.length()) {
+            val item = array.optJSONObject(index) ?: continue
+            val producerId = item.optLong("producerId", 0L)
+            if (producerId <= 0L) continue
+
+            result.add(
+                ProductPromotionProducerOptionDto(
+                    producerId = producerId,
+                    producerCode =
+                        item.optNullablePromoString("producerCode"),
+                    producerDescription =
+                        item.optString("producerDescription", "").trim(),
+                    eligibleArticles =
+                        item.optInt("eligibleArticles", 0)
+                )
+            )
+        }
+
         result
+    }
+
+
+    /**
+     * Crea o modifica una promo per produttore/marca.
+     *
+     * PUT /api/promotion-groups/producer/{producerId}
+     */
+    fun updateProducerPromotionGroup(
+        producerId: Long,
+        idPromoGroup: Long?,
+        discountPercent: Double,
+        validFrom: String? = null,
+        validTo: String? = null,
+        enabled: Boolean = true
+    ): Result<ProductPromotionGroupDto> = runCatching {
+        require(producerId > 0L) {
+            "producerId non valido: $producerId"
+        }
+        require(idPromoGroup == null || idPromoGroup > 0L) {
+            "idPromoGroup non valido: $idPromoGroup"
+        }
+        require(discountPercent > 0.0 && discountPercent <= 100.0) {
+            "Sconto promo marca non valido: $discountPercent"
+        }
+
+        val url =
+            "${baseUrl.trimEnd('/')}/api/promotion-groups/producer/$producerId"
+
+        val body = JSONObject()
+            .apply {
+                put("idPromoGroup", idPromoGroup ?: JSONObject.NULL)
+                put("discountPercent", discountPercent)
+                put(
+                    "validFrom",
+                    validFrom?.trim()?.takeIf { it.isNotBlank() }
+                        ?: JSONObject.NULL
+                )
+                put(
+                    "validTo",
+                    validTo?.trim()?.takeIf { it.isNotBlank() }
+                        ?: JSONObject.NULL
+                )
+                put("enabled", enabled)
+            }
+            .toString()
+
+        Log.d(TAG, "GATEWAY UPDATE PRODUCER PROMOTION GROUP")
+        Log.d(
+            TAG,
+            "PRODUCER ID=$producerId GROUP ID=$idPromoGroup " +
+                    "DISCOUNT=$discountPercent ENABLED=$enabled"
+        )
+        Log.d(TAG, "URL = $url")
+
+        val response = executeJson(
+            urlString = url,
+            method = "PUT",
+            jsonBody = body
+        )
+
+        Log.d(
+            TAG,
+            "GATEWAY UPDATE PRODUCER PROMOTION GROUP HTTP=${response.code}"
+        )
+        Log.d(TAG, "BODY=${response.body.take(1200)}")
+
+        if (response.code !in 200..299) {
+            error(
+                "Gateway HTTP ${response.code}: ${response.body.take(500)}"
+            )
+        }
+
+        val root = JSONObject(response.body)
+
+        check(root.optBoolean("saved", false)) {
+            root.optString(
+                "message",
+                "Salvataggio promo marca non riuscito"
+            )
+        }
+
+        val group = root.optJSONObject("group")
+            ?: error("Risposta Gateway non valida: group mancante")
+
+        parseProductPromotionGroup(group)
+    }
+
+    /**
+     * Elimina una promo per produttore/marca.
+     *
+     * DELETE /api/promotion-groups/{idPromoGroup}
+     */
+    fun deletePromotionGroup(
+        idPromoGroup: Long
+    ): Result<Boolean> = runCatching {
+        require(idPromoGroup > 0L) {
+            "idPromoGroup non valido: $idPromoGroup"
+        }
+
+        val url =
+            "${baseUrl.trimEnd('/')}/api/promotion-groups/$idPromoGroup"
+
+        Log.d(TAG, "GATEWAY DELETE PROMOTION GROUP")
+        Log.d(TAG, "GROUP ID=$idPromoGroup")
+        Log.d(TAG, "URL = $url")
+
+        val response = executeWithoutBody(
+            urlString = url,
+            method = "DELETE"
+        )
+
+        Log.d(
+            TAG,
+            "GATEWAY DELETE PROMOTION GROUP HTTP=${response.code}"
+        )
+        Log.d(TAG, "BODY=${response.body.take(800)}")
+
+        if (response.code !in 200..299) {
+            error(
+                "Gateway HTTP ${response.code}: ${response.body.take(500)}"
+            )
+        }
+
+        JSONObject(response.body)
+            .optBoolean("deleted", false)
+    }
+
+    private fun parseProductPromotionGroup(
+        json: JSONObject
+    ): ProductPromotionGroupDto {
+        return ProductPromotionGroupDto(
+            idPromoGroup = json.optLong("idPromoGroup", 0L),
+            groupType = json.optString("groupType", "").trim(),
+            groupId = json.optLong("groupId", 0L),
+            groupCode = json.optString("groupCode", "").trim(),
+            groupDescription =
+                json.optString("groupDescription", "").trim(),
+            discountPercent =
+                json.optDouble("discountPercent", 0.0),
+            validFrom =
+                json.optNullablePromoString("validFrom"),
+            validTo =
+                json.optNullablePromoString("validTo"),
+            enabled = json.optBoolean("enabled", false),
+            status = json.optString("status", "").trim(),
+            eligibleArticles =
+                json.optInt("eligibleArticles", 0),
+            materializedArticles =
+                json.optInt("materializedArticles", 0),
+            createdAt =
+                json.optString("createdAt", "").trim(),
+            updatedAt =
+                json.optString("updatedAt", "").trim()
+        )
     }
 
     private fun parseProductPromo(
@@ -3033,6 +3297,40 @@ data class ProductExpiryAlertDto(
     val hasAlerts: Boolean
         get() = count > 0
 }
+
+data class ProductPromotionProducerOptionDto(
+    val producerId: Long,
+    val producerCode: String?,
+    val producerDescription: String,
+    val eligibleArticles: Int
+)
+
+data class ProductPromotionGroupDto(
+    val idPromoGroup: Long,
+    val groupType: String,
+    val groupId: Long,
+    val groupCode: String,
+    val groupDescription: String,
+    val discountPercent: Double,
+    val validFrom: String?,
+    val validTo: String?,
+    val enabled: Boolean,
+    val status: String,
+    val eligibleArticles: Int,
+    val materializedArticles: Int,
+    val createdAt: String,
+    val updatedAt: String
+)
+
+data class PromotionsDto(
+    val items: List<ProductPromotionListItemDto>,
+    val groups: List<ProductPromotionGroupDto>,
+    val count: Int,
+    val individualCount: Int,
+    val groupCount: Int,
+    val generatedAt: String
+)
+
 
 
 data class ProductExpiryDto(
