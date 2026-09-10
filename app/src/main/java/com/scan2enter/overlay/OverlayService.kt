@@ -639,6 +639,7 @@ class OverlayService : Service() {
     private var currentPromoArticleId: Long? = null
     private var currentPromoOfferPrice: Double? = null
     private var currentPromoActive = false
+    private var currentPromoLoadingArticleId: Long? = null
     private var defaultPriceBackground: android.graphics.drawable.Drawable? = null
     private var defaultPriceTextColor: Int? = null
     private var articleCodeValueText: TextView? = null
@@ -1808,6 +1809,30 @@ class OverlayService : Service() {
                             allowAutoReopenScanner = !suppressAutoReopenScanner,
                             manualAlertSoundsOnly = manualAlertSoundsOnly
                         )
+
+                        /*
+                         * Il ProductInfoPopup può completare alcuni aggiornamenti
+                         * asincroni subito dopo il primo render. Se la promo è già
+                         * stata risolta dal Gateway, ribadiamo l'aspetto promo sul
+                         * TextView del prezzo senza modificare product.publicPrice,
+                         * che deve restare il vero prezzo pubblico per editor/listini.
+                         */
+                        if (promoIsActive) {
+                            popupHandler.post {
+                                updatePromoPriceAppearance(enrichedProduct)
+                            }
+                            popupHandler.postDelayed(
+                                {
+                                    if (
+                                        currentPromoActive &&
+                                        currentPromoArticleId == enrichedProduct.articleId
+                                    ) {
+                                        updatePromoPriceAppearance(enrichedProduct)
+                                    }
+                                },
+                                250L
+                            )
+                        }
                     }
 
                     onLoaded?.invoke(enrichedProduct)
@@ -4980,6 +5005,20 @@ class OverlayService : Service() {
         )
 
         /*
+         * Lo scanner normale può arrivare qui senza passare da
+         * openCurrentArticleFromApi(): in quel caso risolviamo ora la promo
+         * effettiva e aggiorniamo soltanto la resa visiva del prezzo.
+         */
+        if (
+            workflowCompleted &&
+            product != null &&
+            product.articleId > 0L &&
+            currentPromoArticleId != product.articleId
+        ) {
+            refreshPromoForProductPopup(product)
+        }
+
+        /*
          * Durante la lettura progressiva il popup lascia passare i tocchi
          * necessari al servizio Accessibility. Appena il prodotto è completo,
          * la finestra diventa interattiva e torna opaca al 100%.
@@ -6361,6 +6400,87 @@ class OverlayService : Service() {
         }
     }
 
+    /**
+     * Risolve la promo effettiva anche per il percorso popup progressivo
+     * (scanner normale / Accessibility), che non passa necessariamente da
+     * openCurrentArticleFromApi(). Il ProductInfo originale non viene mai
+     * modificato: al termine aggiorniamo soltanto lo stato visuale del popup.
+     */
+    private fun refreshPromoForProductPopup(
+        product: ProductInfo
+    ) {
+        if (product.articleId <= 0L) return
+
+        if (currentPromoLoadingArticleId == product.articleId) {
+            return
+        }
+
+        currentPromoLoadingArticleId = product.articleId
+
+        Thread {
+            val promo =
+                gatewayApiClient
+                    .getProductPromo(product.articleId)
+                    .getOrNull()
+
+            val now = System.currentTimeMillis()
+
+            fun promoDateMillis(raw: String?): Long? {
+                if (raw.isNullOrBlank()) return null
+                val clean = raw.take(19)
+                return runCatching {
+                    java.text.SimpleDateFormat(
+                        "yyyy-MM-dd'T'HH:mm:ss",
+                        Locale.US
+                    ).apply {
+                        isLenient = false
+                    }.parse(clean)?.time
+                }.getOrNull()
+            }
+
+            val validFromMillis = promoDateMillis(promo?.validFrom)
+            val validToMillis = promoDateMillis(promo?.validTo)
+
+            val promoIsActive =
+                promo != null &&
+                        (validFromMillis == null || now >= validFromMillis) &&
+                        (validToMillis == null || now <= validToMillis)
+
+            popupHandler.post {
+                if (currentPromoLoadingArticleId == product.articleId) {
+                    currentPromoLoadingArticleId = null
+                }
+
+                val current = ProductInfoStore.current
+                if (current?.articleId != product.articleId) {
+                    return@post
+                }
+
+                currentPromoArticleId = product.articleId
+                currentPromoActive = promoIsActive
+                currentPromoOfferPrice =
+                    if (promoIsActive) promo?.offerPrice else null
+
+                /*
+                 * Ridisegniamo tutto il popup passando dal normale update:
+                 * updateProductInfoPopup creerà una copia SOLO VISUALE col
+                 * prezzo promo, senza alterare ProductInfoStore.current.
+                 */
+                updateProductInfoPopup(
+                    product = current,
+                    workflowCompleted = true,
+                    playStockSound = false
+                )
+
+                android.util.Log.d(
+                    "OverlayService",
+                    "PROMO POPUP RISOLTA articleId=${product.articleId} " +
+                            "attiva=$promoIsActive prezzo=${currentPromoOfferPrice}"
+                )
+            }
+        }.start()
+    }
+
     private fun updatePromoPriceAppearance(
         product: ProductInfo?
     ) {
@@ -6442,8 +6562,35 @@ class OverlayService : Service() {
         playStockSound: Boolean,
         alertSoundsOnly: Boolean = false
     ) {
+        /*
+         * IMPORTANTE: il prezzo promo qui viene usato solo per il rendering
+         * del popup. ProductInfoStore.current e il ProductInfo originale
+         * continuano a conservare il vero prezzo pubblico.
+         *
+         * In questo modo anche eventuali aggiornamenti asincroni interni a
+         * ProductInfoPopup partono gia' dal prezzo visivo corretto e non
+         * possono ripristinare il prezzo pubblico dopo updatePromoPriceAppearance().
+         */
+        val popupProduct =
+            if (
+                product != null &&
+                currentPromoActive &&
+                currentPromoArticleId == product.articleId &&
+                currentPromoOfferPrice != null
+            ) {
+                product.copy(
+                    publicPrice = String.format(
+                        Locale.US,
+                        "%.2f",
+                        currentPromoOfferPrice
+                    )
+                )
+            } else {
+                product
+            }
+
         val stockSoundStatus = productInfoPopupController.update(
-            product = product,
+            product = popupProduct,
             workflowCompleted = workflowCompleted
         )
 
