@@ -50,7 +50,9 @@ object SessionStore {
         discount4: Double = 0.0,
         manualDiscount: Double = 0.0,
         finalPrice: String = "",
-        manualPrice: String = ""
+        manualPrice: String = "",
+        promoActive: Boolean? = null,
+        promoValidToEpochMillis: Long? = null
     ): SessionItem? {
         if (product.articleId <= 0L || amount <= 0) return null
 
@@ -113,12 +115,21 @@ object SessionStore {
                     discount2 = discount2,
                     discount3 = discount3,
                     discount4 = discount4,
-                    manualDiscount = manualDiscount,
+                    manualDiscount =
+                        if (promoActive == true) 0.0 else manualDiscount,
                     finalPrice = effectiveFinalPrice,
-                    manualPrice = manualPrice,
+                    manualPrice =
+                        if (promoActive == true) "" else manualPrice,
                     effectiveMarkupPercent = null,
                     roundingPrice = "",
-                    roundingAdjustment = ""
+                    roundingAdjustment = "",
+                    promoActive = promoActive ?: false,
+                    promoValidToEpochMillis =
+                        if (promoActive != null) {
+                            promoValidToEpochMillis
+                        } else {
+                            null
+                        }
                 )
             } else {
                 old.copy(
@@ -143,13 +154,30 @@ object SessionStore {
                     discount2 = discount2,
                     discount3 = discount3,
                     discount4 = discount4,
-                    manualDiscount = manualDiscount,
+                    manualDiscount =
+                        if (promoActive == true) {
+                            0.0
+                        } else {
+                            manualDiscount
+                        },
                     finalPrice =
                         effectiveFinalPrice.ifBlank { old.finalPrice },
                     manualPrice =
-                        manualPrice.ifBlank { old.manualPrice },
+                        if (promoActive == true) {
+                            ""
+                        } else {
+                            manualPrice.ifBlank { old.manualPrice }
+                        },
                     roundingPrice = "",
-                    roundingAdjustment = ""
+                    roundingAdjustment = "",
+                    promoActive =
+                        promoActive ?: old.promoActive,
+                    promoValidToEpochMillis =
+                        if (promoActive != null) {
+                            promoValidToEpochMillis
+                        } else {
+                            old.promoValidToEpochMillis
+                        }
                 )
             }
 
@@ -201,6 +229,14 @@ object SessionStore {
         synchronized(lock) {
             val old = items[articleId] ?: return
 
+            if (old.isPromoPriceLocked) {
+                android.util.Log.d(
+                    "SessionStore",
+                    "SCONTO MANUALE BLOCCATO: promo attiva articleId=$articleId"
+                )
+                return
+            }
+
             items[articleId] =
                 old.copy(
                     manualDiscount = manualDiscount,
@@ -221,6 +257,14 @@ object SessionStore {
     ) {
         synchronized(lock) {
             val old = items[articleId] ?: return
+
+            if (old.isPromoPriceLocked) {
+                android.util.Log.d(
+                    "SessionStore",
+                    "PREZZO MANUALE BLOCCATO: promo attiva articleId=$articleId"
+                )
+                return
+            }
 
             items[articleId] =
                 old.copy(
@@ -250,7 +294,12 @@ object SessionStore {
                 items[articleId] =
                     old.copy(
                         quantity = quantity.coerceAtMost(9999),
-                        manualPrice = manualPrice.trim(),
+                        manualPrice =
+                            if (old.isPromoPriceLocked) {
+                                old.manualPrice
+                            } else {
+                                manualPrice.trim()
+                            },
                         roundingPrice = "",
                         roundingAdjustment = ""
                     )
@@ -278,6 +327,17 @@ object SessionStore {
 
             if (quantity <= 0) {
                 items.remove(articleId)
+            } else if (old.isPromoPriceLocked) {
+                /*
+                 * Promo attiva: dal Collo veloce è ammessa soltanto la quantità.
+                 * Prezzo, listino, sconti e ricarico restano quelli della promo.
+                 */
+                items[articleId] =
+                    old.copy(
+                        quantity = quantity.coerceAtMost(9999),
+                        roundingPrice = "",
+                        roundingAdjustment = ""
+                    )
             } else {
                 items[articleId] =
                     old.copy(
@@ -517,7 +577,15 @@ object SessionStore {
                                 null
                             },
                         roundingPrice = "",
-                        roundingAdjustment = ""
+                        roundingAdjustment = "",
+                        promoActive =
+                            obj.optBoolean("promoActive", false),
+                        promoValidToEpochMillis =
+                            if (obj.has("promoValidToEpochMillis") && !obj.isNull("promoValidToEpochMillis")) {
+                                obj.optLong("promoValidToEpochMillis")
+                            } else {
+                                null
+                            }
                     )
             }
         }.onFailure {
@@ -656,6 +724,15 @@ object SessionStore {
                     }
                     put("roundingPrice", item.roundingPrice)
                     put("roundingAdjustment", item.roundingAdjustment)
+                    put("promoActive", item.promoActive)
+                    if (item.promoValidToEpochMillis != null) {
+                        put(
+                            "promoValidToEpochMillis",
+                            item.promoValidToEpochMillis
+                        )
+                    } else {
+                        put("promoValidToEpochMillis", JSONObject.NULL)
+                    }
                 }
             )
         }

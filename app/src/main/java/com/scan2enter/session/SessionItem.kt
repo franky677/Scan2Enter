@@ -20,7 +20,13 @@ data class SessionItem(
     val manualPrice: String = "",
     val effectiveMarkupPercent: Double? = null,
     val roundingPrice: String = "",
-    val roundingAdjustment: String = ""
+    val roundingAdjustment: String = "",
+    /*
+     * Stato esplicito della promo Scan2Enter associata alla riga.
+     * Non viene dedotto confrontando i prezzi.
+     */
+    val promoActive: Boolean = false,
+    val promoValidToEpochMillis: Long? = null
 ) {
     val basePrice: String
         get() = manualPrice.ifBlank {
@@ -29,4 +35,17 @@ data class SessionItem(
 
     val effectivePrice: String
         get() = roundingPrice.ifBlank { basePrice }
+
+    /*
+     * Una promo già attiva resta bloccata fino alla sua scadenza.
+     * Se non ha una data finale, resta bloccata finché la riga viene
+     * ricreata/aggiornata con uno stato promo diverso.
+     */
+    val isPromoPriceLocked: Boolean
+        get() =
+            promoActive &&
+                    (
+                            promoValidToEpochMillis == null ||
+                                    System.currentTimeMillis() <= promoValidToEpochMillis
+                            )
 }

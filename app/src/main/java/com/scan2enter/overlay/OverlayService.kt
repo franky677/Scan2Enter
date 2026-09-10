@@ -1548,7 +1548,8 @@ class OverlayService : Service() {
 
     private fun addProductToSessionWithCustomerPrice(
         product: ProductInfo,
-        promoOfferPrice: Double? = null
+        promoOfferPrice: Double? = null,
+        promoValidToEpochMillis: Long? = null
     ) {
         val customer = SessionCustomerStore.current.value
         val barcode = product.barcode.trim()
@@ -1626,7 +1627,10 @@ class OverlayService : Service() {
                                 clientPrice.discount3,
                             discount4 =
                                 clientPrice.discount4,
-                            finalPrice = finalPriceText
+                            finalPrice = finalPriceText,
+                            promoActive = promoOfferPrice != null,
+                            promoValidToEpochMillis =
+                                promoValidToEpochMillis
                         )
 
                         playSessionAppendBeep()
@@ -1657,7 +1661,12 @@ class OverlayService : Service() {
 
                     popupHandler.post {
                         keepQuickScanDockAlive()
-                        SessionStore.addOrIncrement(product)
+                        SessionStore.addOrIncrement(
+                            product = product,
+                            promoActive = promoOfferPrice != null,
+                            promoValidToEpochMillis =
+                                promoValidToEpochMillis
+                        )
                         playSessionAppendBeep()
                     }
                 }
@@ -1786,7 +1795,9 @@ class OverlayService : Service() {
                         addProductToSessionWithCustomerPrice(
                             product = enrichedProduct,
                             promoOfferPrice =
-                                if (promoIsActive) promo?.offerPrice else null
+                                if (promoIsActive) promo?.offerPrice else null,
+                            promoValidToEpochMillis =
+                                if (promoIsActive) validToMillis else null
                         )
                     }
 

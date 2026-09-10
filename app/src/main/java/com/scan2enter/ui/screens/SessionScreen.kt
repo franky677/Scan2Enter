@@ -121,6 +121,10 @@ fun SessionScreen(
         mutableStateOf<SessionItem?>(null)
     }
 
+    var promoLockedItem by remember {
+        mutableStateOf<SessionItem?>(null)
+    }
+
     var itemPendingDelete by remember {
         mutableStateOf<SessionItem?>(null)
     }
@@ -542,7 +546,11 @@ fun SessionScreen(
                         SessionRow(
                             item = item,
                             onClick = {
-                                editingItem = item
+                                if (item.isPromoPriceLocked) {
+                                    promoLockedItem = item
+                                } else {
+                                    editingItem = item
+                                }
                             },
                             onDoubleClick = {
                                 context.startService(
@@ -809,6 +817,38 @@ fun SessionScreen(
                         text = "ELIMINA",
                         fontWeight = FontWeight.Bold
                     )
+                }
+            }
+        )
+    }
+
+    promoLockedItem?.let { promoItem ->
+        AlertDialog(
+            onDismissRequest = {
+                promoLockedItem = null
+            },
+            title = {
+                Text(
+                    text = "PROMOZIONE ATTIVA",
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Text(
+                    text =
+                        "Questo articolo è in promozione. " +
+                                "Il prezzo promo e lo sconto non possono essere " +
+                                "modificati dal Collo veloce fino alla scadenza " +
+                                "della promozione."
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        promoLockedItem = null
+                    }
+                ) {
+                    Text("OK")
                 }
             }
         )
@@ -1931,7 +1971,7 @@ private fun SessionRow(
                     ),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                if (item.manualPrice.isNotBlank()) {
+                if (item.manualPrice.isNotBlank() && !item.isPromoPriceLocked) {
                     Box(
                         modifier = Modifier
                             .width(7.dp)
@@ -1963,6 +2003,30 @@ private fun SessionRow(
                             text = item.articleCode,
                             fontSize = 14.sp
                         )
+                    }
+
+                    if (item.isPromoPriceLocked) {
+                        Spacer(
+                            modifier = Modifier.height(4.dp)
+                        )
+
+                        Box(
+                            modifier = Modifier
+                                .width(24.dp)
+                                .height(24.dp)
+                                .background(
+                                    color = Color(0xFFFFD600),
+                                    shape = RoundedCornerShape(50)
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "P",
+                                color = Color(0xFF1A1A1A),
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Black
+                            )
+                        }
                     }
 
                     val baseCustomerPriceValue =
@@ -2060,7 +2124,10 @@ private fun SessionRow(
                         )
                     }
 
-                    if (item.manualPrice.isNotBlank()) {
+                    if (
+                        item.manualPrice.isNotBlank() &&
+                        !item.isPromoPriceLocked
+                    ) {
                         Text(
                             text = "⚠ PREZZO MODIFICATO",
                             fontSize = 13.sp,
