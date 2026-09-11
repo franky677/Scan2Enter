@@ -105,7 +105,11 @@ class PromotionGroupManagementPopup(
 
         val articleText = TextView(context).apply {
             text = buildString {
-                append("${formatArticleCount(promo.eligibleArticles)} articoli")
+                if (promo.eligibleArticles >= 0) {
+                    append("${formatArticleCount(promo.eligibleArticles)} articoli")
+                } else {
+                    append("Articoli della marca")
+                }
                 if (promo.materializedArticles >= 0) {
                     append("  •  ${formatArticleCount(promo.materializedArticles)} materializzati")
                 }
@@ -291,7 +295,10 @@ class PromotionGroupManagementPopup(
                 discountPercent = discount,
                 validFrom = from?.let(::serverDate),
                 validTo = to?.let(::serverDate),
-                enabled = true
+                enabled = true,
+                producerCode = promo.groupCode,
+                producerDescription = promo.groupDescription,
+                priority = promo.priority
             )
 
             postToUi {

@@ -584,15 +584,17 @@ private fun PromotionGroupCard(
                 style = MaterialTheme.typography.bodyMedium
             )
 
-            Text(
-                text = buildString {
-                    append("${formatArticleCount(promo.eligibleArticles)} articoli")
-                    if (promo.materializedArticles >= 0) {
-                        append("  •  ${formatArticleCount(promo.materializedArticles)} materializzati")
-                    }
-                },
-                style = MaterialTheme.typography.bodySmall
-            )
+            if (promo.eligibleArticles >= 0) {
+                Text(
+                    text = buildString {
+                        append("${formatArticleCount(promo.eligibleArticles)} articoli")
+                        if (promo.materializedArticles >= 0) {
+                            append("  •  ${formatArticleCount(promo.materializedArticles)} materializzati")
+                        }
+                    },
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
         }
     }
 }
@@ -648,13 +650,27 @@ private fun PromotionCard(
             Spacer(Modifier.height(7.dp))
 
             Text(
-                text = "${money.format(promo.publicPrice)}  →  ${money.format(promo.offerPrice)}",
+                text = when {
+                    promo.publicPrice > 0.0 && promo.offerPrice > 0.0 ->
+                        "${money.format(promo.publicPrice)}  →  ${money.format(promo.offerPrice)}"
+                    promo.offerPrice > 0.0 ->
+                        "PREZZO PROMO ${money.format(promo.offerPrice)}"
+                    promo.discountPercent > 0.0 ->
+                        "SCONTO ${formatPercent(promo.discountPercent)}%"
+                    else ->
+                        "PROMO CONFIGURATA"
+                },
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold
             )
 
             Text(
-                text = "Sconto ${formatPercent(promo.discountPercent)}%  •  ${prettyStatus(promo.status)}",
+                text = buildString {
+                    if (promo.discountPercent > 0.0 && promo.offerPrice > 0.0) {
+                        append("Sconto ${formatPercent(promo.discountPercent)}%  •  ")
+                    }
+                    append(prettyStatus(promo.status))
+                },
                 style = MaterialTheme.typography.bodyMedium
             )
 
@@ -711,5 +727,6 @@ private fun prettyStatus(status: String): String =
         "PROGRAMMATA" -> "PROGRAMMATA"
         "SCADUTA" -> "SCADUTA"
         "ATTIVE" -> "ATTIVA"
+        "DISABILITATA" -> "DISABILITATA"
         else -> status.replace('_', ' ')
     }

@@ -297,7 +297,15 @@ class PromotionManagementPopup(
                     currentPromo = promo
                     if (promo != null) {
                         syncingFields = true
-                        discountField?.setText(formatNumber(promo.discountPercent))
+                        val displayedDiscount =
+                            if (promo.discountPercent > 0.0) {
+                                promo.discountPercent
+                            } else if (promo.publicPrice > 0.0 && promo.offerPrice > 0.0) {
+                                100.0 * (1.0 - promo.offerPrice / promo.publicPrice)
+                            } else {
+                                0.0
+                            }
+                        discountField?.setText(formatNumber(displayedDiscount))
                         offerPriceField?.setText(formatNumber(promo.offerPrice))
                         validFromDate = parseServerDate(promo.validFrom)
                         validToDate = parseServerDate(promo.validTo)
@@ -615,9 +623,14 @@ class PromotionManagementPopup(
         Thread {
             val result = gatewayApiClient.updateProductPromo(
                 articleId = product.articleId,
-                discountPercent = alignedDiscount.toDouble(),
+                promotionId = currentPromo?.primaryHash?.toLongOrNull(),
+                articleCode = product.articleCode,
+                articleDescription = product.description,
+                fixedPrice = roundedOffer.toDouble(),
+                publicPrice = publicPrice.toDouble(),
                 validFrom = from?.let(::serverDate),
-                validTo = to?.let(::serverDate)
+                validTo = to?.let(::serverDate),
+                priority = 100
             )
             postToUi {
                 result.onSuccess { promo ->
@@ -658,12 +671,17 @@ class PromotionManagementPopup(
     }
 
     private fun deletePromo() {
-        val product = currentProduct ?: return
+        currentProduct ?: return
+        val promotionId = currentPromo?.primaryHash?.toLongOrNull()
+        if (promotionId == null || promotionId <= 0L) {
+            setBusy(false, "Id promozione non disponibile", isError = true)
+            return
+        }
         hideKeyboard()
         setBusy(true, "Eliminazione promozione…")
 
         Thread {
-            val result = gatewayApiClient.deleteProductPromo(product.articleId)
+            val result = gatewayApiClient.deleteProductPromo(promotionId)
             postToUi {
                 result.onSuccess { deleted ->
                     if (deleted) {

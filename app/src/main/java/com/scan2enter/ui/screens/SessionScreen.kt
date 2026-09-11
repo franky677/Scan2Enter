@@ -2153,7 +2153,7 @@ private fun SessionRow(
                     verticalArrangement = Arrangement.Bottom
                 ) {
                     val rowTotal =
-                        effectiveSessionRowTotal(item)
+                        effectiveSessionUnitPrice(item) * item.quantity
 
                     Text(
                         text =

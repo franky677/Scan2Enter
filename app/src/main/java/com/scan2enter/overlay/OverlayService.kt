@@ -1576,20 +1576,52 @@ class OverlayService : Service() {
                                 .toDoubleOrNull()
                             ?: 0.0
 
+                    val isComuneMirano =
+                        customer.id == 360
+
                     /*
-                     * Una promo Scan2Enter attiva e' un PREZZO IMPOSTO: non e'
-                     * uno sconto manuale di riga. Nel Collo veloce usiamo quindi
-                     * direttamente il prezzo offerta come netto effettivo,
-                     * lasciando separati manualDiscount e gli sconti cliente.
+                     * COMUNE DI MIRANO:
+                     * nel Collo veloce le promozioni vengono ignorate.
+                     *
+                     * Si conservano sempre le condizioni cliente native:
+                     * - prezzo lordo/listino cliente
+                     * - sconti cliente
+                     * - prezzo netto risultante
+                     *
+                     * Esempio VIW16211:
+                     * 49,81 - 50% = 24,91
+                     *
+                     * Per tutti gli altri clienti continua invece a valere
+                     * normalmente l'eventuale promozione attiva.
                      */
+                    val effectivePromoOfferPrice =
+                        if (isComuneMirano) {
+                            null
+                        } else {
+                            promoOfferPrice
+                                ?.takeIf { it >= 0.0 }
+                        }
+
                     val finalPriceValue =
-                        promoOfferPrice
-                            ?.takeIf { it >= 0.0 }
+                        effectivePromoOfferPrice
                             ?: customerFinalPriceValue
 
+                    val promoDiscountMultiplier =
+                        (1.0 - clientPrice.discount1 / 100.0) *
+                                (1.0 - clientPrice.discount2 / 100.0) *
+                                (1.0 - clientPrice.discount3 / 100.0) *
+                                (1.0 - clientPrice.discount4 / 100.0)
+
                     val listPriceValue =
-                        clientPrice.listPrice
-                            ?: finalPriceValue
+                        if (
+                            effectivePromoOfferPrice != null &&
+                            promoDiscountMultiplier > 0.0 &&
+                            promoDiscountMultiplier < 1.0
+                        ) {
+                            effectivePromoOfferPrice / promoDiscountMultiplier
+                        } else {
+                            clientPrice.listPrice ?: finalPriceValue
+                        }
 
                     val finalPriceText =
                         String.format(
@@ -1629,9 +1661,14 @@ class OverlayService : Service() {
                             discount4 =
                                 clientPrice.discount4,
                             finalPrice = finalPriceText,
-                            promoActive = promoOfferPrice != null,
+                            promoActive =
+                                effectivePromoOfferPrice != null,
                             promoValidToEpochMillis =
-                                promoValidToEpochMillis
+                                if (effectivePromoOfferPrice != null) {
+                                    promoValidToEpochMillis
+                                } else {
+                                    null
+                                }
                         )
 
                         playSessionAppendBeep()
@@ -1662,11 +1699,19 @@ class OverlayService : Service() {
 
                     popupHandler.post {
                         keepQuickScanDockAlive()
+                        val isComuneMirano =
+                            customer.id == 360
+
                         SessionStore.addOrIncrement(
                             product = product,
-                            promoActive = promoOfferPrice != null,
+                            promoActive =
+                                !isComuneMirano && promoOfferPrice != null,
                             promoValidToEpochMillis =
-                                promoValidToEpochMillis
+                                if (!isComuneMirano && promoOfferPrice != null) {
+                                    promoValidToEpochMillis
+                                } else {
+                                    null
+                                }
                         )
                         playSessionAppendBeep()
                     }
@@ -1776,7 +1821,19 @@ class OverlayService : Service() {
                     currentPromoOfferPrice =
                         if (promoIsActive) promo?.offerPrice else null
 
+                    val basePublicPrice =
+                        if (promoIsActive && promo != null && promo.publicPrice > 0.0) {
+                            String.format(
+                                Locale.ITALY,
+                                "%.2f",
+                                promo.publicPrice
+                            )
+                        } else {
+                            product.publicPrice
+                        }
+
                     val enrichedProduct = product.copy(
+                        publicPrice = basePublicPrice,
                         year = uiYear.ifBlank { product.year },
                         season = uiSeason.ifBlank { product.season },
                         location = uiLocation.ifBlank { product.location }
