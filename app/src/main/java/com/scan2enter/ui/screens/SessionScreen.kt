@@ -1038,6 +1038,18 @@ private fun SessionActionPanel(
         mutableStateOf<String?>(null)
     }
 
+    var sendingColloToFront by remember {
+        mutableStateOf(false)
+    }
+
+    var colloFrontConfirmed by remember {
+        mutableStateOf(false)
+    }
+
+    var colloFrontMessage by remember {
+        mutableStateOf<String?>(null)
+    }
+
     var clearSessionConfirmOpen by remember {
         mutableStateOf(false)
     }
@@ -1181,16 +1193,6 @@ private fun SessionActionPanel(
 
             Button(
                 onClick = {
-                    paymentDialogOpen = true
-                },
-                enabled = items.isNotEmpty() && totalEuro >= 0.0,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text("💶  PAGAMENTO / RESTO")
-            }
-
-            Button(
-                onClick = {
                     val payloadItems =
                         items.mapNotNull { item ->
                             val price =
@@ -1278,6 +1280,9 @@ private fun SessionActionPanel(
                                     ).format(Date())
 
                                 colloLabelMessage = null
+                                colloFrontMessage = null
+                                colloFrontConfirmed = false
+                                sendingColloToFront = false
                                 createdCollo = created
                             }.onFailure { error ->
                                 sendError =
@@ -1461,6 +1466,44 @@ private fun SessionActionPanel(
         val numeroCollo = created.numeroCollo
         val colloBarcode = created.barcodeCollo
 
+        val sendCreatedColloToFront: () -> Unit = {
+            if (!sendingColloToFront && !colloFrontConfirmed) {
+                sendingColloToFront = true
+                colloFrontMessage = null
+
+                Thread {
+                    val frontResult =
+                        gatewayApiClient.sendColloToFront(created.testataId)
+
+                    Handler(Looper.getMainLooper()).post {
+                        sendingColloToFront = false
+
+                        frontResult
+                            .onSuccess { response ->
+                                colloFrontConfirmed = response.confirmed
+                                colloFrontMessage =
+                                    when {
+                                        response.confirmed ->
+                                            "✅ COLLO CARICATO IN CASSA"
+                                        response.sent ->
+                                            "⚠ COLLO INVIATO, MA NON ANCORA CONFERMATO DAL FRONT"
+                                        response.message.isNotBlank() ->
+                                            response.message
+                                        else ->
+                                            "⚠ Invio eseguito senza conferma dal FRONT"
+                                    }
+                            }
+                            .onFailure { error ->
+                                colloFrontConfirmed = false
+                                colloFrontMessage =
+                                    "Errore invio in cassa: " +
+                                            (error.message ?: "errore sconosciuto")
+                            }
+                    }
+                }.start()
+            }
+        }
+
         AlertDialog(
             onDismissRequest = {
                 // Restiamo volutamente qui: il barcode deve poter essere letto in cassa.
@@ -1508,6 +1551,55 @@ private fun SessionActionPanel(
                         fontSize = 24.sp,
                         fontWeight = FontWeight.Bold
                     )
+
+                    colloFrontMessage?.let { message ->
+                        Text(
+                            text = message,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color =
+                                when {
+                                    message.startsWith("✅") ->
+                                        MaterialTheme.colorScheme.primary
+                                    message.startsWith("⚠") ->
+                                        MaterialTheme.colorScheme.tertiary
+                                    else ->
+                                        MaterialTheme.colorScheme.error
+                                },
+                            textAlign = TextAlign.Center
+                        )
+                    }
+
+                    Button(
+                        onClick = sendCreatedColloToFront,
+                        enabled =
+                            !sendingColloToFront &&
+                                    !colloFrontConfirmed,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            when {
+                                sendingColloToFront ->
+                                    "🧾 INVIO IN CASSA..."
+
+                                colloFrontConfirmed ->
+                                    "✅ CARICATO IN CASSA"
+
+                                else ->
+                                    "🧾 INVIA IN CASSA"
+                            }
+                        )
+                    }
+
+                    Button(
+                        onClick = {
+                            paymentDialogOpen = true
+                        },
+                        enabled = items.isNotEmpty() && totalEuro >= 0.0,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("💶  PAGAMENTO / RESTO")
+                    }
 
                     colloLabelMessage?.let { message ->
                         Text(
@@ -1631,6 +1723,47 @@ private fun SessionActionPanel(
     if (paymentDialogOpen) {
         PaymentDialog(
             totalEuro = totalEuro,
+            sendingColloToFront = sendingColloToFront,
+            colloFrontConfirmed = colloFrontConfirmed,
+            colloFrontMessage = colloFrontMessage,
+            onSendToFront = {
+                createdCollo?.let { created ->
+                    if (!sendingColloToFront && !colloFrontConfirmed) {
+                        sendingColloToFront = true
+                        colloFrontMessage = null
+
+                        Thread {
+                            val frontResult =
+                                gatewayApiClient.sendColloToFront(created.testataId)
+
+                            Handler(Looper.getMainLooper()).post {
+                                sendingColloToFront = false
+                                frontResult
+                                    .onSuccess { response ->
+                                        colloFrontConfirmed = response.confirmed
+                                        colloFrontMessage =
+                                            when {
+                                                response.confirmed ->
+                                                    "✅ COLLO CARICATO IN CASSA"
+                                                response.sent ->
+                                                    "⚠ COLLO INVIATO, MA NON ANCORA CONFERMATO DAL FRONT"
+                                                response.message.isNotBlank() ->
+                                                    response.message
+                                                else ->
+                                                    "⚠ Invio eseguito senza conferma dal FRONT"
+                                            }
+                                    }
+                                    .onFailure { error ->
+                                        colloFrontConfirmed = false
+                                        colloFrontMessage =
+                                            "Errore invio in cassa: " +
+                                                    (error.message ?: "errore sconosciuto")
+                                    }
+                            }
+                        }.start()
+                    }
+                }
+            },
             onDismiss = {
                 paymentDialogOpen = false
             }
@@ -2240,6 +2373,10 @@ private fun SessionRow(
 @Composable
 private fun PaymentDialog(
     totalEuro: Double,
+    sendingColloToFront: Boolean,
+    colloFrontConfirmed: Boolean,
+    colloFrontMessage: String?,
+    onSendToFront: () -> Unit,
     onDismiss: () -> Unit
 ) {
     val totalCents =
@@ -2267,7 +2404,8 @@ private fun PaymentDialog(
         },
         text = {
             Column(
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(7.dp)
             ) {
                 Surface(
                     shape = RoundedCornerShape(16.dp),
@@ -2275,8 +2413,8 @@ private fun PaymentDialog(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Column(
-                        modifier = Modifier.padding(14.dp),
-                        verticalArrangement = Arrangement.spacedBy(5.dp)
+                        modifier = Modifier.padding(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(3.dp)
                     ) {
                         PaymentAmountLine(
                             label = "TOTALE",
@@ -2315,71 +2453,55 @@ private fun PaymentDialog(
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(5.dp)
                 ) {
                     EuroDenominationButton(
                         cents = 10000,
                         count = insertedDenominations.count { it == 10000 },
                         modifier = Modifier.weight(1f),
                         onClick = {
-                            insertedDenominations =
-                                insertedDenominations + 10000
+                            insertedDenominations = insertedDenominations + 10000
                         }
                     )
-
                     EuroDenominationButton(
                         cents = 5000,
                         count = insertedDenominations.count { it == 5000 },
                         modifier = Modifier.weight(1f),
                         onClick = {
-                            insertedDenominations =
-                                insertedDenominations + 5000
+                            insertedDenominations = insertedDenominations + 5000
                         }
                     )
-                }
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
                     EuroDenominationButton(
                         cents = 2000,
                         count = insertedDenominations.count { it == 2000 },
                         modifier = Modifier.weight(1f),
                         onClick = {
-                            insertedDenominations =
-                                insertedDenominations + 2000
-                        }
-                    )
-
-                    EuroDenominationButton(
-                        cents = 1000,
-                        count = insertedDenominations.count { it == 1000 },
-                        modifier = Modifier.weight(1f),
-                        onClick = {
-                            insertedDenominations =
-                                insertedDenominations + 1000
+                            insertedDenominations = insertedDenominations + 2000
                         }
                     )
                 }
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(5.dp)
                 ) {
+                    EuroDenominationButton(
+                        cents = 1000,
+                        count = insertedDenominations.count { it == 1000 },
+                        modifier = Modifier.weight(1f),
+                        onClick = {
+                            insertedDenominations = insertedDenominations + 1000
+                        }
+                    )
                     EuroDenominationButton(
                         cents = 500,
                         count = insertedDenominations.count { it == 500 },
                         modifier = Modifier.weight(1f),
                         onClick = {
-                            insertedDenominations =
-                                insertedDenominations + 500
+                            insertedDenominations = insertedDenominations + 500
                         }
                     )
-
-                    Spacer(
-                        modifier = Modifier.weight(1f)
-                    )
+                    Spacer(modifier = Modifier.weight(1f))
                 }
 
                 Text(
@@ -2473,6 +2595,44 @@ private fun PaymentDialog(
                     )
                 }
 
+                colloFrontMessage?.let { message ->
+                    Text(
+                        text = message,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color =
+                            when {
+                                message.startsWith("✅") ->
+                                    MaterialTheme.colorScheme.primary
+                                message.startsWith("⚠") ->
+                                    MaterialTheme.colorScheme.tertiary
+                                else ->
+                                    MaterialTheme.colorScheme.error
+                            },
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+
+                Button(
+                    onClick = onSendToFront,
+                    enabled =
+                        !sendingColloToFront &&
+                                !colloFrontConfirmed,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        when {
+                            sendingColloToFront ->
+                                "🧾 INVIO IN CASSA..."
+                            colloFrontConfirmed ->
+                                "✅ CARICATO IN CASSA"
+                            else ->
+                                "🧾 INVIA IN CASSA"
+                        }
+                    )
+                }
+
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -2485,7 +2645,7 @@ private fun PaymentDialog(
                         enabled = insertedDenominations.isNotEmpty(),
                         modifier = Modifier.weight(1f)
                     ) {
-                        Text("↶ ULTIMO")
+                        Text("ULTIMO")
                     }
 
                     TextButton(
@@ -2537,7 +2697,7 @@ private fun PaymentAmountLine(
     ) {
         Text(
             text = label,
-            fontSize = if (emphasized) 15.sp else 13.sp,
+            fontSize = if (emphasized) 14.sp else 12.sp,
             fontWeight =
                 if (emphasized) FontWeight.Bold
                 else FontWeight.SemiBold
@@ -2545,7 +2705,7 @@ private fun PaymentAmountLine(
 
         Text(
             text = formatEuroCents(cents),
-            fontSize = if (emphasized) 24.sp else 18.sp,
+            fontSize = if (emphasized) 21.sp else 17.sp,
             fontWeight = FontWeight.Bold
         )
     }
@@ -2570,7 +2730,7 @@ private fun EuroDenominationButton(
 
     Surface(
         modifier = modifier
-            .height(82.dp)
+            .height(62.dp)
             .clickable(onClick = onClick),
         shape = RoundedCornerShape(10.dp),
         shadowElevation = if (count > 0) 9.dp else 3.dp,
@@ -2635,9 +2795,9 @@ private fun EuroCoinButton(
 
     Surface(
         modifier = modifier
-            .height(68.dp)
+            .height(52.dp)
             .clickable(onClick = onClick),
-        shape = RoundedCornerShape(34.dp),
+        shape = RoundedCornerShape(26.dp),
         shadowElevation = if (count > 0) 8.dp else 3.dp,
         color = MaterialTheme.colorScheme.surfaceVariant
     ) {

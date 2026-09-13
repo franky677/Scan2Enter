@@ -2118,6 +2118,9 @@ class GatewayApiClient(
                     "Risposta Gateway non valida: oggetto collo mancante"
                 )
 
+        val testataId =
+            collo.optInt("testataId", 0)
+
         val numeroCollo =
             collo.optString("numeroCollo", "").trim()
 
@@ -2126,6 +2129,7 @@ class GatewayApiClient(
 
         check(
             created &&
+                    testataId > 0 &&
                     numeroCollo.isNotBlank() &&
                     barcodeCollo.isNotBlank()
         ) {
@@ -2134,8 +2138,59 @@ class GatewayApiClient(
 
         CreateColloResultDto(
             created = created,
+            testataId = testataId,
             numeroCollo = numeroCollo,
             barcodeCollo = barcodeCollo
+        )
+    }
+
+    /**
+     * Invia un collo già creato al FRONT Due Retail.
+     *
+     * POST /api/session/colli/{testataId}/send-to-front
+     */
+    fun sendColloToFront(
+        testataId: Int
+    ): Result<SendColloToFrontResultDto> = runCatching {
+        require(testataId > 0) {
+            "Id collo non valido"
+        }
+
+        val url =
+            "${baseUrl.trimEnd('/')}/api/session/colli/$testataId/send-to-front"
+
+        Log.d(TAG, "GATEWAY SEND COLLO TO FRONT")
+        Log.d(TAG, "URL = $url")
+
+        val response = executeWithoutBody(
+            urlString = url,
+            method = "POST"
+        )
+
+        Log.d(TAG, "GATEWAY SEND COLLO FRONT HTTP=${response.code}")
+        Log.d(TAG, "BODY=${response.body.take(500)}")
+
+        if (response.code !in 200..299) {
+            val message = runCatching {
+                JSONObject(response.body).optString("message", "")
+            }.getOrNull().orEmpty()
+
+            error(
+                message.ifBlank {
+                    "Gateway HTTP ${response.code}: ${response.body.take(500)}"
+                }
+            )
+        }
+
+        val root = JSONObject(response.body)
+
+        SendColloToFrontResultDto(
+            sent = root.optBoolean("sent", false),
+            confirmed = root.optBoolean("confirmed", false),
+            testataId = root.optInt("testataId", testataId),
+            numeroCollo = root.optString("numeroCollo", "").trim(),
+            barcodeCollo = root.optString("barcodeCollo", "").trim(),
+            message = root.optString("message", "").trim()
         )
     }
 
@@ -3327,8 +3382,18 @@ data class SessionColloItemDto(
 
 data class CreateColloResultDto(
     val created: Boolean,
+    val testataId: Int,
     val numeroCollo: String,
     val barcodeCollo: String
+)
+
+data class SendColloToFrontResultDto(
+    val sent: Boolean,
+    val confirmed: Boolean,
+    val testataId: Int,
+    val numeroCollo: String,
+    val barcodeCollo: String,
+    val message: String
 )
 
 data class CustomerDto(
