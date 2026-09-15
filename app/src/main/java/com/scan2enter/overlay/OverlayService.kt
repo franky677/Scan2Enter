@@ -3090,7 +3090,7 @@ class OverlayService : Service() {
         }
 
         val closeButton = TextView(this).apply {
-            text = "âœ•"
+            text = "\u2715"
             textSize = 28f
             gravity = Gravity.CENTER
             setTextColor(Color.BLACK)
@@ -3207,7 +3207,7 @@ class OverlayService : Service() {
 
         val favoriteSortButton = Button(this).apply {
             tag = "favoriteSortButton"
-            text = "ORDINA: INSERIMENTO  â–¼"
+            text = "ORDINA: INSERIMENTO  \u25BC"
             textSize = 14f
             gravity = Gravity.CENTER
             visibility = View.GONE
@@ -3233,7 +3233,7 @@ class OverlayService : Service() {
 
         val supplierFilterButton = Button(this).apply {
             tag = "reorderSupplierFilterButton"
-            text = "TUTTI I FORNITORI  â–¼"
+            text = "TUTTI I FORNITORI  \u25BC"
             textSize = 14f
             gravity = Gravity.CENTER
             setTextColor(Color.rgb(27, 94, 32))
@@ -3258,8 +3258,7 @@ class OverlayService : Service() {
 
         val reorderTotalsText = TextView(this).apply {
             tag = "reorderTotalsText"
-            text = "Imponibile: â€”   â€¢   Ivato: â€”"
-            textSize = 15f
+            text = "Imponibile: \u2014   \u2022   Ivato: \u2014"
             gravity = Gravity.CENTER
             setTextColor(Color.rgb(35, 75, 55))
             setTypeface(
@@ -3295,10 +3294,9 @@ class OverlayService : Service() {
 
         val printListButton = Button(this).apply {
             tag = "printListButton"
-            text = "ðŸ–¨  STAMPA PDF"
+            text = "STAMPA PDF"
             textSize = 15f
             gravity = Gravity.CENTER
-            visibility = View.GONE
             setTextColor(Color.WHITE)
             background = GradientDrawable().apply {
                 shape = GradientDrawable.RECTANGLE
@@ -3568,8 +3566,8 @@ class OverlayService : Service() {
             allItems.isEmpty() -> "Nessun articolo presente"
             reorderSupplierFilterKey != null ->
                 "${items.size} articoli visualizzati su ${allItems.size}"
-            supplierCount == 1 -> "${allItems.size} articoli Â· 1 fornitore"
-            else -> "${allItems.size} articoli Â· $supplierCount fornitori"
+            supplierCount == 1 -> "${allItems.size} articoli \u00B7 1 fornitore"
+            else -> "${allItems.size} articoli \u00B7 $supplierCount fornitori"
         }
 
         val rows = mutableListOf<() -> View>()
@@ -3697,9 +3695,9 @@ class OverlayService : Service() {
 
     private fun favoriteSortLabel(): String =
         when (favoriteSortMode) {
-            FavoriteSortMode.INSERTION -> "ORDINA: INSERIMENTO  â–¼"
-            FavoriteSortMode.PRICE_ASCENDING -> "PREZZO: CRESCENTE  â–¼"
-            FavoriteSortMode.PRICE_DESCENDING -> "PREZZO: DECRESCENTE  â–¼"
+            FavoriteSortMode.INSERTION -> "ORDINA: INSERIMENTO  \u25BC"
+            FavoriteSortMode.PRICE_ASCENDING -> "PREZZO: CRESCENTE  \u25BC"
+            FavoriteSortMode.PRICE_DESCENDING -> "PREZZO: DECRESCENTE  \u25BC"
         }
 
     private fun showFavoriteSortMenu(anchor: View) {
@@ -3736,7 +3734,7 @@ class OverlayService : Service() {
 
     private fun String.toPriceValue(): Double {
         val cleaned = trim()
-            .replace("â‚¬", "")
+            .replace("\u20AC", "")
             .replace(" ", "")
 
         val normalized = when {
@@ -3762,14 +3760,14 @@ class OverlayService : Service() {
 
     private fun selectedSupplierFilterLabel(items: List<ReorderItem>): String {
         val selectedKey = reorderSupplierFilterKey
-            ?: return "TUTTI I FORNITORI  â–¼"
+            ?: return "TUTTI I FORNITORI  \u25BC"
 
         val selectedName = items
             .firstOrNull { supplierFilterKey(it) == selectedKey }
             ?.let(::supplierDisplayName)
             ?: "Fornitore"
 
-        return "$selectedName  â–¼"
+        return "$selectedName  \u25BC"
     }
 
     private fun showSupplierFilterMenu(anchor: View) {
@@ -3838,16 +3836,16 @@ class OverlayService : Service() {
         }
 
         if (items.isEmpty()) {
-            return "Imponibile: 0,00 â‚¬   â€¢   Ivato: 0,00 â‚¬"
+            return "Imponibile: 0,00 \u20AC   \u2022   Ivato: 0,00 \u20AC"
         }
 
         if (pricedRows == 0) {
-            return "Imponibile: â€”   â€¢   Ivato: â€”"
+            return "Imponibile: \u2014   \u2022   Ivato: \u2014"
         }
 
         return String.format(
             Locale.ITALY,
-            "Imponibile: %,.2f â‚¬   â€¢   Ivato: %,.2f â‚¬",
+            "Imponibile: %,.2f \u20AC   \u2022   Ivato: %,.2f \u20AC",
             taxableTotal,
             grossTotal
         )
@@ -3954,7 +3952,7 @@ class OverlayService : Service() {
         val density = resources.displayMetrics.density
 
         return TextView(this).apply {
-            text = "$supplierName  Â·  $itemCount"
+            text = "$supplierName  \u00B7  $itemCount"
             textSize = 18f
             setTextColor(Color.WHITE)
             setTypeface(typeface, android.graphics.Typeface.BOLD)
@@ -4046,7 +4044,7 @@ class OverlayService : Service() {
 
         val stockLine = buildString {
             append("Giacenza: ${item.stock.formatNullableQuantity()}")
-            append("   â€¢   Minima: ${item.minimumStock.formatNullableQuantity()}")
+            append("   \u2022   Minima: ${item.minimumStock.formatNullableQuantity()}")
             append("\nDa ordinare: ${quantityToOrder.formatNullableQuantity()}")
         }
 
@@ -4250,7 +4248,7 @@ class OverlayService : Service() {
                 append("Codice: ${item.articleCode.trim()}")
             }
             if (item.barcode.isNotBlank()) {
-                if (isNotEmpty()) append("   â€¢   ")
+                if (isNotEmpty()) append("   \u2022   ")
                 append("EAN: ${item.barcode.trim()}")
             }
         }
@@ -4269,7 +4267,7 @@ class OverlayService : Service() {
         textContainer.addView(
             TextView(this).apply {
                 text = "Prezzo: ${formatFavoritePrice(item.publicPrice)}" +
-                        "   â€¢   Giacenza: ${item.stock.ifBlank { "â€”" }}"
+                        "   \u2022   Giacenza: ${item.stock.ifBlank { "\u2014" }}"
                 textSize = 15f
                 setTextColor(Color.rgb(35, 75, 55))
                 setTypeface(typeface, android.graphics.Typeface.BOLD)
@@ -4325,11 +4323,11 @@ class OverlayService : Service() {
     private fun formatFavoritePrice(raw: String): String {
         val value = raw.toPriceValue()
         return if (value == Double.MAX_VALUE) {
-            raw.trim().ifEmpty { "â€”" }
+            raw.trim().ifEmpty { "\u2014" }
         } else {
             String.format(
                 java.util.Locale.ITALY,
-                "%.2f â‚¬",
+                "%.2f \u20AC",
                 value
             )
         }
@@ -4446,7 +4444,7 @@ class OverlayService : Service() {
                             append("Codice: ${product.articleCode.trim()}")
                         }
                         if (product.barcode.isNotBlank()) {
-                            if (isNotEmpty()) append("   â€¢   ")
+                            if (isNotEmpty()) append("   \u2022   ")
                             append("EAN: ${product.barcode.trim()}")
                         }
                         if (product.stock.isNotBlank()) {
@@ -4610,7 +4608,7 @@ class OverlayService : Service() {
     }
 
     private fun Double?.formatNullableQuantity(): String =
-        this?.formatStockQuantity() ?: "â€”"
+        this?.formatStockQuantity() ?: "\u2014"
 
     @Suppress("UNCHECKED_CAST")
     private fun <T : View> findViewByTag(
@@ -7767,4 +7765,8 @@ class OverlayService : Service() {
         super.onDestroy()
     }
 }
+
+
+
+
 
