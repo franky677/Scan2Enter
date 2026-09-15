@@ -1,11 +1,18 @@
 ﻿package com.scan2enter.promotions
 
 import android.graphics.Typeface
+import android.content.Context
+import android.print.PrintAttributes
+import android.print.PrintManager
+import android.webkit.WebView
+import android.webkit.WebViewClient
 
 import android.widget.ImageView
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -17,12 +24,14 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -280,6 +289,11 @@ fun PromoBuilderScreen(
         mutableStateOf("BOMBA")
     }
 
+    // Personalizzazione del preset LIBERO
+    var liberoTitle1 by remember { mutableStateOf("OFFERTA") }
+    var liberoTitle2 by remember { mutableStateOf("SPECIALE") }
+    var liberoSubtitle by remember { mutableStateOf("UN PREZZO DA COGLIERE AL VOLO") }
+
     LaunchedEffect(selectedBarcode) {
         selectedProduct = null
         selectedPromo = null
@@ -313,6 +327,8 @@ fun PromoBuilderScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .navigationBarsPadding()
             .padding(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Top
@@ -455,6 +471,42 @@ fun PromoBuilderScreen(
             }
 
             Spacer(Modifier.height(12.dp))
+            if (selectedPreset == "LIBERO") {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    OutlinedTextField(
+                        value = liberoTitle1,
+                        onValueChange = { liberoTitle1 = it },
+                        label = { Text("Titolo 1") },
+                        singleLine = true,
+                        textStyle = androidx.compose.ui.text.TextStyle(color = Color.Black),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    OutlinedTextField(
+                        value = liberoTitle2,
+                        onValueChange = { liberoTitle2 = it },
+                        label = { Text("Titolo 2") },
+                        singleLine = true,
+                        textStyle = androidx.compose.ui.text.TextStyle(color = Color.Black),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    OutlinedTextField(
+                        value = liberoSubtitle,
+                        onValueChange = { liberoSubtitle = it },
+                        label = { Text("Sottotitolo") },
+                        singleLine = true,
+                        textStyle = androidx.compose.ui.text.TextStyle(color = Color.Black),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+
+                Spacer(Modifier.height(12.dp))
+            }
+
 
             /*
              * PRESET BOMBA
@@ -583,7 +635,7 @@ fun PromoBuilderScreen(
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
                             Text(
-                                text = "OFFERTA",
+                                text = liberoTitle1,
                                 color = Color.White,
                                 fontSize = 31.sp,
                                 lineHeight = 31.sp,
@@ -592,7 +644,7 @@ fun PromoBuilderScreen(
                             )
 
                             Text(
-                                text = "SPECIALE",
+                                text = liberoTitle2,
                                 color = Color.White,
                                 fontSize = 22.sp,
                                 lineHeight = 23.sp,
@@ -605,7 +657,7 @@ fun PromoBuilderScreen(
                     Spacer(Modifier.height(4.dp))
 
                     Text(
-                        text = "UN PREZZO DA COGLIERE AL VOLO",
+                        text = liberoSubtitle,
                         color = Color.White,
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold,
@@ -1042,10 +1094,69 @@ fun PromoBuilderScreen(
         Spacer(Modifier.height(10.dp))
 
         Button(
-            onClick = { },
+            onClick = {
+                val product = selectedProduct
+                val promo = selectedPromo
+
+                if (
+                    product != null &&
+                    selectedPreset == "LIBERO"
+                ) {
+                    val originalPrice =
+                        promo
+                            ?.publicPrice
+                            ?.takeIf { it > 0.0 }
+
+                    val offerPrice =
+                        promo
+                            ?.offerPrice
+                            ?.takeIf { it > 0.0 }
+
+                    val effectiveDiscount =
+                        when {
+                            promo == null -> null
+
+                            promo.discountPercent > 0.0 ->
+                                promo.discountPercent
+
+                            originalPrice != null &&
+                                offerPrice != null &&
+                                originalPrice > 0.0 ->
+
+                                100.0 * (
+                                    1.0 -
+                                        offerPrice / originalPrice
+                                    )
+
+                            else -> null
+                        }
+
+                    val html =
+                        buildLiberoPromoHtml(
+                            title1 = liberoTitle1,
+                            title2 = liberoTitle2,
+                            subtitle = liberoSubtitle,
+                            description = product.description,
+                            articleCode = product.articleCode,
+                            imageUrl = GatewayApiClient().getProductImageUrl(product.barcode),
+                            originalPrice = originalPrice,
+                            offerPrice = offerPrice,
+                            discountPercent = effectiveDiscount
+                        )
+
+                    printPromoHtml(
+                        context = context,
+                        html = html,
+                        jobName = "Promo ${product.articleCode}"
+                    )
+                }
+            },
+            enabled =
+                selectedProduct != null &&
+                    selectedPreset == "LIBERO",
             modifier = Modifier.fillMaxWidth()
         ) {
-            Text("ANTEPRIMA")
+            Text("STAMPA A4")
         }
     }
 }
@@ -1084,5 +1195,295 @@ fun PromoBuilderScreen(
 
 
 
+
+
+
+private fun printPromoHtml(
+    context: Context,
+    html: String,
+    jobName: String
+) {
+    val webView = WebView(context)
+
+    webView.settings.javaScriptEnabled = false
+
+    webView.webViewClient = object : WebViewClient() {
+        override fun onPageFinished(view: WebView, url: String?) {
+            val printManager =
+                context.getSystemService(Context.PRINT_SERVICE) as PrintManager
+
+            val adapter =
+                view.createPrintDocumentAdapter(jobName)
+
+            printManager.print(
+                jobName,
+                adapter,
+                PrintAttributes.Builder()
+                    .setMediaSize(
+                        PrintAttributes.MediaSize.ISO_A4.asPortrait()
+                    )
+                    .build()
+            )
+        }
+    }
+
+    webView.loadDataWithBaseURL(
+        null,
+        html,
+        "text/html",
+        "UTF-8",
+        null
+    )
+}
+
+private fun buildLiberoPromoHtml(
+    title1: String,
+    title2: String,
+    subtitle: String,
+    description: String,
+    articleCode: String,
+    imageUrl: String,
+    originalPrice: Double?,
+    offerPrice: Double?,
+    discountPercent: Double?
+): String {
+
+    fun esc(value: String): String =
+        value
+            .replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+            .replace("\"", "&quot;")
+
+    val oldPriceHtml =
+        if (originalPrice != null && offerPrice != null) {
+            val value = String.format(
+                java.util.Locale.ITALY,
+                "%.2f \u20AC",
+                originalPrice
+            )
+            """<div class="old-price">${esc(value)}</div>"""
+        } else {
+            ""
+        }
+
+    val finalPrice =
+        offerPrice
+            ?: originalPrice
+            ?: 0.0
+
+    val priceText = String.format(
+        java.util.Locale.ITALY,
+        "%.2f \u20AC",
+        finalPrice
+    )
+
+    val discountHtml =
+        if (discountPercent != null && discountPercent > 0.0) {
+            val discountText = String.format(
+                java.util.Locale.ITALY,
+                "-%.0f%%",
+                discountPercent
+            )
+            """<div class="discount">${esc(discountText)}</div>"""
+        } else {
+            ""
+        }
+
+    return """
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+
+@page {
+    size: A4 portrait;
+    margin: 0;
+}
+
+html, body {
+    width: 210mm;
+    height: 297mm;
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    font-family: Arial, Helvetica, sans-serif;
+    background: #6617a8;
+}
+
+.poster {
+    box-sizing: border-box;
+    width: 210mm;
+    height: 297mm;
+    padding: 12mm;
+    background:
+        linear-gradient(
+            145deg,
+            #3b086d 0%,
+            #8d18c7 48%,
+            #ff40c8 100%
+        );
+    color: white;
+    text-align: center;
+    overflow: hidden;
+}
+
+.title1 {
+    font-size: 25mm;
+    line-height: 0.86;
+    font-weight: 900;
+    letter-spacing: -1mm;
+    text-shadow: 1.5mm 1.5mm 0 #000000;
+}
+
+.title2 {
+    font-size: 22mm;
+    line-height: 0.92;
+    font-weight: 900;
+    color: #ff40c8;
+    -webkit-text-stroke: 0.7mm white;
+    text-shadow: 1.3mm 1.3mm 0 #000000;
+}
+
+.subtitle {
+    margin-top: 5mm;
+    font-size: 6mm;
+    font-weight: 900;
+}
+
+.description {
+    margin-top: 10mm;
+    min-height: 31mm;
+    font-size: 10mm;
+    line-height: 1.05;
+    font-weight: 900;
+    text-transform: uppercase;
+}
+
+.product-image {
+    box-sizing: border-box;
+    width: 150mm;
+    height: 65mm;
+    margin: 5mm auto 0 auto;
+    padding: 3mm;
+    background: white;
+    border: 1.5mm solid #000000;
+    border-radius: 4mm;
+    overflow: hidden;
+}
+
+.product-image img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    display: block;
+}
+
+.price-area {
+    position: relative;
+    margin: 7mm auto 0 auto;
+    width: 170mm;
+}
+
+.old-price {
+    font-size: 8mm;
+    font-weight: 900;
+    text-decoration: line-through;
+    margin-bottom: 3mm;
+}
+
+.price {
+    box-sizing: border-box;
+    background: #ff40c8;
+    border: 1.5mm solid #000000;
+    border-radius: 4mm;
+    color: white;
+    font-size: 25mm;
+    line-height: 1;
+    font-weight: 900;
+    padding: 8mm 3mm;
+    transform: rotate(-1.5deg);
+    box-shadow: 2mm 2mm 0 rgba(0,0,0,0.35);
+}
+
+.discount {
+    position: absolute;
+    right: -5mm;
+    top: -10mm;
+    box-sizing: border-box;
+    width: 35mm;
+    height: 35mm;
+    border-radius: 50%;
+    background: #ffe000;
+    border: 1.5mm solid #000000;
+    color: #e30613;
+    font-size: 11mm;
+    line-height: 32mm;
+    font-weight: 900;
+    transform: rotate(8deg);
+}
+
+.article {
+    margin-top: 9mm;
+    font-size: 5mm;
+    font-weight: 700;
+}
+
+.footer {
+    margin-top: 10mm;
+    background: #000000;
+    border: 1mm solid #ffe000;
+    border-radius: 2mm;
+    color: #ffe000;
+    font-size: 7mm;
+    font-weight: 900;
+    padding: 4mm;
+}
+
+</style>
+</head>
+
+<body>
+<div class="poster">
+
+    <div class="title1">${esc(title1)}</div>
+    <div class="title2">${esc(title2)}</div>
+
+    <div class="subtitle">
+        ${esc(subtitle)}
+    </div>
+
+    <div class="description">
+        ${esc(description)}
+    </div>
+
+    <div class="product-image"><img src="${esc(imageUrl)}" /></div>
+
+    <div class="price-area">
+        $oldPriceHtml
+
+        <div class="price">
+            ${esc(priceText)}
+        </div>
+
+        $discountHtml
+    </div>
+
+    <div class="article">
+        COD. ${esc(articleCode)}
+    </div>
+
+    <div class="footer">
+        OFFERTA SPECIALE
+    </div>
+
+</div>
+</body>
+</html>
+""".trimIndent()
+}
 
 
