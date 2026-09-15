@@ -87,6 +87,53 @@ private fun formatPromoPrice(rawPrice: String): String {
     }
 }
 
+private fun shiftPromoHue(color: Color, slider: Float, intensity: Float): Color {
+    val hueSlider = if (slider <= 0.80f) {
+        slider / 0.80f
+    } else {
+        1.0f
+    }
+
+    val delta = (hueSlider - 0.5f) * 360f
+
+    val r = color.red
+    val g = color.green
+    val b = color.blue
+
+    val max = maxOf(r, g, b)
+    val min = minOf(r, g, b)
+    val d = max - min
+
+    var h = when {
+        d == 0f -> 0f
+        max == r -> 60f * (((g - b) / d) % 6f)
+        max == g -> 60f * (((b - r) / d) + 2f)
+        else -> 60f * (((r - g) / d) + 4f)
+    }
+
+    if (h < 0f) h += 360f
+
+    val baseSaturation = if (max == 0f) 0f else d / max
+    val s = (baseSaturation * intensity).coerceIn(0f, 1f)
+    val baseValue = max
+    val newHue = (h + delta + 360f) % 360f
+
+    val blackFade = if (slider > 0.80f) {
+        ((slider - 0.80f) / 0.20f).coerceIn(0f, 1f)
+    } else {
+        0f
+    }
+
+    val newValue = baseValue * (1f - blackFade)
+
+    return Color.hsv(
+        hue = newHue,
+        saturation = s,
+        value = newValue,
+        alpha = color.alpha
+    )
+}
+
 @Composable
 private fun PromoExplosionBadge(titleScale: Float) {
     Box(
@@ -291,6 +338,9 @@ fun PromoBuilderScreen(
     }
 
     // Regolazioni globali Promo Builder - valide per tutti i preset
+    var showStylePanel by remember { mutableStateOf(false) }
+    var colorHue by remember { mutableStateOf(0.40f) }
+    var colorIntensity by remember { mutableStateOf(1.0f) }
     var showDimensionsPanel by remember { mutableStateOf(false) }
     var globalScale by remember { mutableStateOf(1.0f) }
     var titleScale by remember { mutableStateOf(1.0f) }
@@ -536,13 +586,13 @@ fun PromoBuilderScreen(
                         width = 3.dp,
                         color =
                             if (isBlackPreset) {
-                                Color(0xFFFFD700)
+                                shiftPromoHue(Color(0xFFFFD700), colorHue, colorIntensity)
                             } else if (isLiberoPreset) {
-                                Color(0xFFFF40C8)
+                                shiftPromoHue(Color(0xFFFF40C8), colorHue, colorIntensity)
                             } else if (isRisparmioPreset) {
-                                Color(0xFFFFE000)
+                                shiftPromoHue(Color(0xFFFFE000), colorHue, colorIntensity)
                             } else if (isNovitaPreset) {
-                                Color(0xFF00E5FF)
+                                shiftPromoHue(Color(0xFF00E5FF), colorHue, colorIntensity)
                             } else {
                                 Color.Black
                             },
@@ -553,13 +603,13 @@ fun PromoBuilderScreen(
                             if (isBlackPreset) {
                                 Color.Black
                             } else if (isLiberoPreset) {
-                                Color(0xFF6A1B9A)
+                                shiftPromoHue(Color(0xFF6A1B9A), colorHue, colorIntensity)
                             } else if (isRisparmioPreset) {
-                                Color(0xFF1B5E20)
+                                shiftPromoHue(Color(0xFF1B5E20), colorHue, colorIntensity)
                             } else if (isNovitaPreset) {
-                                Color(0xFF0D47A1)
+                                shiftPromoHue(Color(0xFF0D47A1), colorHue, colorIntensity)
                             } else {
-                                Color(0xFFE30613)
+                                shiftPromoHue(Color(0xFFE30613), colorHue, colorIntensity)
                             },
                         shape = RoundedCornerShape(18.dp)
                     )
@@ -576,7 +626,7 @@ fun PromoBuilderScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .background(
-                                color = Color(0xFFFFD700),
+                                color = shiftPromoHue(Color(0xFFFFD700), colorHue, colorIntensity),
                                 shape = RoundedCornerShape(10.dp)
                             )
                             .border(
@@ -629,7 +679,7 @@ fun PromoBuilderScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .background(
-                                color = Color(0xFFFF40C8),
+                                color = shiftPromoHue(Color(0xFFFF40C8), colorHue, colorIntensity),
                                 shape = RoundedCornerShape(10.dp)
                             )
                             .border(
@@ -682,7 +732,7 @@ fun PromoBuilderScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .background(
-                                color = Color(0xFFFFE000),
+                                color = shiftPromoHue(Color(0xFFFFE000), colorHue, colorIntensity),
                                 shape = RoundedCornerShape(10.dp)
                             )
                             .border(
@@ -698,7 +748,7 @@ fun PromoBuilderScreen(
                     ) {
                         Text(
                             text = "SUPER RISPARMIO",
-                            color = Color(0xFF1B5E20),
+                            color = shiftPromoHue(Color(0xFF1B5E20), colorHue, colorIntensity),
                             fontSize = 27.sp * titleScale,
                             lineHeight = 29.sp * titleScale,
                             fontWeight = FontWeight.Black,
@@ -722,7 +772,7 @@ fun PromoBuilderScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .background(
-                                color = Color(0xFF00E5FF),
+                                color = shiftPromoHue(Color(0xFF00E5FF), colorHue, colorIntensity),
                                 shape = RoundedCornerShape(10.dp)
                             )
                             .border(
@@ -741,7 +791,7 @@ fun PromoBuilderScreen(
                         ) {
                             Text(
                                 text = "NOVITÀ",
-                                color = Color(0xFF0D47A1),
+                                color = shiftPromoHue(Color(0xFF0D47A1), colorHue, colorIntensity),
                                 fontSize = 32.sp * titleScale,
                                 lineHeight = 32.sp * titleScale,
                                 fontWeight = FontWeight.Black,
@@ -750,7 +800,7 @@ fun PromoBuilderScreen(
 
                             Text(
                                 text = "APPENA ARRIVATO",
-                                color = Color(0xFF0D47A1),
+                                color = shiftPromoHue(Color(0xFF0D47A1), colorHue, colorIntensity),
                                 fontSize = 15.sp * titleScale,
                                 fontWeight = FontWeight.Bold,
                                 textAlign = TextAlign.Center
@@ -783,7 +833,7 @@ fun PromoBuilderScreen(
                     fontWeight = FontWeight.Black,
                     color =
                         if (isBlackPreset) {
-                            Color(0xFFFFD700)
+                            shiftPromoHue(Color(0xFFFFD700), colorHue, colorIntensity)
                         } else {
                             Color.White
                         }
@@ -903,7 +953,7 @@ fun PromoBuilderScreen(
                             modifier = Modifier.fillMaxWidth(),
                             color =
                                 if (isBlackPreset) {
-                                    Color(0xFFFFD700)
+                                    shiftPromoHue(Color(0xFFFFD700), colorHue, colorIntensity)
                                 } else {
                                     Color.White
                                 },
@@ -953,15 +1003,15 @@ fun PromoBuilderScreen(
                                 .background(
                                     color =
                                         if (isBlackPreset) {
-                                            Color(0xFFFFD700)
+                                            shiftPromoHue(Color(0xFFFFD700), colorHue, colorIntensity)
                                         } else if (isLiberoPreset) {
-                                            Color(0xFFFF40C8)
+                                            shiftPromoHue(Color(0xFFFF40C8), colorHue, colorIntensity)
                                         } else if (isRisparmioPreset) {
-                                            Color(0xFFFFE000)
+                                            shiftPromoHue(Color(0xFFFFE000), colorHue, colorIntensity)
                                         } else if (isNovitaPreset) {
-                                            Color(0xFF00E5FF)
+                                            shiftPromoHue(Color(0xFF00E5FF), colorHue, colorIntensity)
                                         } else {
-                                            Color(0xFFFFE000)
+                                            shiftPromoHue(Color(0xFFFFE000), colorHue, colorIntensity)
                                         },
                                     shape = RoundedCornerShape(8.dp)
                                 )
@@ -995,11 +1045,11 @@ fun PromoBuilderScreen(
                                     } else if (isLiberoPreset) {
                                         Color.White
                                     } else if (isRisparmioPreset) {
-                                        Color(0xFF1B5E20)
+                                        shiftPromoHue(Color(0xFF1B5E20), colorHue, colorIntensity)
                                     } else if (isNovitaPreset) {
-                                        Color(0xFF0D47A1)
+                                        shiftPromoHue(Color(0xFF0D47A1), colorHue, colorIntensity)
                                     } else {
-                                        Color(0xFFE30613)
+                                        shiftPromoHue(Color(0xFFE30613), colorHue, colorIntensity)
                                     },
                                 fontSize = 42.sp * priceScale,
                                 lineHeight = 44.sp * priceScale,
@@ -1024,7 +1074,7 @@ fun PromoBuilderScreen(
                         )
                         .border(
                             width = 2.dp,
-                            color = Color(0xFFFFE000),
+                            color = shiftPromoHue(Color(0xFFFFE000), colorHue, colorIntensity),
                             shape = RoundedCornerShape(6.dp)
                         )
                         .padding(
@@ -1046,7 +1096,7 @@ fun PromoBuilderScreen(
                             } else {
                                 "SUPER PREZZO DA NON PERDERE!"
                             },
-                        color = Color(0xFFFFE000),
+                        color = shiftPromoHue(Color(0xFFFFE000), colorHue, colorIntensity),
                         fontSize = 16.sp,
                         fontWeight = FontWeight.Black,
                         textAlign = TextAlign.Center
@@ -1088,10 +1138,30 @@ fun PromoBuilderScreen(
         Spacer(Modifier.height(10.dp))
 
         Button(
-            onClick = { },
+            onClick = { showStylePanel = !showStylePanel },
             modifier = Modifier.fillMaxWidth()
         ) {
             Text("STILE E COLORI")
+        }
+
+        if (showStylePanel) {
+            Spacer(Modifier.height(8.dp))
+
+            Text("Tonalita colore")
+            Slider(
+                value = colorHue,
+                onValueChange = { colorHue = it },
+                valueRange = 0f..1f,
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            Text("Intensita colore: ${(colorIntensity * 100).toInt()}%")
+            Slider(
+                value = colorIntensity,
+                onValueChange = { colorIntensity = it },
+                valueRange = 0.50f..1.50f,
+                modifier = Modifier.fillMaxWidth()
+            )
         }
 
         Spacer(Modifier.height(10.dp))
