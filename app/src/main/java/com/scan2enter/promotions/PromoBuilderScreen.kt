@@ -32,6 +32,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -87,7 +88,7 @@ private fun formatPromoPrice(rawPrice: String): String {
 }
 
 @Composable
-private fun PromoExplosionBadge() {
+private fun PromoExplosionBadge(titleScale: Float) {
     Box(
         modifier = Modifier
             .size(
@@ -165,16 +166,16 @@ private fun PromoExplosionBadge() {
             Text(
                 text = "OFFERTA",
                 color = Color.Black,
-                fontSize = 15.sp,
-                lineHeight = 15.sp,
+                fontSize = 15.sp * titleScale,
+                lineHeight = 15.sp * titleScale,
                 fontWeight = FontWeight.Black
             )
 
             Text(
                 text = "BOMBA",
                 color = Color(0xFFE30613),
-                fontSize = 31.sp,
-                lineHeight = 31.sp,
+                fontSize = 31.sp * titleScale,
+                lineHeight = 31.sp * titleScale,
                 fontWeight = FontWeight.Black
             )
         }
@@ -288,6 +289,13 @@ fun PromoBuilderScreen(
     var selectedPreset by remember {
         mutableStateOf("BOMBA")
     }
+
+    // Regolazioni globali Promo Builder - valide per tutti i preset
+    var showDimensionsPanel by remember { mutableStateOf(false) }
+    var globalScale by remember { mutableStateOf(1.0f) }
+    var titleScale by remember { mutableStateOf(1.0f) }
+    var imageScale by remember { mutableStateOf(1.0f) }
+    var priceScale by remember { mutableStateOf(1.0f) }
 
     // Personalizzazione del preset LIBERO
     var liberoTitle1 by remember { mutableStateOf("OFFERTA") }
@@ -520,6 +528,10 @@ fun PromoBuilderScreen(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .graphicsLayer {
+                        scaleX = globalScale
+                        scaleY = globalScale
+                    }
                     .border(
                         width = 3.dp,
                         color =
@@ -584,8 +596,8 @@ fun PromoBuilderScreen(
                             Text(
                                 text = "BLACK",
                                 color = Color.Black,
-                                fontSize = 34.sp,
-                                lineHeight = 32.sp,
+                                fontSize = 34.sp * titleScale,
+                                lineHeight = 32.sp * titleScale,
                                 fontWeight = FontWeight.Black,
                                 textAlign = TextAlign.Center
                             )
@@ -593,8 +605,8 @@ fun PromoBuilderScreen(
                             Text(
                                 text = "FRIDAY",
                                 color = Color.Black,
-                                fontSize = 25.sp,
-                                lineHeight = 24.sp,
+                                fontSize = 25.sp * titleScale,
+                                lineHeight = 24.sp * titleScale,
                                 fontWeight = FontWeight.Black,
                                 textAlign = TextAlign.Center
                             )
@@ -637,8 +649,8 @@ fun PromoBuilderScreen(
                             Text(
                                 text = liberoTitle1,
                                 color = Color.White,
-                                fontSize = 31.sp,
-                                lineHeight = 31.sp,
+                                fontSize = 31.sp * titleScale,
+                                lineHeight = 31.sp * titleScale,
                                 fontWeight = FontWeight.Black,
                                 textAlign = TextAlign.Center
                             )
@@ -646,8 +658,8 @@ fun PromoBuilderScreen(
                             Text(
                                 text = liberoTitle2,
                                 color = Color.White,
-                                fontSize = 22.sp,
-                                lineHeight = 23.sp,
+                                fontSize = 22.sp * titleScale,
+                                lineHeight = 23.sp * titleScale,
                                 fontWeight = FontWeight.Black,
                                 textAlign = TextAlign.Center
                             )
@@ -687,8 +699,8 @@ fun PromoBuilderScreen(
                         Text(
                             text = "SUPER RISPARMIO",
                             color = Color(0xFF1B5E20),
-                            fontSize = 27.sp,
-                            lineHeight = 29.sp,
+                            fontSize = 27.sp * titleScale,
+                            lineHeight = 29.sp * titleScale,
                             fontWeight = FontWeight.Black,
                             textAlign = TextAlign.Center
                         )
@@ -730,8 +742,8 @@ fun PromoBuilderScreen(
                             Text(
                                 text = "NOVITÀ",
                                 color = Color(0xFF0D47A1),
-                                fontSize = 32.sp,
-                                lineHeight = 32.sp,
+                                fontSize = 32.sp * titleScale,
+                                lineHeight = 32.sp * titleScale,
                                 fontWeight = FontWeight.Black,
                                 textAlign = TextAlign.Center
                             )
@@ -739,7 +751,7 @@ fun PromoBuilderScreen(
                             Text(
                                 text = "APPENA ARRIVATO",
                                 color = Color(0xFF0D47A1),
-                                fontSize = 15.sp,
+                                fontSize = 15.sp * titleScale,
                                 fontWeight = FontWeight.Bold,
                                 textAlign = TextAlign.Center
                             )
@@ -757,7 +769,7 @@ fun PromoBuilderScreen(
                     )
 
                 } else {
-                    PromoExplosionBadge()
+                    PromoExplosionBadge(titleScale)
                 }
 
                 Spacer(Modifier.height(10.dp))
@@ -848,8 +860,8 @@ fun PromoBuilderScreen(
                                     modifier = Modifier
                                         .fillMaxSize()
                                         .graphicsLayer {
-                                            scaleX = 1.15f
-                                            scaleY = 1.15f
+                                            scaleX = 1.15f * imageScale
+                                            scaleY = 1.15f * imageScale
                                         },
                                     factory = { imageContext ->
                                         ImageView(imageContext).apply {
@@ -921,7 +933,7 @@ fun PromoBuilderScreen(
                                     originalPrice
                                 ),
                                 color = Color.White,
-                                fontSize = 16.sp,
+                                fontSize = 16.sp * priceScale,
                                 fontWeight = FontWeight.Bold,
                                 textDecoration =
                                     TextDecoration.LineThrough
@@ -989,8 +1001,8 @@ fun PromoBuilderScreen(
                                     } else {
                                         Color(0xFFE30613)
                                     },
-                                fontSize = 42.sp,
-                                lineHeight = 44.sp,
+                                fontSize = 42.sp * priceScale,
+                                lineHeight = 44.sp * priceScale,
                                 fontWeight = FontWeight.Black,
                                 textAlign = TextAlign.Center
                             )
@@ -1085,10 +1097,49 @@ fun PromoBuilderScreen(
         Spacer(Modifier.height(10.dp))
 
         Button(
-            onClick = { },
+            onClick = { showDimensionsPanel = !showDimensionsPanel },
             modifier = Modifier.fillMaxWidth()
         ) {
             Text("DIMENSIONI")
+        }
+
+        if (showDimensionsPanel) {
+            Spacer(Modifier.height(8.dp))
+
+            Text(
+                text = "Dimensione generale: ${(globalScale * 100).toInt()}%"
+            )
+
+            Slider(
+                value = globalScale,
+                onValueChange = { globalScale = it },
+                valueRange = 0.25f..1.50f,
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            Text(text = "Titoli: ${(titleScale * 100).toInt()}%")
+            Slider(
+                value = titleScale,
+                onValueChange = { titleScale = it },
+                valueRange = 0.70f..1.30f,
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            Text(text = "Immagine: ${(imageScale * 100).toInt()}%")
+            Slider(
+                value = imageScale,
+                onValueChange = { imageScale = it },
+                valueRange = 0.70f..1.30f,
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            Text(text = "Prezzo: ${(priceScale * 100).toInt()}%")
+            Slider(
+                value = priceScale,
+                onValueChange = { priceScale = it },
+                valueRange = 0.70f..1.30f,
+                modifier = Modifier.fillMaxWidth()
+            )
         }
 
         Spacer(Modifier.height(10.dp))
@@ -1485,5 +1536,6 @@ body {
 </html>
 """.trimIndent()
 }
+
 
 
