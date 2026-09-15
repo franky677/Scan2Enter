@@ -6586,7 +6586,7 @@ class OverlayService : Service() {
             val promoPriceText =
                 String.format(
                     Locale.ITALY,
-                    "%.2f â‚¬",
+                    "%.2f \u20AC",
                     promoPrice
                 )
 
@@ -6626,7 +6626,7 @@ class OverlayService : Service() {
                     priceText.text =
                         String.format(
                             Locale.ITALY,
-                            "%.2f â‚¬",
+                            "%.2f \u20AC",
                             publicPrice
                         )
                 }
@@ -7767,3 +7767,4 @@ class OverlayService : Service() {
         super.onDestroy()
     }
 }
+
