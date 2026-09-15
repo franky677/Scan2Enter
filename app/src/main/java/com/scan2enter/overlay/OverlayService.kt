@@ -1,4 +1,4 @@
-package com.scan2enter.overlay
+﻿package com.scan2enter.overlay
 
 import android.app.Service
 import android.app.AlertDialog
@@ -294,7 +294,7 @@ class OverlayService : Service() {
     private var a4ShelfScanInProgress = false
 
     /*
-     * True soltanto mentre CameraX è stata aperta dalla sezione OFFERTE.
+     * True soltanto mentre CameraX Ã¨ stata aperta dalla sezione OFFERTE.
      * Serve a consegnare al popup l'articolo appena letto senza passare
      * dalla lista SCAFFALE.
      */
@@ -302,7 +302,7 @@ class OverlayService : Service() {
 
     /*
      * SOLO SUNMI:
-     * segnala che openA4BarcodeDirect() è stato invocato dal laser hardware
+     * segnala che openA4BarcodeDirect() Ã¨ stato invocato dal laser hardware
      * mentre il popup A4 era nella sezione OFFERTE.
      * S24 non imposta mai questo flag.
      */
@@ -402,7 +402,7 @@ class OverlayService : Service() {
 
     /*
      * A4 ha un receiver proprio: non modifica e non condivide
-     * la logica GoDEX già collaudata.
+     * la logica GoDEX giÃ  collaudata.
      */
     private val a4SunmiReceiver =
         object : BroadcastReceiver() {
@@ -524,7 +524,7 @@ class OverlayService : Service() {
 
                 if (currentMode == MODE_LABELS_BLISTER) {
                     /*
-                     * BLISTER: stesso ingresso già usato dal percorso hardware
+                     * BLISTER: stesso ingresso giÃ  usato dal percorso hardware
                      * Sunmi. Rimuoviamo la finestra preservando la sezione e
                      * carichiamo direttamente l'articolo letto.
                      */
@@ -550,7 +550,7 @@ class OverlayService : Service() {
                 }
 
                 /*
-                 * A4 Zebra già collaudato:
+                 * A4 Zebra giÃ  collaudato:
                  * OFFERTE resta aperto; SCAFFALE conserva il percorso attuale.
                  */
                 if (!hardwareA4OfferScanInProgress) {
@@ -588,7 +588,7 @@ class OverlayService : Service() {
 
             Toast.makeText(
                 this,
-                "Lettura articolo aperto…",
+                "Lettura articolo apertoâ€¦",
                 Toast.LENGTH_SHORT
             ).show()
 
@@ -613,7 +613,7 @@ class OverlayService : Service() {
             }
 
             /*
-             * Se il popup articolo è visibile, aggiorna anche la stellina
+             * Se il popup articolo Ã¨ visibile, aggiorna anche la stellina
              * indicativa dopo aggiunta/rimozione da Modifica scorte.
              */
             ProductInfoStore.current?.let { current ->
@@ -668,8 +668,8 @@ class OverlayService : Service() {
     private var expiryDialog: AlertDialog? = null
 
     /*
-     * Evita di riprodurre più volte lo stesso avviso se il popup riceve
-     * più aggiornamenti asincroni dello stesso articolo.
+     * Evita di riprodurre piÃ¹ volte lo stesso avviso se il popup riceve
+     * piÃ¹ aggiornamenti asincroni dello stesso articolo.
      */
     private var lastExpiryAlertArticleId: Long? = null
     private var lastExpiryAlertSignature: String? = null
@@ -1075,7 +1075,7 @@ class OverlayService : Service() {
 
                 /*
                  * Quando si apre GODEX lo scanner resta fermo.
-                 * Verrà aperto soltanto da un comando di scansione
+                 * VerrÃ  aperto soltanto da un comando di scansione
                  * richiesto dentro la finestra GoDEX.
                  */
                 scanOverlay.hide()
@@ -1296,7 +1296,7 @@ class OverlayService : Service() {
                     a4ShelfScanInProgress
                 ) {
                     /*
-                     * SCAFFALE A4 è l'unico flusso "retry finché valido":
+                     * SCAFFALE A4 Ã¨ l'unico flusso "retry finchÃ© valido":
                      * dopo il breve messaggio d'errore riproponiamo CameraX.
                      */
                     popupHandler.postDelayed(
@@ -1342,7 +1342,7 @@ class OverlayService : Service() {
                  * scansionare". Nel nuovo SCAFFALE significa invece:
                  * lettura OK -> chiudi CameraX e torna subito alla lista.
                  *
-                 * La PRIMA apertura dello scanner dalla dock è marcata
+                 * La PRIMA apertura dello scanner dalla dock Ã¨ marcata
                  * EXTRA_A4_INITIAL_SCAN_REQUEST=true e non entra qui.
                  */
                 if (
@@ -1757,7 +1757,7 @@ class OverlayService : Service() {
         if (currentArticleLoading) {
             android.util.Log.d(
                 "OverlayService",
-                "ARTICOLO APERTO - RICHIESTA GIÀ IN CORSO"
+                "ARTICOLO APERTO - RICHIESTA GIÃ€ IN CORSO"
             )
             return
         }
@@ -1771,7 +1771,7 @@ class OverlayService : Service() {
                 /*
                  * Il prezzo pubblico arriva dal normale endpoint articolo.
                  * Se Scan2Enter ha una promo configurata e ATTIVA per questo
-                 * articolo, il popup deve però mostrare subito il prezzo promo
+                 * articolo, il popup deve perÃ² mostrare subito il prezzo promo
                  * anche quando l'articolo viene riaperto da TrovaTutto/scanner.
                  *
                  * Non alteriamo la semantica del prezzo cliente/sessione:
@@ -1868,8 +1868,8 @@ class OverlayService : Service() {
                         )
 
                         /*
-                         * Il ProductInfoPopup può completare alcuni aggiornamenti
-                         * asincroni subito dopo il primo render. Se la promo è già
+                         * Il ProductInfoPopup puÃ² completare alcuni aggiornamenti
+                         * asincroni subito dopo il primo render. Se la promo Ã¨ giÃ 
                          * stata risolta dal Gateway, ribadiamo l'aspetto promo sul
                          * TextView del prezzo senza modificare product.publicPrice,
                          * che deve restare il vero prezzo pubblico per editor/listini.
@@ -2283,7 +2283,7 @@ class OverlayService : Service() {
                     A4LabelStore.AddResult.DUPLICATE -> {
                         Toast.makeText(
                             this,
-                            "Articolo già presente nella pagina",
+                            "Articolo giÃ  presente nella pagina",
                             Toast.LENGTH_SHORT
                         ).show()
                     }
@@ -2360,7 +2360,7 @@ class OverlayService : Service() {
                         if (isZebraDevice()) {
                             android.util.Log.d(
                                 "Scan2Enter",
-                                "ZEBRA BLISTER - SCANNER HARDWARE GIÀ ATTIVO"
+                                "ZEBRA BLISTER - SCANNER HARDWARE GIÃ€ ATTIVO"
                             )
                         } else {
                             scanOverlay.show(
@@ -2475,14 +2475,14 @@ class OverlayService : Service() {
             return
         }
 
-        // OFFERTA è una lettura singola: niente retry automatico SCAFFALE.
+        // OFFERTA Ã¨ una lettura singola: niente retry automatico SCAFFALE.
         a4ShelfScanInProgress = false
         a4OfferScanInProgress = true
 
         if (isZebraDevice()) {
             android.util.Log.d(
                 "Scan2Enter",
-                "ZEBRA A4 OFFERTE - SCANNER HARDWARE GIÀ ATTIVO"
+                "ZEBRA A4 OFFERTE - SCANNER HARDWARE GIÃ€ ATTIVO"
             )
             return
         }
@@ -2509,7 +2509,7 @@ class OverlayService : Service() {
         if (isZebraDevice()) {
             android.util.Log.d(
                 "Scan2Enter",
-                "ZEBRA A4 SCAFFALE - SCANNER HARDWARE GIÀ ATTIVO"
+                "ZEBRA A4 SCAFFALE - SCANNER HARDWARE GIÃ€ ATTIVO"
             )
             return
         }
@@ -2610,16 +2610,16 @@ class OverlayService : Service() {
         }
 
         /*
-         * Sul TC22 DataWedge tiene già pronto lo scanner hardware:
-         * non dobbiamo aprire CameraX. Il grilletto può essere premuto
-         * direttamente mentre la finestra GoDEX è aperta.
+         * Sul TC22 DataWedge tiene giÃ  pronto lo scanner hardware:
+         * non dobbiamo aprire CameraX. Il grilletto puÃ² essere premuto
+         * direttamente mentre la finestra GoDEX Ã¨ aperta.
          *
          * S24 e Sunmi mantengono il comportamento precedente.
          */
         if (isZebraDevice()) {
             android.util.Log.d(
                 "Scan2Enter",
-                "ZEBRA GODEX - SCANNER HARDWARE GIÀ ATTIVO"
+                "ZEBRA GODEX - SCANNER HARDWARE GIÃ€ ATTIVO"
             )
             return
         }
@@ -2968,13 +2968,13 @@ class OverlayService : Service() {
      *
      * Il popup viene aperto subito usando l'ultima cache disponibile; quando
      * la richiesta termina, listener e badge vengono aggiornati automaticamente.
-     * Se il Gateway non è raggiungibile, la lista salvata resta intatta.
+     * Se il Gateway non Ã¨ raggiungibile, la lista salvata resta intatta.
      */
     private fun synchronizeReorderListFromGateway() {
         if (reorderListLoading) {
             android.util.Log.d(
                 "OverlayService",
-                "SINCRONIZZAZIONE RIORDINO GIÀ IN CORSO"
+                "SINCRONIZZAZIONE RIORDINO GIÃ€ IN CORSO"
             )
             return
         }
@@ -2983,7 +2983,7 @@ class OverlayService : Service() {
 
         Toast.makeText(
             this,
-            "Aggiornamento lista di riordino…",
+            "Aggiornamento lista di riordinoâ€¦",
             Toast.LENGTH_SHORT
         ).show()
 
@@ -3090,7 +3090,7 @@ class OverlayService : Service() {
         }
 
         val closeButton = TextView(this).apply {
-            text = "✕"
+            text = "âœ•"
             textSize = 28f
             gravity = Gravity.CENTER
             setTextColor(Color.BLACK)
@@ -3207,7 +3207,7 @@ class OverlayService : Service() {
 
         val favoriteSortButton = Button(this).apply {
             tag = "favoriteSortButton"
-            text = "ORDINA: INSERIMENTO  ▼"
+            text = "ORDINA: INSERIMENTO  â–¼"
             textSize = 14f
             gravity = Gravity.CENTER
             visibility = View.GONE
@@ -3233,7 +3233,7 @@ class OverlayService : Service() {
 
         val supplierFilterButton = Button(this).apply {
             tag = "reorderSupplierFilterButton"
-            text = "TUTTI I FORNITORI  ▼"
+            text = "TUTTI I FORNITORI  â–¼"
             textSize = 14f
             gravity = Gravity.CENTER
             setTextColor(Color.rgb(27, 94, 32))
@@ -3258,7 +3258,7 @@ class OverlayService : Service() {
 
         val reorderTotalsText = TextView(this).apply {
             tag = "reorderTotalsText"
-            text = "Imponibile: —   •   Ivato: —"
+            text = "Imponibile: â€”   â€¢   Ivato: â€”"
             textSize = 15f
             gravity = Gravity.CENTER
             setTextColor(Color.rgb(35, 75, 55))
@@ -3295,7 +3295,7 @@ class OverlayService : Service() {
 
         val printListButton = Button(this).apply {
             tag = "printListButton"
-            text = "🖨  STAMPA PDF"
+            text = "ðŸ–¨  STAMPA PDF"
             textSize = 15f
             gravity = Gravity.CENTER
             visibility = View.GONE
@@ -3568,8 +3568,8 @@ class OverlayService : Service() {
             allItems.isEmpty() -> "Nessun articolo presente"
             reorderSupplierFilterKey != null ->
                 "${items.size} articoli visualizzati su ${allItems.size}"
-            supplierCount == 1 -> "${allItems.size} articoli · 1 fornitore"
-            else -> "${allItems.size} articoli · $supplierCount fornitori"
+            supplierCount == 1 -> "${allItems.size} articoli Â· 1 fornitore"
+            else -> "${allItems.size} articoli Â· $supplierCount fornitori"
         }
 
         val rows = mutableListOf<() -> View>()
@@ -3697,9 +3697,9 @@ class OverlayService : Service() {
 
     private fun favoriteSortLabel(): String =
         when (favoriteSortMode) {
-            FavoriteSortMode.INSERTION -> "ORDINA: INSERIMENTO  ▼"
-            FavoriteSortMode.PRICE_ASCENDING -> "PREZZO: CRESCENTE  ▼"
-            FavoriteSortMode.PRICE_DESCENDING -> "PREZZO: DECRESCENTE  ▼"
+            FavoriteSortMode.INSERTION -> "ORDINA: INSERIMENTO  â–¼"
+            FavoriteSortMode.PRICE_ASCENDING -> "PREZZO: CRESCENTE  â–¼"
+            FavoriteSortMode.PRICE_DESCENDING -> "PREZZO: DECRESCENTE  â–¼"
         }
 
     private fun showFavoriteSortMenu(anchor: View) {
@@ -3736,7 +3736,7 @@ class OverlayService : Service() {
 
     private fun String.toPriceValue(): Double {
         val cleaned = trim()
-            .replace("€", "")
+            .replace("â‚¬", "")
             .replace(" ", "")
 
         val normalized = when {
@@ -3762,14 +3762,14 @@ class OverlayService : Service() {
 
     private fun selectedSupplierFilterLabel(items: List<ReorderItem>): String {
         val selectedKey = reorderSupplierFilterKey
-            ?: return "TUTTI I FORNITORI  ▼"
+            ?: return "TUTTI I FORNITORI  â–¼"
 
         val selectedName = items
             .firstOrNull { supplierFilterKey(it) == selectedKey }
             ?.let(::supplierDisplayName)
             ?: "Fornitore"
 
-        return "$selectedName  ▼"
+        return "$selectedName  â–¼"
     }
 
     private fun showSupplierFilterMenu(anchor: View) {
@@ -3838,16 +3838,16 @@ class OverlayService : Service() {
         }
 
         if (items.isEmpty()) {
-            return "Imponibile: 0,00 €   •   Ivato: 0,00 €"
+            return "Imponibile: 0,00 â‚¬   â€¢   Ivato: 0,00 â‚¬"
         }
 
         if (pricedRows == 0) {
-            return "Imponibile: —   •   Ivato: —"
+            return "Imponibile: â€”   â€¢   Ivato: â€”"
         }
 
         return String.format(
             Locale.ITALY,
-            "Imponibile: %,.2f €   •   Ivato: %,.2f €",
+            "Imponibile: %,.2f â‚¬   â€¢   Ivato: %,.2f â‚¬",
             taxableTotal,
             grossTotal
         )
@@ -3954,7 +3954,7 @@ class OverlayService : Service() {
         val density = resources.displayMetrics.density
 
         return TextView(this).apply {
-            text = "$supplierName  ·  $itemCount"
+            text = "$supplierName  Â·  $itemCount"
             textSize = 18f
             setTextColor(Color.WHITE)
             setTypeface(typeface, android.graphics.Typeface.BOLD)
@@ -4046,7 +4046,7 @@ class OverlayService : Service() {
 
         val stockLine = buildString {
             append("Giacenza: ${item.stock.formatNullableQuantity()}")
-            append("   •   Minima: ${item.minimumStock.formatNullableQuantity()}")
+            append("   â€¢   Minima: ${item.minimumStock.formatNullableQuantity()}")
             append("\nDa ordinare: ${quantityToOrder.formatNullableQuantity()}")
         }
 
@@ -4073,7 +4073,7 @@ class OverlayService : Service() {
     }
 
     /**
-     * Applica le regole definitive di visibilità della lista.
+     * Applica le regole definitive di visibilitÃ  della lista.
      *
      * - minima, massima e lotto tutti a 0: articolo escluso;
      * - minima null e lotto > 0: articolo visibile per decisione manuale;
@@ -4123,7 +4123,7 @@ class OverlayService : Service() {
         }
 
         /*
-         * La minima non impostata, con lotto valorizzato, è il caso
+         * La minima non impostata, con lotto valorizzato, Ã¨ il caso
          * concordato per la decisione manuale: mostriamo direttamente il lotto.
          */
         if (minimumStock == null && reorderLot != null && reorderLot > 0.0) {
@@ -4250,7 +4250,7 @@ class OverlayService : Service() {
                 append("Codice: ${item.articleCode.trim()}")
             }
             if (item.barcode.isNotBlank()) {
-                if (isNotEmpty()) append("   •   ")
+                if (isNotEmpty()) append("   â€¢   ")
                 append("EAN: ${item.barcode.trim()}")
             }
         }
@@ -4269,7 +4269,7 @@ class OverlayService : Service() {
         textContainer.addView(
             TextView(this).apply {
                 text = "Prezzo: ${formatFavoritePrice(item.publicPrice)}" +
-                        "   •   Giacenza: ${item.stock.ifBlank { "—" }}"
+                        "   â€¢   Giacenza: ${item.stock.ifBlank { "â€”" }}"
                 textSize = 15f
                 setTextColor(Color.rgb(35, 75, 55))
                 setTypeface(typeface, android.graphics.Typeface.BOLD)
@@ -4325,11 +4325,11 @@ class OverlayService : Service() {
     private fun formatFavoritePrice(raw: String): String {
         val value = raw.toPriceValue()
         return if (value == Double.MAX_VALUE) {
-            raw.trim().ifEmpty { "—" }
+            raw.trim().ifEmpty { "â€”" }
         } else {
             String.format(
                 java.util.Locale.ITALY,
-                "%.2f €",
+                "%.2f â‚¬",
                 value
             )
         }
@@ -4357,7 +4357,7 @@ class OverlayService : Service() {
 
                     /*
                      * Mantiene la lista Preferiti aperta dietro al popup,
-                     * come già avviene per la lista di riordino.
+                     * come giÃ  avviene per la lista di riordino.
                      */
                     showOrUpdateProductInfoPopup(
                         workflowCompleted = true,
@@ -4446,7 +4446,7 @@ class OverlayService : Service() {
                             append("Codice: ${product.articleCode.trim()}")
                         }
                         if (product.barcode.isNotBlank()) {
-                            if (isNotEmpty()) append("   •   ")
+                            if (isNotEmpty()) append("   â€¢   ")
                             append("EAN: ${product.barcode.trim()}")
                         }
                         if (product.stock.isNotBlank()) {
@@ -4610,7 +4610,7 @@ class OverlayService : Service() {
     }
 
     private fun Double?.formatNullableQuantity(): String =
-        this?.formatStockQuantity() ?: "—"
+        this?.formatStockQuantity() ?: "â€”"
 
     @Suppress("UNCHECKED_CAST")
     private fun <T : View> findViewByTag(
@@ -4655,7 +4655,7 @@ class OverlayService : Service() {
     /**
      * Mostra la cronologia degli ultimi articoli letti.
      *
-     * La cronologia è già mantenuta in RAM da ProductInfoStore e viene
+     * La cronologia Ã¨ giÃ  mantenuta in RAM da ProductInfoStore e viene
      * soltanto letta quando l'utente preme il pulsante con lo scatolone.
      * Non viene quindi aggiunto alcun lavoro al workflow di scansione.
      */
@@ -4706,7 +4706,7 @@ class OverlayService : Service() {
         }
 
         val closeButton = TextView(this).apply {
-            text = "✕"
+            text = "âœ•"
             textSize = 28f
             gravity = Gravity.CENTER
             setTextColor(Color.BLACK)
@@ -4947,7 +4947,7 @@ class OverlayService : Service() {
                 }
 
                 if (product.barcode.isNotBlank()) {
-                    if (isNotEmpty()) append("   •   ")
+                    if (isNotEmpty()) append("   â€¢   ")
                     append("EAN: ${product.barcode.trim()}")
                 }
 
@@ -4957,7 +4957,7 @@ class OverlayService : Service() {
 
                 if (product.stock.isNotBlank()) {
                     if (product.publicPrice.isNotBlank()) {
-                        append("   •   ")
+                        append("   â€¢   ")
                     } else {
                         append("\n")
                     }
@@ -5062,7 +5062,7 @@ class OverlayService : Service() {
         )
 
         /*
-         * Lo scanner normale può arrivare qui senza passare da
+         * Lo scanner normale puÃ² arrivare qui senza passare da
          * openCurrentArticleFromApi(): in quel caso risolviamo ora la promo
          * effettiva e aggiorniamo soltanto la resa visiva del prezzo.
          */
@@ -5077,7 +5077,7 @@ class OverlayService : Service() {
 
         /*
          * Durante la lettura progressiva il popup lascia passare i tocchi
-         * necessari al servizio Accessibility. Appena il prodotto è completo,
+         * necessari al servizio Accessibility. Appena il prodotto Ã¨ completo,
          * la finestra diventa interattiva e torna opaca al 100%.
          */
         setProductInfoTouchThrough(
@@ -5214,9 +5214,9 @@ class OverlayService : Service() {
             product = product,
             onSaved = { promo ->
                 /*
-                 * Due FRONT può avere ancora la promo precedente in memoria.
+                 * Due FRONT puÃ² avere ancora la promo precedente in memoria.
                  * Per Scan2Enter mostriamo invece subito il prezzo restituito
-                 * dal Gateway, che è il valore appena salvato.
+                 * dal Gateway, che Ã¨ il valore appena salvato.
                  */
                 currentPromoArticleId = product.articleId
                 currentPromoActive = true
@@ -5244,7 +5244,7 @@ class OverlayService : Service() {
             onDeleted = {
                 /*
                  * Dopo l'eliminazione ripristiniamo visivamente il prezzo
-                 * pubblico già presente nell'articolo corrente.
+                 * pubblico giÃ  presente nell'articolo corrente.
                  */
                 currentPromoArticleId = product.articleId
                 currentPromoActive = false
@@ -5307,6 +5307,37 @@ class OverlayService : Service() {
                 )
 
                 bringQuickScanDockToFront()
+            },
+            onCreateGraphicPromo = { selectedProduct ->
+                popupTimerPausedByUser = false
+
+                val intent = Intent(
+                    this,
+                    MainActivity::class.java
+                ).apply {
+                    addFlags(
+                        Intent.FLAG_ACTIVITY_NEW_TASK or
+                            Intent.FLAG_ACTIVITY_SINGLE_TOP or
+                            Intent.FLAG_ACTIVITY_CLEAR_TOP
+                    )
+
+                    putExtra(
+                        MainActivity.EXTRA_OPEN_PROMO_BUILDER,
+                        true
+                    )
+
+                    putExtra(
+                        MainActivity.EXTRA_PROMO_BUILDER_BARCODE,
+                        selectedProduct.barcode
+                    )
+                }
+
+                startActivity(intent)
+
+                android.util.Log.d(
+                    "OverlayService",
+                    "APRO PROMO BUILDER barcode=${selectedProduct.barcode}"
+                )
             }
         )
     }
@@ -5387,7 +5418,7 @@ class OverlayService : Service() {
 
         if (expiry.isExpired) {
             /*
-             * Avviso più netto per prodotto già scaduto.
+             * Avviso piÃ¹ netto per prodotto giÃ  scaduto.
              * Nessuna sintesi vocale.
              */
             urgentStockTone?.startTone(
@@ -5401,7 +5432,7 @@ class OverlayService : Service() {
             )
         } else {
             /*
-             * Avviso più morbido per prodotto entro 6 mesi.
+             * Avviso piÃ¹ morbido per prodotto entro 6 mesi.
              * Nessuna sintesi vocale.
              */
             urgentStockTone?.startTone(
@@ -5809,7 +5840,7 @@ class OverlayService : Service() {
                                             val current = ProductInfoStore.current ?: product
                                             val updatedProduct = current.copy(
                                                 location = refreshed
-                                                    .joinToString(" · ") { it.name.trim() },
+                                                    .joinToString(" Â· ") { it.name.trim() },
                                                 locations = refreshed
                                             )
 
@@ -5855,7 +5886,7 @@ class OverlayService : Service() {
                                         result.onSuccess { (_, assigned) ->
                                             val current = ProductInfoStore.current ?: product
                                             val updated = current.copy(
-                                                location = assigned.joinToString(" · ") { it.name.trim() },
+                                                location = assigned.joinToString(" Â· ") { it.name.trim() },
                                                 locations = assigned
                                             )
                                             ProductInfoStore.current = updated
@@ -5900,7 +5931,7 @@ class OverlayService : Service() {
                                                 ProductInfoStore.current ?: product
 
                                             val updated = current.copy(
-                                                location = assigned.joinToString(" · ") {
+                                                location = assigned.joinToString(" Â· ") {
                                                     it.name.trim()
                                                 },
                                                 locations = assigned
@@ -6019,14 +6050,14 @@ class OverlayService : Service() {
             onSave = { minimumStock, reorderLot, complete ->
                 /*
                  * Nel database Due Retail lo stato "escluso dal riordino"
-                 * non è rappresentato da tre zeri reali:
+                 * non Ã¨ rappresentato da tre zeri reali:
                  *
                  * - tabella principale: -1
                  * - tabella store / vista usata dal PC: NULL
                  *
                  * La finestra espone soltanto minimo e lotto; la massima viene
                  * sempre gestita automaticamente. Quando entrambi i valori
-                 * visibili sono 0, l'intenzione dell'utente è quindi escludere
+                 * visibili sono 0, l'intenzione dell'utente Ã¨ quindi escludere
                  * completamente l'articolo dal riordino automatico.
                  */
                 val excludeFromAutomaticReorder =
@@ -6139,7 +6170,7 @@ class OverlayService : Service() {
     }
 
     /**
-     * La durata del popup è ora fissa a 4 secondi.
+     * La durata del popup Ã¨ ora fissa a 4 secondi.
      *
      * Il vecchio blocco Auto/Manuale viene rimosso completamente e lo stesso
      * spazio viene riutilizzato per il solo comando dei suoni stock.
@@ -6172,9 +6203,9 @@ class OverlayService : Service() {
                     ScanFeedbackManager.isEnabled(applicationContext)
 
                 text = if (enabled) {
-                    "🔊 SUONI STOCK: ON"
+                    "ðŸ”Š SUONI STOCK: ON"
                 } else {
-                    "🔇 SUONI STOCK: OFF"
+                    "ðŸ”‡ SUONI STOCK: OFF"
                 }
 
                 setTextColor(
@@ -6221,7 +6252,7 @@ class OverlayService : Service() {
 
                 /*
                  * Dopo il tocco riparte il conteggio dei 4 secondi,
-                 * così il pulsante non scompare mentre viene premuto.
+                 * cosÃ¬ il pulsante non scompare mentre viene premuto.
                  */
                 popupHandler.removeCallbacks(dismissPopupRunnable)
                 scheduleProductPopupDismiss(ProductInfoStore.current)
@@ -6406,7 +6437,7 @@ class OverlayService : Service() {
      * Abilita o disabilita il passaggio dei tocchi senza nascondere
      * e senza ricreare la superficie grafica del popup.
      *
-     * Quando FLAG_NOT_TOUCHABLE è attivo, Android può limitare
+     * Quando FLAG_NOT_TOUCHABLE Ã¨ attivo, Android puÃ² limitare
      * temporaneamente l'alpha della finestra overlay a 0,80.
      * Quando viene rimosso, la finestra torna opaca al 100%.
      */
@@ -6520,7 +6551,7 @@ class OverlayService : Service() {
 
                 /*
                  * Ridisegniamo tutto il popup passando dal normale update:
-                 * updateProductInfoPopup creerà una copia SOLO VISUALE col
+                 * updateProductInfoPopup creerÃ  una copia SOLO VISUALE col
                  * prezzo promo, senza alterare ProductInfoStore.current.
                  */
                 updateProductInfoPopup(
@@ -6555,7 +6586,7 @@ class OverlayService : Service() {
             val promoPriceText =
                 String.format(
                     Locale.ITALY,
-                    "%.2f €",
+                    "%.2f â‚¬",
                     promoPrice
                 )
 
@@ -6595,7 +6626,7 @@ class OverlayService : Service() {
                     priceText.text =
                         String.format(
                             Locale.ITALY,
-                            "%.2f €",
+                            "%.2f â‚¬",
                             publicPrice
                         )
                 }
@@ -6664,7 +6695,7 @@ class OverlayService : Service() {
         }
 
         /*
-         * L'immagine prodotto viene già caricata da ProductInfoPopup.update().
+         * L'immagine prodotto viene giÃ  caricata da ProductInfoPopup.update().
          * Non lanciamo un secondo caricamento Coil concorrente sulla stessa View.
          */
         if (
@@ -6712,7 +6743,7 @@ class OverlayService : Service() {
         val imageUrl = gatewayApiClient.getProductImageUrl(barcode)
 
         /*
-         * Il segnaposto con scatolone e testo è disegnato nell'XML sotto
+         * Il segnaposto con scatolone e testo Ã¨ disegnato nell'XML sotto
          * l'ImageView. Durante il caricamento e in caso di HTTP 404 questa
          * ImageView resta trasparente; quando la foto arriva la copre.
          */
@@ -6886,7 +6917,7 @@ class OverlayService : Service() {
 
 
     /**
-     * Riproduce il feedback stock soltanto quando il workflow è completo.
+     * Riproduce il feedback stock soltanto quando il workflow Ã¨ completo.
      *
      * Verde  -> BLIP breve.
      * Giallo -> CRASH: articolo al limite.
@@ -6905,7 +6936,7 @@ class OverlayService : Service() {
         }
 
         /*
-         * Un articolo bloccato ha priorità assoluta:
+         * Un articolo bloccato ha prioritÃ  assoluta:
          * nessun suono Preferiti e nessun feedback di scorta/riordino.
          */
         if (!product.active) {
@@ -6919,7 +6950,7 @@ class OverlayService : Service() {
         }
 
         /*
-         * Spara-spara INFO: se l'articolo è nei Preferiti, usa un suono
+         * Spara-spara INFO: se l'articolo Ã¨ nei Preferiti, usa un suono
          * dedicato al posto del normale feedback stock.
          */
         val isFavorite =
@@ -6963,7 +6994,7 @@ class OverlayService : Service() {
 
     private fun String.toNumericValue(): Double? =
         trim()
-            .replace("€", "")
+            .replace("â‚¬", "")
             .replace(" ", "")
             .replace(",", ".")
             .toDoubleOrNull()
@@ -7159,7 +7190,7 @@ class OverlayService : Service() {
                         (event.rawY - quickDockDownY).toInt()
 
                     /*
-                     * La lineetta può essere spostata liberamente:
+                     * La lineetta puÃ² essere spostata liberamente:
                      * in verticale per scegliere l'altezza e,
                      * trascinandola molto, anche da un lato all'altro.
                      */
@@ -7197,7 +7228,7 @@ class OverlayService : Service() {
                         event.rawY - quickDockDownY
 
                     /*
-                     * Cambio lato volutamente più difficile:
+                     * Cambio lato volutamente piÃ¹ difficile:
                      * bisogna trascinare la dock per circa 2/3 dello schermo.
                      */
                     val switchSideThreshold =
@@ -7243,7 +7274,7 @@ class OverlayService : Service() {
                     } else {
                         /*
                          * Trascinamento verticale o piccolo movimento:
-                         * resta chiusa e si riaggancia al bordo più vicino.
+                         * resta chiusa e si riaggancia al bordo piÃ¹ vicino.
                          */
                         quickScanDockOnLeft =
                             params.x + width / 2 <
@@ -7312,7 +7343,7 @@ class OverlayService : Service() {
         }
 
         val scanButton = Button(this).apply {
-            text = "📷\nSCAN"
+            text = "ðŸ“·\nSCAN"
             textSize = 18f
             setTextColor(Color.WHITE)
             gravity = Gravity.CENTER
@@ -7328,7 +7359,7 @@ class OverlayService : Service() {
              * TAP = scansione.
              * SWIPE verso il bordo = richiude la dock.
              *
-             * Il gesto di chiusura è quindi l'opposto di quello usato
+             * Il gesto di chiusura Ã¨ quindi l'opposto di quello usato
              * per aprirla dalla lineetta.
              */
             var downX = 0f
@@ -7401,7 +7432,7 @@ class OverlayService : Service() {
 
         /*
          * Dock persistente:
-         * una volta aperta resta visibile finché l'utente non la richiude
+         * una volta aperta resta visibile finchÃ© l'utente non la richiude
          * con il gesto opposto (verso il bordo).
          */
         popupHandler.removeCallbacks(
@@ -7446,7 +7477,7 @@ class OverlayService : Service() {
 
     private fun keepQuickScanDockAlive() {
         /*
-         * La dock è ora persistente: le attività di scansione
+         * La dock Ã¨ ora persistente: le attivitÃ  di scansione
          * non devono avviare alcun timer di chiusura.
          */
         if (!quickScanDockExpanded) {
@@ -7492,12 +7523,12 @@ class OverlayService : Service() {
         }
 
         /*
-         * In modalità GoDEX la finestra corrente deve essere rimossa PRIMA
+         * In modalitÃ  GoDEX la finestra corrente deve essere rimossa PRIMA
          * di aprire CameraX. Altrimenti, dopo la lettura, ACTION_SHOW_GODEX_PRINT
-         * tenta di riaprire LabelPrintPopup ma show() la ignora perché
-         * overlayRoot è ancora valorizzato.
+         * tenta di riaprire LabelPrintPopup ma show() la ignora perchÃ©
+         * overlayRoot Ã¨ ancora valorizzato.
          *
-         * I tasti Volume funzionano già così tramite LabelPrintPopup:
+         * I tasti Volume funzionano giÃ  cosÃ¬ tramite LabelPrintPopup:
          * rimuovono il popup e poi aprono lo scanner.
          * La dock deve seguire esattamente lo stesso percorso.
          */
@@ -7541,7 +7572,7 @@ class OverlayService : Service() {
 
         /*
          * La dock resta aperta durante il ciclo di lavoro.
-         * Ogni scansione azzera il timer di inattività.
+         * Ogni scansione azzera il timer di inattivitÃ .
          */
         keepQuickScanDockAlive()
 

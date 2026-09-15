@@ -1,4 +1,4 @@
-package com.scan2enter
+﻿package com.scan2enter
 
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -31,6 +31,7 @@ import com.scan2enter.ui.screens.SalesScreen
 import com.scan2enter.ui.screens.InventoryAnalysisScreen
 import com.scan2enter.ui.screens.ColloHistoryScreen
 import com.scan2enter.promotions.PromotionsScreen
+import com.scan2enter.promotions.PromoBuilderScreen
 import com.scan2enter.session.SessionStore
 import com.scan2enter.ui.theme.Scan2EnterTheme
 
@@ -40,6 +41,7 @@ class MainActivity : ComponentActivity() {
     private var currentScreenName: String = "HOME"
 
     private var requestedScreen by mutableStateOf<String?>(null)
+    private var requestedPromoBuilderBarcode by mutableStateOf<String?>(null)
 
     private var expiryAlertDialog: AlertDialog? = null
     private var expiryAlertCheckOnNextStart = false
@@ -68,7 +70,7 @@ class MainActivity : ComponentActivity() {
                 }
 
                 /*
-                 * In SESSIONE il barcode viene già gestito dal receiver
+                 * In SESSIONE il barcode viene giÃ  gestito dal receiver
                  * dedicato di SessionScreen: qui interveniamo SOLO in HOME.
                  */
                 if (
@@ -193,7 +195,7 @@ class MainActivity : ComponentActivity() {
 
         Log.d(
             "Scan2Enter",
-            "S24: CLICK VOLUME GIÙ -> scanner directToSession=$directToSession"
+            "S24: CLICK VOLUME GIÃ™ -> scanner directToSession=$directToSession"
         )
 
         startService(
@@ -214,7 +216,7 @@ class MainActivity : ComponentActivity() {
     /**
      * Solo Zebra / DataWedge.
      *
-     * Trasforma Volume SU e Volume GIÙ in grilletti aggiuntivi del motore
+     * Trasforma Volume SU e Volume GIÃ™ in grilletti aggiuntivi del motore
      * scanner hardware senza modificare i trigger fisici originali.
      *
      * ACTION_DOWN -> START_SCANNING
@@ -403,8 +405,21 @@ class MainActivity : ComponentActivity() {
                     mutableStateOf("HOME")
                 }
 
+                var promoBuilderBarcode by rememberSaveable {
+                    mutableStateOf<String?>(null)
+                }
+
                 LaunchedEffect(requestedScreen) {
                     requestedScreen?.let { destination ->
+
+                        if (destination == "PROMO_BUILDER") {
+                            requestedPromoBuilderBarcode?.let { barcode ->
+                                promoBuilderBarcode = barcode
+                            }
+
+                            requestedPromoBuilderBarcode = null
+                        }
+
                         currentScreen = destination
                         requestedScreen = null
                     }
@@ -426,10 +441,10 @@ class MainActivity : ComponentActivity() {
                         .apply()
 
                     /*
-                     * La Home è sempre uno stato neutro:
+                     * La Home Ã¨ sempre uno stato neutro:
                      * entrando o tornando qui lo scanner viene fermato.
-                     * Potrà ripartire soltanto da un trigger esplicito
-                     * (Volume Su/Giù, quick dock o pulsante SCANSIONA).
+                     * PotrÃ  ripartire soltanto da un trigger esplicito
+                     * (Volume Su/GiÃ¹, quick dock o pulsante SCANSIONA).
                      */
                     if (currentScreen == "HOME") {
                         /*
@@ -504,6 +519,19 @@ class MainActivity : ComponentActivity() {
                                         )
                                     }
                                 )
+                            }
+                        )
+                    }
+
+
+                    "TROVATUTTO_PROMO_BUILDER" -> {
+                        TrovaTuttoScreen(
+                            onBack = {
+                                currentScreen = "PROMO_BUILDER"
+                            },
+                            onArticleSelected = { barcode ->
+                                promoBuilderBarcode = barcode
+                                currentScreen = "PROMO_BUILDER"
                             }
                         )
                     }
@@ -634,6 +662,17 @@ class MainActivity : ComponentActivity() {
                         )
                     }
 
+                    "PROMO_BUILDER" -> {
+                        PromoBuilderScreen(
+                            selectedBarcode = promoBuilderBarcode,
+                            onBack = {
+                                currentScreen = "PROMOZIONI"
+                            },
+                            onChooseArticle = {
+                                currentScreen = "TROVATUTTO_PROMO_BUILDER"
+                            }
+                        )
+                    }
                     "VENDITE" -> {
                         SalesScreen(
                             onBack = {
@@ -704,6 +743,13 @@ class MainActivity : ComponentActivity() {
         setIntent(intent)
 
         when {
+            intent.getBooleanExtra(EXTRA_OPEN_PROMO_BUILDER, false) -> {
+                requestedPromoBuilderBarcode =
+                    intent.getStringExtra(EXTRA_PROMO_BUILDER_BARCODE)
+
+                requestedScreen = "PROMO_BUILDER"
+            }
+
             intent.getBooleanExtra(EXTRA_OPEN_A4_SEARCH, false) ->
                 requestedScreen = "TROVATUTTO_A4"
 
@@ -718,6 +764,12 @@ class MainActivity : ComponentActivity() {
 
         const val EXTRA_OPEN_A4_SEARCH =
             "com.scan2enter.extra.OPEN_A4_SEARCH"
+
+        const val EXTRA_OPEN_PROMO_BUILDER =
+            "com.scan2enter.extra.OPEN_PROMO_BUILDER"
+
+        const val EXTRA_PROMO_BUILDER_BARCODE =
+            "com.scan2enter.extra.PROMO_BUILDER_BARCODE"
     }
 
     override fun onKeyDown(
@@ -778,7 +830,7 @@ class MainActivity : ComponentActivity() {
                 return super.onKeyUp(keyCode, event)
             }
 
-            /* S24: consumiamo il rilascio come già avveniva prima. */
+            /* S24: consumiamo il rilascio come giÃ  avveniva prima. */
             return true
         }
 
@@ -827,3 +879,12 @@ class MainActivity : ComponentActivity() {
         Log.d("Scan2Enter", "MainActivity -> onDestroy")
     }
 }
+
+
+
+
+
+
+
+
+

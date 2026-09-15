@@ -47,6 +47,7 @@ class PromotionManagementPopup(
     private var saveButton: Button? = null
     private var deleteButton: Button? = null
     private var printButton: Button? = null
+    private var graphicPromoButton: Button? = null
 
     private var validFromDate: Calendar? = null
     private var validToDate: Calendar? = null
@@ -56,6 +57,7 @@ class PromotionManagementPopup(
     private var onDeletedCallback: (() -> Unit)? = null
     private var onClosedCallback: (() -> Unit)? = null
     private var onPrintRequestedCallback: ((ProductInfo, String) -> Unit)? = null
+    private var onCreateGraphicPromoCallback: ((ProductInfo) -> Unit)? = null
 
     fun isShowing(): Boolean = root != null
 
@@ -64,7 +66,8 @@ class PromotionManagementPopup(
         onSaved: (ProductPromoDto) -> Unit,
         onDeleted: () -> Unit,
         onClosed: () -> Unit,
-        onPrintRequested: ((ProductInfo, String) -> Unit)? = null
+        onPrintRequested: ((ProductInfo, String) -> Unit)? = null,
+        onCreateGraphicPromo: ((ProductInfo) -> Unit)? = null
     ) {
         remove(notifyClosed = false)
 
@@ -73,6 +76,7 @@ class PromotionManagementPopup(
         onDeletedCallback = onDeleted
         onClosedCallback = onClosed
         onPrintRequestedCallback = onPrintRequested
+        onCreateGraphicPromoCallback = onCreateGraphicPromo
 
         val overlay = FrameLayout(context).apply {
             setBackgroundColor(Color.argb(125, 0, 0, 0))
@@ -112,7 +116,7 @@ class PromotionManagementPopup(
 
         val publicPrice = parseMoney(product.publicPrice) ?: BigDecimal.ZERO
         val publicText = TextView(context).apply {
-            text = "PREZZO PUBBLICO  ${formatMoney(publicPrice)} €"
+            text = "PREZZO PUBBLICO  ${formatMoney(publicPrice)} \u20AC"
             textSize = 16f
             setTypeface(typeface, Typeface.BOLD)
             setTextColor(Color.BLACK)
@@ -136,7 +140,7 @@ class PromotionManagementPopup(
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
         }
-        offerBox.addView(label("PREZZO PROMO €"))
+        offerBox.addView(label("PREZZO PROMO \u20AC"))
         offerPriceField = numericField(formatMoney(publicPrice)).also { offerBox.addView(it) }
 
         fieldsRow.addView(
@@ -154,7 +158,7 @@ class PromotionManagementPopup(
 
         installBidirectionalCalculation(publicPrice)
 
-        val datesTitle = label("VALIDITÀ").apply {
+        val datesTitle = label("VALIDIT\u00C0").apply {
             gravity = Gravity.CENTER
             setPadding(0, dp(10), 0, dp(4))
         }
@@ -193,7 +197,7 @@ class PromotionManagementPopup(
             "OGGI" to 0,
             "7 GG" to 7,
             "30 GG" to 30,
-            "∞" to -1
+            "\u221E" to -1
         ).forEach { (caption, days) ->
             presets.addView(
                 Button(context).apply {
@@ -209,7 +213,7 @@ class PromotionManagementPopup(
         }
 
         statusText = TextView(context).apply {
-            text = "Caricamento promozione…"
+            text = "Caricamento promozione\u2026"
             textSize = 12.5f
             setTextColor(Color.DKGRAY)
             gravity = Gravity.CENTER
@@ -247,6 +251,14 @@ class PromotionManagementPopup(
             setOnClickListener { openPromoPrint() }
         }
 
+        graphicPromoButton = Button(context).apply {
+            text = " CREA PROMO GRAFICA"
+            textSize = 15f
+            setTypeface(typeface, Typeface.BOLD)
+            isEnabled = false
+            setOnClickListener { openGraphicPromo() }
+        }
+
         card.addView(title)
         card.addView(productText)
         card.addView(publicText)
@@ -262,6 +274,14 @@ class PromotionManagementPopup(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
             ).apply { topMargin = dp(6) }
+        )
+
+        card.addView(
+            graphicPromoButton,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(4) }
         )
 
         val width = minOf(dp(430), context.resources.displayMetrics.widthPixels - dp(12))
@@ -308,15 +328,19 @@ class PromotionManagementPopup(
                         discountField?.setText(formatNumber(displayedDiscount))
                         offerPriceField?.setText(formatNumber(promo.offerPrice))
                         validFromDate = parseServerDate(promo.validFrom)
-                        validToDate = parseServerDate(promo.validTo)
+                        validToDate = parseServerDate(promo.validTo)?.takeUnless {
+                            it.get(Calendar.YEAR) >= 2099
+                        }
                         syncingFields = false
                         statusText?.text = promoStatusText(promo)
                         deleteButton?.isEnabled = true
                         printButton?.isEnabled = onPrintRequestedCallback != null
+                        graphicPromoButton?.isEnabled = onCreateGraphicPromoCallback != null
                     } else {
                         statusText?.text = "Nessuna promozione configurata"
                         deleteButton?.isEnabled = false
                         printButton?.isEnabled = false
+                        graphicPromoButton?.isEnabled = false
                     }
                     refreshDateButtons()
                     saveButton?.isEnabled = true
@@ -384,7 +408,7 @@ class PromotionManagementPopup(
                 }
 
                 if (typedOffer > publicPrice) {
-                    setPriceValidationError("Il prezzo promo non può superare il prezzo pubblico")
+                    setPriceValidationError("Il prezzo promo non pu\u00F2 superare il prezzo pubblico")
                     return
                 }
 
@@ -502,7 +526,7 @@ class PromotionManagementPopup(
                     if (currentTo != null && selected.after(currentTo)) {
                         Toast.makeText(
                             context,
-                            "La data iniziale non può essere successiva alla data finale",
+                            "La data iniziale non pu\u00F2 essere successiva alla data finale",
                             Toast.LENGTH_SHORT
                         ).show()
                         return@DatePickerDialog
@@ -513,7 +537,7 @@ class PromotionManagementPopup(
                     if (currentFrom != null && selected.before(currentFrom)) {
                         Toast.makeText(
                             context,
-                            "La data finale non può precedere la data iniziale",
+                            "La data finale non pu\u00F2 precedere la data iniziale",
                             Toast.LENGTH_SHORT
                         ).show()
                         return@DatePickerDialog
@@ -583,14 +607,14 @@ class PromotionManagementPopup(
         }
 
         if (publicPrice <= BigDecimal.ZERO || typedOffer > publicPrice) {
-            setPriceValidationError("Il prezzo promo non può superare il prezzo pubblico")
+            setPriceValidationError("Il prezzo promo non pu\u00F2 superare il prezzo pubblico")
             return
         }
 
         /*
          * Il Gateway salva la promo partendo dalla percentuale.
          * Prima di inviarla riallineiamo la percentuale al prezzo commerciale
-         * arrotondato ai 10 centesimi, così anteprima Android e risultato
+         * arrotondato ai 10 centesimi, cos\u00EC anteprima Android e risultato
          * restituito dal Gateway coincidono.
          */
         val roundedOffer = roundToCommercialTenCents(typedOffer)
@@ -611,14 +635,14 @@ class PromotionManagementPopup(
         val to = validToDate
         if (from != null && to != null && to.before(from)) {
             statusText?.apply {
-                text = "La data finale non può precedere quella iniziale"
+                text = "La data finale non pu\u00F2 precedere quella iniziale"
                 setTextColor(Color.rgb(183, 28, 28))
             }
             return
         }
 
         hideKeyboard()
-        setBusy(true, "Salvataggio promozione…")
+        setBusy(true, "Salvataggio promozione\u2026")
 
         Thread {
             val result = gatewayApiClient.updateProductPromo(
@@ -648,6 +672,7 @@ class PromotionManagementPopup(
                         saveButton?.isEnabled = true
                         deleteButton?.isEnabled = true
                         printButton?.isEnabled = onPrintRequestedCallback != null
+                        graphicPromoButton?.isEnabled = onCreateGraphicPromoCallback != null
                     }
                 }.onFailure { error ->
                     setBusy(false, "Errore salvataggio: ${error.message ?: "errore sconosciuto"}", isError = true)
@@ -670,6 +695,24 @@ class PromotionManagementPopup(
         callback(product, offerPrice)
     }
 
+    private fun openGraphicPromo() {
+        val product = currentProduct ?: return
+        val callback = onCreateGraphicPromoCallback ?: return
+
+        if (currentPromo == null) {
+            Toast.makeText(
+                context,
+                "Salva prima la promozione",
+                Toast.LENGTH_SHORT
+            ).show()
+            return
+        }
+
+        hideKeyboard()
+        remove(notifyClosed = false)
+        callback(product)
+    }
+
     private fun deletePromo() {
         currentProduct ?: return
         val promotionId = currentPromo?.primaryHash?.toLongOrNull()
@@ -678,7 +721,7 @@ class PromotionManagementPopup(
             return
         }
         hideKeyboard()
-        setBusy(true, "Eliminazione promozione…")
+        setBusy(true, "Eliminazione promozione\u2026")
 
         Thread {
             val result = gatewayApiClient.deleteProductPromo(promotionId)
@@ -702,6 +745,8 @@ class PromotionManagementPopup(
         saveButton?.isEnabled = !busy
         deleteButton?.isEnabled = !busy && currentPromo != null
         printButton?.isEnabled = !busy && currentPromo != null && onPrintRequestedCallback != null
+        graphicPromoButton?.isEnabled =
+            !busy && currentPromo != null && onCreateGraphicPromoCallback != null
         statusText?.apply {
             text = message
             setTextColor(if (isError) Color.rgb(183, 28, 28) else Color.DKGRAY)
@@ -749,8 +794,8 @@ class PromotionManagementPopup(
 
     private fun parseMoney(raw: String): BigDecimal? =
         raw.trim()
-            .replace("€", "")
-            .replace(" ", "")
+            .replace("\u20AC", "")
+            .replace("\u20AC", "")
             .replace(',', '.')
             .toBigDecimalOrNull()
 
@@ -801,6 +846,7 @@ class PromotionManagementPopup(
         saveButton = null
         deleteButton = null
         printButton = null
+        graphicPromoButton = null
         validFromDate = null
         validToDate = null
 
@@ -810,6 +856,7 @@ class PromotionManagementPopup(
         onDeletedCallback = null
         onClosedCallback = null
         onPrintRequestedCallback = null
+        onCreateGraphicPromoCallback = null
     }
 
     private fun roundedBackground(
@@ -834,3 +881,7 @@ class PromotionManagementPopup(
         android.os.Handler(android.os.Looper.getMainLooper()).post(block)
     }
 }
+
+
+
+

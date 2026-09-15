@@ -1,4 +1,4 @@
-package com.scan2enter.promotions
+﻿package com.scan2enter.promotions
 
 import android.widget.Toast
 import android.view.WindowManager
@@ -56,7 +56,7 @@ import java.util.Locale
 fun PromotionsScreen(
     onBack: () -> Unit,
     onPromotionSelected: (String) -> Unit,
-    onNewPromotion: () -> Unit
+    onNewPromotion: () -> Unit,
 ) {
     BackHandler(onBack = onBack)
 
@@ -91,8 +91,8 @@ fun PromotionsScreen(
     var manufacturersError by remember { mutableStateOf<String?>(null) }
 
     /*
-     * L'editor PROMO è un overlay del servizio: tornando visibile/attiva
-     * questa schermata ricarichiamo l'elenco dal Gateway, così SALVA ed
+     * L'editor PROMO Ã¨ un overlay del servizio: tornando visibile/attiva
+     * questa schermata ricarichiamo l'elenco dal Gateway, cosÃ¬ SALVA ed
      * ELIMINA si riflettono subito senza uscire e rientrare nel modulo.
      */
     DisposableEffect(groupPopup) {
@@ -371,6 +371,7 @@ fun PromotionsScreen(
         }
 
         Spacer(Modifier.height(12.dp))
+        Spacer(Modifier.height(12.dp))
 
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -564,9 +565,9 @@ private fun PromotionGroupCard(
                 text = buildString {
                     append("PROMO MARCA")
                     if (promo.groupCode.isNotBlank()) {
-                        append("  •  ${promo.groupCode}")
+                        append("  â€¢  ${promo.groupCode}")
                     }
-                    append("  •  ${prettyStatus(promo.status)}")
+                    append("  â€¢  ${prettyStatus(promo.status)}")
                 },
                 style = MaterialTheme.typography.bodySmall
             )
@@ -589,7 +590,7 @@ private fun PromotionGroupCard(
                     text = buildString {
                         append("${formatArticleCount(promo.eligibleArticles)} articoli")
                         if (promo.materializedArticles >= 0) {
-                            append("  •  ${formatArticleCount(promo.materializedArticles)} materializzati")
+                            append("  â€¢  ${formatArticleCount(promo.materializedArticles)} materializzati")
                         }
                     },
                     style = MaterialTheme.typography.bodySmall
@@ -641,7 +642,7 @@ private fun PromotionCard(
                 text = buildString {
                     append(promo.code)
                     if (promo.barcode.isNotBlank()) {
-                        append("  •  ${promo.barcode}")
+                        append("  â€¢  ${promo.barcode}")
                     }
                 },
                 style = MaterialTheme.typography.bodySmall
@@ -652,7 +653,7 @@ private fun PromotionCard(
             Text(
                 text = when {
                     promo.publicPrice > 0.0 && promo.offerPrice > 0.0 ->
-                        "${money.format(promo.publicPrice)}  →  ${money.format(promo.offerPrice)}"
+                        "${money.format(promo.publicPrice)}  â†’  ${money.format(promo.offerPrice)}"
                     promo.offerPrice > 0.0 ->
                         "PREZZO PROMO ${money.format(promo.offerPrice)}"
                     promo.discountPercent > 0.0 ->
@@ -667,7 +668,7 @@ private fun PromotionCard(
             Text(
                 text = buildString {
                     if (promo.discountPercent > 0.0 && promo.offerPrice > 0.0) {
-                        append("Sconto ${formatPercent(promo.discountPercent)}%  •  ")
+                        append("Sconto ${formatPercent(promo.discountPercent)}%  â€¢  ")
                     }
                     append(prettyStatus(promo.status))
                 },
@@ -730,3 +731,7 @@ private fun prettyStatus(status: String): String =
         "DISABILITATA" -> "DISABILITATA"
         else -> status.replace('_', ' ')
     }
+
+
+
+
