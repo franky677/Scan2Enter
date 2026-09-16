@@ -144,10 +144,16 @@ private fun shiftPromoHue(color: Color, slider: Float, intensity: Float): Color 
 
 private fun promoFontFamily(value: Float): FontFamily {
     return when {
-        value < 0.25f -> FontFamily.SansSerif
-        value < 0.50f -> FontFamily.Serif
-        value < 0.75f -> FontFamily.Monospace
-        else -> FontFamily.Cursive
+        value < 0.10f -> FontFamily.SansSerif
+        value < 0.20f -> FontFamily(Typeface.create("sans-serif-condensed", Typeface.NORMAL))
+        value < 0.30f -> FontFamily.Serif
+        value < 0.40f -> FontFamily.Monospace
+        value < 0.50f -> FontFamily.Cursive
+        value < 0.60f -> FontFamily(Typeface.create("casual", Typeface.NORMAL))
+        value < 0.70f -> FontFamily(Typeface.create("sans-serif-smallcaps", Typeface.NORMAL))
+        value < 0.80f -> FontFamily(Typeface.create("source-sans-pro", Typeface.NORMAL))
+        value < 0.90f -> FontFamily(Typeface.create("roboto-flex", Typeface.NORMAL))
+        else -> FontFamily(Typeface.create("sec", Typeface.NORMAL))
     }
 }
 
@@ -1292,10 +1298,16 @@ var colorControl by remember { mutableStateOf("TONALITA") }
             }
 
             val currentFontName = when {
-                currentFont < 0.25f -> "SANS"
-                currentFont < 0.50f -> "SERIF"
-                currentFont < 0.75f -> "MONO"
-                else -> "CORSIVO"
+                currentFont < 0.10f -> "SANS"
+                currentFont < 0.20f -> "CONDENSATO"
+                currentFont < 0.30f -> "SERIF"
+                currentFont < 0.40f -> "MONO"
+                currentFont < 0.50f -> "DANCING"
+                currentFont < 0.60f -> "CASUAL"
+                currentFont < 0.70f -> "SMALL CAPS"
+                currentFont < 0.80f -> "SOURCE SANS"
+                currentFont < 0.90f -> "ROBOTO FLEX"
+                else -> "ONE UI"
             }
 
             Text("$fontControl: $currentFontName")
@@ -1311,7 +1323,7 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                     }
                 },
                 valueRange = 0f..1f,
-                steps = 2,
+                steps = 8,
                 modifier = Modifier.fillMaxWidth()
             )
         }
