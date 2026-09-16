@@ -2,6 +2,9 @@
 
 import android.graphics.Typeface
 import android.content.Context
+import android.graphics.Bitmap
+import android.util.Base64
+import java.io.ByteArrayOutputStream
 import android.print.PrintAttributes
 import android.print.PrintManager
 import android.webkit.WebView
@@ -39,13 +42,17 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
@@ -63,6 +70,7 @@ import com.scan2enter.api.ProductPromoDto
 import com.scan2enter.model.ProductInfo
 import com.scan2enter.repository.ProductRepositoryProvider
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.PI
 import kotlin.math.cos
@@ -320,6 +328,26 @@ fun PromoBuilderScreen(
     BackHandler(onBack = onBack)
 
     val context = LocalContext.current
+    val promoPrintScope = rememberCoroutineScope()
+
+    val promoPrintLayer = rememberGraphicsLayer()
+
+    suspend fun capturePromoPngBase64(): String {
+        val imageBitmap = promoPrintLayer.toImageBitmap()
+        val bitmap = imageBitmap.asAndroidBitmap()
+        val output = ByteArrayOutputStream()
+
+        bitmap.compress(
+            Bitmap.CompressFormat.PNG,
+            100,
+            output
+        )
+
+        return Base64.encodeToString(
+            output.toByteArray(),
+            Base64.NO_WRAP
+        )
+    }
 
     var selectedProduct by remember {
         mutableStateOf<ProductInfo?>(null)
@@ -578,6 +606,12 @@ fun PromoBuilderScreen(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .drawWithContent {
+                        promoPrintLayer.record {
+                            this@drawWithContent.drawContent()
+                        }
+                        drawContent()
+                    }
                     .graphicsLayer {
                         scaleX = globalScale
                         scaleY = globalScale
@@ -1217,59 +1251,54 @@ fun PromoBuilderScreen(
         Button(
             onClick = {
                 val product = selectedProduct
-                val promo = selectedPromo
 
                 if (
                     product != null &&
                     selectedPreset == "LIBERO"
                 ) {
-                    val originalPrice =
-                        promo
-                            ?.publicPrice
-                            ?.takeIf { it > 0.0 }
+                    promoPrintScope.launch {
+                        val pngBase64 = capturePromoPngBase64()
 
-                    val offerPrice =
-                        promo
-                            ?.offerPrice
-                            ?.takeIf { it > 0.0 }
+                        val html = """
+                            <!DOCTYPE html>
+                            <html>
+                            <head>
+                                <meta charset="UTF-8">
+                                <style>
+                                    @page { size: A4 portrait; margin: 0; }
+                                    html, body {
+                                        margin: 0;
+                                        padding: 0;
+                                        width: 210mm;
+                                        height: 297mm;
+                                        background: white;
+                                    }
+                                    body {
+                                        display: flex;
+                                        align-items: center;
+                                        justify-content: center;
+                                    }
+                                    img {
+                                        display: block;
+                                        max-width: 210mm;
+                                        max-height: 297mm;
+                                        width: auto;
+                                        height: auto;
+                                    }
+                                </style>
+                            </head>
+                            <body>
+                                <img src="data:image/png;base64,$pngBase64">
+                            </body>
+                            </html>
+                        """.trimIndent()
 
-                    val effectiveDiscount =
-                        when {
-                            promo == null -> null
-
-                            promo.discountPercent > 0.0 ->
-                                promo.discountPercent
-
-                            originalPrice != null &&
-                                offerPrice != null &&
-                                originalPrice > 0.0 ->
-
-                                100.0 * (
-                                    1.0 -
-                                        offerPrice / originalPrice
-                                    )
-
-                            else -> null
-                        }
-
-                    val html =
-                        buildLiberoPromoHtml(
-                            title1 = liberoTitle1,
-                            title2 = liberoTitle2,
-                            subtitle = liberoSubtitle,
-                            description = product.description,
-                            articleCode = product.articleCode,
-                            imageUrl = GatewayApiClient().getProductImageUrl(product.barcode),
-                            originalPrice = originalPrice,
-                            offerPrice = offerPrice,
-                            discountPercent = effectiveDiscount
+                        printPromoHtml(
+                            context = context,
+                            html = html,
+                            jobName = "Promo ${product.articleCode}"
                         )
-
-                    printPromoHtml(
-                        context = context,
-                        html = html,
-                        jobName = "Promo ${product.articleCode}"
-                    )
+                    }
                 }
             },
             enabled =
@@ -1366,7 +1395,13 @@ private fun buildLiberoPromoHtml(
     imageUrl: String,
     originalPrice: Double?,
     offerPrice: Double?,
-    discountPercent: Double?
+    discountPercent: Double?,
+    globalScale: Float,
+    titleScale: Float,
+    imageScale: Float,
+    priceScale: Float,
+    colorHue: Float,
+    colorIntensity: Float
 ): String {
 
     fun esc(value: String): String =
@@ -1449,11 +1484,13 @@ body {
         );
     color: white;
     text-align: center;
+    transform: scale(${globalScale});
+    transform-origin: center center;
     overflow: hidden;
 }
 
 .title1 {
-    font-size: 25mm;
+    font-size: ${25f * titleScale}mm;
     line-height: 0.86;
     font-weight: 900;
     letter-spacing: -1mm;
@@ -1461,7 +1498,7 @@ body {
 }
 
 .title2 {
-    font-size: 22mm;
+    font-size: ${22f * titleScale}mm;
     line-height: 0.92;
     font-weight: 900;
     color: #ff40c8;
@@ -1486,8 +1523,8 @@ body {
 
 .product-image {
     box-sizing: border-box;
-    width: 150mm;
-    height: 65mm;
+    width: ${150f * imageScale}mm;
+    height: ${65f * imageScale}mm;
     margin: 5mm auto 0 auto;
     padding: 3mm;
     background: white;
@@ -1510,7 +1547,7 @@ body {
 }
 
 .old-price {
-    font-size: 8mm;
+    font-size: ${8f * priceScale}mm;
     font-weight: 900;
     text-decoration: line-through;
     margin-bottom: 3mm;
@@ -1522,7 +1559,7 @@ body {
     border: 1.5mm solid #000000;
     border-radius: 4mm;
     color: white;
-    font-size: 25mm;
+    font-size: ${25f * priceScale}mm;
     line-height: 1;
     font-weight: 900;
     padding: 8mm 3mm;
@@ -1606,6 +1643,14 @@ body {
 </html>
 """.trimIndent()
 }
+
+
+
+
+
+
+
+
 
 
 
