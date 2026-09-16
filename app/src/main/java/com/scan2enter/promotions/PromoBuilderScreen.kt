@@ -1253,8 +1253,8 @@ fun PromoBuilderScreen(
                 val product = selectedProduct
 
                 if (
-                    product != null &&
-                    selectedPreset == "LIBERO"
+                    product != null
+
                 ) {
                     promoPrintScope.launch {
                         val pngBase64 = capturePromoPngBase64()
@@ -1301,9 +1301,9 @@ fun PromoBuilderScreen(
                     }
                 }
             },
-            enabled =
-                selectedProduct != null &&
-                    selectedPreset == "LIBERO",
+            enabled = selectedProduct != null,
+
+
             modifier = Modifier.fillMaxWidth()
         ) {
             Text("STAMPA A4")
@@ -1643,6 +1643,7 @@ body {
 </html>
 """.trimIndent()
 }
+
 
 
 
