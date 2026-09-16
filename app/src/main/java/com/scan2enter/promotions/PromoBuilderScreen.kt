@@ -142,8 +142,17 @@ private fun shiftPromoHue(color: Color, slider: Float, intensity: Float): Color 
     )
 }
 
+private fun promoFontFamily(value: Float): FontFamily {
+    return when {
+        value < 0.25f -> FontFamily.SansSerif
+        value < 0.50f -> FontFamily.Serif
+        value < 0.75f -> FontFamily.Monospace
+        else -> FontFamily.Cursive
+    }
+}
+
 @Composable
-private fun PromoExplosionBadge(titleScale: Float) {
+private fun PromoExplosionBadge(titleScale: Float, explosionFont: Float) {
     Box(
         modifier = Modifier
             .size(
@@ -223,7 +232,8 @@ private fun PromoExplosionBadge(titleScale: Float) {
                 color = Color.Black,
                 fontSize = 15.sp * titleScale,
                 lineHeight = 15.sp * titleScale,
-                fontWeight = FontWeight.Black
+                fontWeight = FontWeight.Black,
+                fontFamily = promoFontFamily(explosionFont),
             )
 
             Text(
@@ -231,7 +241,8 @@ private fun PromoExplosionBadge(titleScale: Float) {
                 color = Color(0xFFE30613),
                 fontSize = 31.sp * titleScale,
                 lineHeight = 31.sp * titleScale,
-                fontWeight = FontWeight.Black
+                fontWeight = FontWeight.Black,
+                fontFamily = promoFontFamily(explosionFont),
             )
         }
     }
@@ -374,6 +385,20 @@ fun PromoBuilderScreen(
     var titleScale by remember { mutableStateOf(1.0f) }
     var imageScale by remember { mutableStateOf(1.0f) }
     var priceScale by remember { mutableStateOf(1.0f) }
+
+    var explosionFont by remember { mutableStateOf(0f) }
+    var descriptionFont by remember { mutableStateOf(0f) }
+    var priceFont by remember { mutableStateOf(0f) }
+    var footerFont by remember { mutableStateOf(0f) }
+
+    
+var styleSection by remember { mutableStateOf("FONT") }
+    
+var fontControl by remember { mutableStateOf("TITOLI") }
+    
+var dimensionControl by remember { mutableStateOf("GENERALE") }
+    
+var colorControl by remember { mutableStateOf("TONALITA") }
 
     // Personalizzazione del preset LIBERO
     var liberoTitle1 by remember { mutableStateOf("OFFERTA") }
@@ -683,6 +708,7 @@ fun PromoBuilderScreen(
                                 fontSize = 34.sp * titleScale,
                                 lineHeight = 32.sp * titleScale,
                                 fontWeight = FontWeight.Black,
+                                fontFamily = promoFontFamily(explosionFont),
                                 textAlign = TextAlign.Center
                             )
 
@@ -692,6 +718,7 @@ fun PromoBuilderScreen(
                                 fontSize = 25.sp * titleScale,
                                 lineHeight = 24.sp * titleScale,
                                 fontWeight = FontWeight.Black,
+                                fontFamily = promoFontFamily(explosionFont),
                                 textAlign = TextAlign.Center
                             )
                         }
@@ -736,6 +763,7 @@ fun PromoBuilderScreen(
                                 fontSize = 31.sp * titleScale,
                                 lineHeight = 31.sp * titleScale,
                                 fontWeight = FontWeight.Black,
+                                fontFamily = promoFontFamily(explosionFont),
                                 textAlign = TextAlign.Center
                             )
 
@@ -745,6 +773,7 @@ fun PromoBuilderScreen(
                                 fontSize = 22.sp * titleScale,
                                 lineHeight = 23.sp * titleScale,
                                 fontWeight = FontWeight.Black,
+                                fontFamily = promoFontFamily(explosionFont),
                                 textAlign = TextAlign.Center
                             )
                         }
@@ -786,6 +815,7 @@ fun PromoBuilderScreen(
                             fontSize = 27.sp * titleScale,
                             lineHeight = 29.sp * titleScale,
                             fontWeight = FontWeight.Black,
+                            fontFamily = promoFontFamily(explosionFont),
                             textAlign = TextAlign.Center
                         )
                     }
@@ -829,6 +859,7 @@ fun PromoBuilderScreen(
                                 fontSize = 32.sp * titleScale,
                                 lineHeight = 32.sp * titleScale,
                                 fontWeight = FontWeight.Black,
+                                fontFamily = promoFontFamily(explosionFont),
                                 textAlign = TextAlign.Center
                             )
 
@@ -837,6 +868,7 @@ fun PromoBuilderScreen(
                                 color = shiftPromoHue(Color(0xFF0D47A1), colorHue, colorIntensity),
                                 fontSize = 15.sp * titleScale,
                                 fontWeight = FontWeight.Bold,
+                                fontFamily = promoFontFamily(explosionFont),
                                 textAlign = TextAlign.Center
                             )
                         }
@@ -853,7 +885,7 @@ fun PromoBuilderScreen(
                     )
 
                 } else {
-                    PromoExplosionBadge(titleScale)
+                    PromoExplosionBadge(titleScale, explosionFont)
                 }
 
                 Spacer(Modifier.height(10.dp))
@@ -865,6 +897,7 @@ fun PromoBuilderScreen(
                     fontSize = 19.sp,
                     lineHeight = 21.sp,
                     fontWeight = FontWeight.Black,
+                    fontFamily = promoFontFamily(descriptionFont),
                     color =
                         if (isBlackPreset) {
                             shiftPromoHue(Color(0xFFFFD700), colorHue, colorIntensity)
@@ -1019,6 +1052,7 @@ fun PromoBuilderScreen(
                                 color = Color.White,
                                 fontSize = 16.sp * priceScale,
                                 fontWeight = FontWeight.Bold,
+                                fontFamily = promoFontFamily(priceFont),
                                 textDecoration =
                                     TextDecoration.LineThrough
                             )
@@ -1088,6 +1122,7 @@ fun PromoBuilderScreen(
                                 fontSize = 42.sp * priceScale,
                                 lineHeight = 44.sp * priceScale,
                                 fontWeight = FontWeight.Black,
+                                fontFamily = promoFontFamily(priceFont),
                                 textAlign = TextAlign.Center
                             )
                         }
@@ -1133,6 +1168,7 @@ fun PromoBuilderScreen(
                         color = shiftPromoHue(Color(0xFFFFE000), colorHue, colorIntensity),
                         fontSize = 16.sp,
                         fontWeight = FontWeight.Black,
+                        fontFamily = promoFontFamily(footerFont),
                         textAlign = TextAlign.Center
                     )
                 }
@@ -1171,81 +1207,153 @@ fun PromoBuilderScreen(
 
         Spacer(Modifier.height(10.dp))
 
-        Button(
-            onClick = { showStylePanel = !showStylePanel },
-            modifier = Modifier.fillMaxWidth()
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            Text("STILE E COLORI")
+            listOf("DIMENSIONI", "FONT", "COLORI").forEach { section ->
+                Button(
+                    onClick = { styleSection = section },
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text(text = section, fontSize = 11.sp)
+                }
+            }
         }
 
-        if (showStylePanel) {
-            Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(6.dp))
 
-            Text("Tonalita colore")
+        if (styleSection == "DIMENSIONI") {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                listOf("GENERALE", "TITOLI", "IMMAGINE", "PREZZO").forEach { control ->
+                    Button(
+                        onClick = { dimensionControl = control },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text(
+                            text = if (control == "IMMAGINE") "FOTO" else control,
+                            fontSize = 9.sp
+                        )
+                    }
+                }
+            }
+
+            val dimensionValue = when (dimensionControl) {
+                "GENERALE" -> globalScale
+                "TITOLI" -> titleScale
+                "IMMAGINE" -> imageScale
+                else -> priceScale
+            }
+
+            Text("$dimensionControl: ${(dimensionValue * 100).toInt()}%")
+
             Slider(
-                value = colorHue,
-                onValueChange = { colorHue = it },
+                value = dimensionValue,
+                onValueChange = { value ->
+                    when (dimensionControl) {
+                        "GENERALE" -> globalScale = value
+                        "TITOLI" -> titleScale = value
+                        "IMMAGINE" -> imageScale = value
+                        "PREZZO" -> priceScale = value
+                    }
+                },
+                valueRange = if (dimensionControl == "GENERALE") {
+                    0.25f..1.50f
+                } else {
+                    0.70f..1.30f
+                },
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+
+        if (styleSection == "FONT") {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                listOf("TITOLI", "DESCR.", "PREZZO", "SOTTO").forEach { control ->
+                    Button(
+                        onClick = { fontControl = control },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text(text = control, fontSize = 9.sp)
+                    }
+                }
+            }
+
+            val currentFont = when (fontControl) {
+                "TITOLI" -> explosionFont
+                "DESCR." -> descriptionFont
+                "PREZZO" -> priceFont
+                else -> footerFont
+            }
+
+            val currentFontName = when {
+                currentFont < 0.25f -> "SANS"
+                currentFont < 0.50f -> "SERIF"
+                currentFont < 0.75f -> "MONO"
+                else -> "CORSIVO"
+            }
+
+            Text("$fontControl: $currentFontName")
+
+            Slider(
+                value = currentFont,
+                onValueChange = { value ->
+                    when (fontControl) {
+                        "TITOLI" -> explosionFont = value
+                        "DESCR." -> descriptionFont = value
+                        "PREZZO" -> priceFont = value
+                        "SOTTO" -> footerFont = value
+                    }
+                },
                 valueRange = 0f..1f,
-                modifier = Modifier.fillMaxWidth()
-            )
-
-            Text("Intensita colore: ${(colorIntensity * 100).toInt()}%")
-            Slider(
-                value = colorIntensity,
-                onValueChange = { colorIntensity = it },
-                valueRange = 0.50f..1.50f,
+                steps = 2,
                 modifier = Modifier.fillMaxWidth()
             )
         }
 
-        Spacer(Modifier.height(10.dp))
+        if (styleSection == "COLORI") {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                listOf("TONALITA", "INTENSITA").forEach { control ->
+                    Button(
+                        onClick = { colorControl = control },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text(
+                            text = if (control == "TONALITA") "TONO" else "INTENS.",
+                            fontSize = 10.sp
+                        )
+                    }
+                }
+            }
 
-        Button(
-            onClick = { showDimensionsPanel = !showDimensionsPanel },
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text("DIMENSIONI")
+            if (colorControl == "TONALITA") {
+                Text("Tonalita colore")
+
+                Slider(
+                    value = colorHue,
+                    onValueChange = { colorHue = it },
+                    valueRange = 0f..1f,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            } else {
+                Text("Intensita colore: ${(colorIntensity * 100).toInt()}%")
+
+                Slider(
+                    value = colorIntensity,
+                    onValueChange = { colorIntensity = it },
+                    valueRange = 0.50f..1.50f,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
         }
-
-        if (showDimensionsPanel) {
-            Spacer(Modifier.height(8.dp))
-
-            Text(
-                text = "Dimensione generale: ${(globalScale * 100).toInt()}%"
-            )
-
-            Slider(
-                value = globalScale,
-                onValueChange = { globalScale = it },
-                valueRange = 0.25f..1.50f,
-                modifier = Modifier.fillMaxWidth()
-            )
-
-            Text(text = "Titoli: ${(titleScale * 100).toInt()}%")
-            Slider(
-                value = titleScale,
-                onValueChange = { titleScale = it },
-                valueRange = 0.70f..1.30f,
-                modifier = Modifier.fillMaxWidth()
-            )
-
-            Text(text = "Immagine: ${(imageScale * 100).toInt()}%")
-            Slider(
-                value = imageScale,
-                onValueChange = { imageScale = it },
-                valueRange = 0.70f..1.30f,
-                modifier = Modifier.fillMaxWidth()
-            )
-
-            Text(text = "Prezzo: ${(priceScale * 100).toInt()}%")
-            Slider(
-                value = priceScale,
-                onValueChange = { priceScale = it },
-                valueRange = 0.70f..1.30f,
-                modifier = Modifier.fillMaxWidth()
-            )
-        }
-
         Spacer(Modifier.height(10.dp))
 
         Button(
