@@ -3,6 +3,7 @@ package com.scan2enter.ui.screens
 import android.content.Context
 import android.content.Intent
 import android.widget.Toast
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -35,8 +36,11 @@ import com.scan2enter.overlay.OverlayService
 import com.scan2enter.sales.SalesAccessManager
 import com.scan2enter.ui.components.SalesUnlockDialog
 import com.scan2enter.ui.components.GatewayStatusBanner
+import com.scan2enter.update.AppUpdateInfo
 @Composable
 fun HomeScreen(
+    availableAppUpdate: AppUpdateInfo?,
+    onInstallUpdate: () -> Unit,
     onOpenTrovaTutto: () -> Unit,
     onOpenSession: () -> Unit,
     onOpenSales: () -> Unit,
@@ -44,6 +48,12 @@ fun HomeScreen(
     onOpenPromotions: () -> Unit
 ) {
     val context = LocalContext.current
+
+    val appVersionName = remember {
+        context.packageManager
+            .getPackageInfo(context.packageName, 0)
+            .versionName ?: "?"
+    }
 
     val salesAccessManager = remember {
         SalesAccessManager(context)
@@ -153,7 +163,7 @@ fun HomeScreen(
                 horizontalArrangement = Arrangement.Start
             ) {
                 Text(
-                    text = "Scan2Enter",
+                    text = "Scan2Enter  v$appVersionName",
                     fontSize = 28.sp,
                     fontWeight = FontWeight.Bold
                 )
@@ -163,6 +173,20 @@ fun HomeScreen(
                     modifier = Modifier.padding(top = 11.dp),
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Normal
+                )
+            }
+
+            if (availableAppUpdate != null) {
+                Text(
+                    text = "AGGIORNAMENTO DISPONIBILE  v${availableAppUpdate.versionName}",
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable(onClick = onInstallUpdate)
+                        .padding(vertical = 6.dp),
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center,
+                    color = MaterialTheme.colorScheme.primary
                 )
             }
 

@@ -1,4 +1,4 @@
-﻿package com.scan2enter
+package com.scan2enter
 
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -11,9 +11,18 @@ import android.os.Bundle
 import android.provider.Settings
 import android.util.Log
 import android.view.KeyEvent
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.core.content.pm.PackageInfoCompat
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import com.scan2enter.update.AppUpdateClient
+import com.scan2enter.update.AppUpdateInfo
+import com.scan2enter.update.AppUpdateInstaller
 import androidx.core.content.ContextCompat
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -42,6 +51,7 @@ class MainActivity : ComponentActivity() {
 
     private var requestedScreen by mutableStateOf<String?>(null)
     private var requestedPromoBuilderBarcode by mutableStateOf<String?>(null)
+    private var availableAppUpdate by mutableStateOf<AppUpdateInfo?>(null)
 
     private var expiryAlertDialog: AlertDialog? = null
     private var expiryAlertCheckOnNextStart = false
@@ -329,6 +339,102 @@ class MainActivity : ComponentActivity() {
     }
 
 
+    private fun checkForAppUpdate() {
+        lifecycleScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                AppUpdateClient().getLatest()
+            }
+
+            result.onSuccess { update ->
+                val currentVersionCode = PackageInfoCompat.getLongVersionCode(
+                    packageManager.getPackageInfo(packageName, 0)
+                )
+
+                if (update.versionCode.toLong() > currentVersionCode) {
+                    availableAppUpdate = update
+                    Log.i(
+                        "Scan2Enter",
+                        "AGGIORNAMENTO DISPONIBILE: " +
+                                "${update.versionName} " +
+                                "(versionCode=${update.versionCode})"
+                    )
+                } else {
+                    availableAppUpdate = null
+                    Log.d(
+                        "Scan2Enter",
+                        "APP AGGIORNATA: versionCode=$currentVersionCode"
+                    )
+                }
+            }.onFailure { error ->
+                Log.w(
+                    "Scan2Enter",
+                    "Controllo aggiornamento non disponibile: ${error.message}"
+                )
+            }
+        }
+    }
+    private fun downloadAndInstallUpdate() {
+        val installer = AppUpdateInstaller(this)
+
+        if (!installer.canInstallPackages()) {
+            Toast.makeText(
+                this,
+                "Autorizza Scan2Enter a installare aggiornamenti",
+                Toast.LENGTH_LONG
+            ).show()
+
+            installer.openUnknownAppsSettings()
+            return
+        }
+
+        Toast.makeText(
+            this,
+            "Download aggiornamento in corso...",
+            Toast.LENGTH_SHORT
+        ).show()
+
+        lifecycleScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                installer.downloadApk()
+            }
+
+            result.onSuccess { apkFile ->
+                Toast.makeText(
+                    this@MainActivity,
+                    "Aggiornamento scaricato",
+                    Toast.LENGTH_SHORT
+                ).show()
+
+                runCatching {
+                    installer.launchInstaller(apkFile)
+                }.onFailure { error ->
+                    Log.e(
+                        "Scan2Enter",
+                        "Impossibile avviare installer aggiornamento",
+                        error
+                    )
+
+                    Toast.makeText(
+                        this@MainActivity,
+                        "Impossibile avviare l'installazione",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }.onFailure { error ->
+                Log.e(
+                    "Scan2Enter",
+                    "Download aggiornamento fallito",
+                    error
+                )
+
+                Toast.makeText(
+                    this@MainActivity,
+                    "Download aggiornamento fallito: ${error.message}",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+        }
+    }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -396,6 +502,7 @@ class MainActivity : ComponentActivity() {
         SessionStore.initialize(applicationContext)
 
         checkProductExpiryAlerts()
+        checkForAppUpdate()
 
         enableEdgeToEdge()
 
@@ -716,6 +823,10 @@ class MainActivity : ComponentActivity() {
 
                     else -> {
                         HomeScreen(
+                            availableAppUpdate = availableAppUpdate,
+                            onInstallUpdate = {
+                                downloadAndInstallUpdate()
+                            },
                             onOpenTrovaTutto = {
                                 currentScreen = "TROVATUTTO"
                             },
@@ -879,12 +990,3 @@ class MainActivity : ComponentActivity() {
         Log.d("Scan2Enter", "MainActivity -> onDestroy")
     }
 }
-
-
-
-
-
-
-
-
-

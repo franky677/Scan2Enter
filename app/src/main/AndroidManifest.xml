@@ -5,12 +5,14 @@
     <!-- Accesso alla rete locale / API 2bitAppServer -->
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!-- Installazione aggiornamenti Scan2Enter -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
     <!-- Permesso fotocamera -->
     <uses-permission android:name="android.permission.CAMERA" />
 
     <!-- Permesso overlay -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
-
     <!-- La fotocamera è richiesta -->
     <uses-feature
         android:name="android.hardware.camera.any"
