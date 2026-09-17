@@ -17,6 +17,7 @@ android {
         targetSdk = 36
         versionCode = 3
         versionName = "1.2"
+        buildConfigField("String", "APP_UPDATE_CHANNEL", "\"test\"")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -34,6 +35,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 

@@ -1,5 +1,6 @@
 package com.scan2enter.update
 
+import com.scan2enter.BuildConfig
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -24,7 +25,7 @@ class AppUpdateInstaller(
         val apkFile = File(updateDir, "Scan2Enter.apk")
 
         val connection =
-            URL("${baseUrl.trimEnd('/')}/api/app-update/download")
+            URL("${baseUrl.trimEnd('/')}/api/app-update/download?channel=${BuildConfig.APP_UPDATE_CHANNEL}")
                 .openConnection() as HttpURLConnection
 
         try {

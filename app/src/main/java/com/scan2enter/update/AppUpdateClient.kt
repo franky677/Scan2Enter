@@ -1,5 +1,6 @@
 ﻿package com.scan2enter.update
 
+import com.scan2enter.BuildConfig
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
@@ -10,7 +11,7 @@ class AppUpdateClient(
 
     fun getLatest(): Result<AppUpdateInfo> = runCatching {
         val connection =
-            URL("${baseUrl.trimEnd('/')}/api/app-update/latest")
+            URL("${baseUrl.trimEnd('/')}/api/app-update/latest?channel=${BuildConfig.APP_UPDATE_CHANNEL}")
                 .openConnection() as HttpURLConnection
 
         try {
