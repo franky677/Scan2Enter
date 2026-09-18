@@ -15,9 +15,8 @@ android {
         applicationId = "com.scan2enter"
         minSdk = 26
         targetSdk = 36
-        versionCode = 3
-        versionName = "1.2"
-        buildConfigField("String", "APP_UPDATE_CHANNEL", "\"test\"")
+        versionCode = 4
+        versionName = "1.3"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

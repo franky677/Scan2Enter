@@ -1,17 +1,18 @@
-﻿package com.scan2enter.update
+package com.scan2enter.update
 
-import com.scan2enter.BuildConfig
+import android.content.Context
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
 
 class AppUpdateClient(
+    private val context: Context,
     private val baseUrl: String = "http://192.168.1.30:5055"
 ) {
 
     fun getLatest(): Result<AppUpdateInfo> = runCatching {
         val connection =
-            URL("${baseUrl.trimEnd('/')}/api/app-update/latest?channel=${BuildConfig.APP_UPDATE_CHANNEL}")
+            URL("${baseUrl.trimEnd('/')}/api/app-update/latest?channel=${AppUpdateChannel.get(context)}")
                 .openConnection() as HttpURLConnection
 
         try {

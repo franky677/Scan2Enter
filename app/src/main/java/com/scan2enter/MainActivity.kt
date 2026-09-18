@@ -342,7 +342,7 @@ class MainActivity : ComponentActivity() {
     private fun checkForAppUpdate() {
         lifecycleScope.launch {
             val result = withContext(Dispatchers.IO) {
-                AppUpdateClient().getLatest()
+                AppUpdateClient(this@MainActivity).getLatest()
             }
 
             result.onSuccess { update ->
