@@ -18,15 +18,24 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import kotlinx.coroutines.delay
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -65,6 +74,62 @@ fun HomeScreen(
 
     var showInventoryPasswordDialog by remember {
         mutableStateOf(false)
+    }
+
+    var showMoreMenu by remember {
+        mutableStateOf(false)
+    }
+
+    var showWhatsNewDialog by remember {
+        mutableStateOf(false)
+    }
+
+    var whatsNewCountdown by remember {
+        mutableStateOf(4)
+    }
+
+    LaunchedEffect(Unit) {
+        val currentVersionCode =
+            context.packageManager
+                .getPackageInfo(context.packageName, 0)
+                .longVersionCode
+
+        val prefs = context.getSharedPreferences(
+            "whats_new",
+            Context.MODE_PRIVATE
+        )
+
+        val lastShownVersion = prefs.getLong(
+            "last_shown_version",
+            6L
+        )
+
+        if (currentVersionCode > lastShownVersion) {
+            prefs.edit()
+                .putLong("last_shown_version", currentVersionCode)
+                .apply()
+
+            showWhatsNewDialog = true
+        }
+    }
+
+    var whatsNewPaused by remember {
+        mutableStateOf(false)
+    }
+
+    LaunchedEffect(showWhatsNewDialog) {
+        if (showWhatsNewDialog) {
+            whatsNewCountdown = 4
+            while (whatsNewCountdown > 0 && showWhatsNewDialog) {
+                delay(1000)
+                if (!whatsNewPaused) {
+                    whatsNewCountdown--
+                }
+            }
+            if (showWhatsNewDialog) {
+                showWhatsNewDialog = false
+            }
+        }
     }
 
     DisposableEffect(Unit) {
@@ -139,6 +204,42 @@ fun HomeScreen(
         )
     }
 
+    if (showWhatsNewDialog) {
+        AlertDialog(
+            modifier = Modifier.pointerInput(Unit) {
+                awaitEachGesture {
+                    awaitFirstDown(requireUnconsumed = false)
+                    whatsNewPaused = true
+                    try {
+                        do {
+                            val event = awaitPointerEvent()
+                        } while (event.changes.any { it.pressed })
+                    } finally {
+                        whatsNewPaused = false
+                    }
+                }
+            },
+            onDismissRequest = { showWhatsNewDialog = false },
+            title = {
+                Text("Novità - Scan2Enter v$appVersionName")
+            },
+            text = {
+                Text(
+                    text = " Aggiunta finestra con le novità dopo ogni aggiornamento\n" +
+                    " Aggiunta cronologia degli aggiornamenti\n\n" +
+                        "Chiusura tra $whatsNewCountdown secondi"
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = { showWhatsNewDialog = false }
+                ) {
+                    Text("OK, HO CAPITO")
+                }
+            }
+        )
+    }
+
     Scaffold(
         modifier = Modifier.fillMaxSize()
     ) { innerPadding ->
@@ -170,10 +271,35 @@ fun HomeScreen(
 
                 Text(
                     text = "  By De Pieri Franco Production",
-                    modifier = Modifier.padding(top = 11.dp),
+                    modifier = Modifier
+                        .padding(top = 11.dp)
+                        .weight(1f),
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Normal
                 )
+
+                IconButton(
+                    onClick = { showMoreMenu = true }
+                ) {
+                    Text(
+                        text = "\u22EE",
+                        fontSize = 28.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+
+                    DropdownMenu(
+                        expanded = showMoreMenu,
+                        onDismissRequest = { showMoreMenu = false }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Novità e aggiornamenti") },
+                            onClick = {
+                                showMoreMenu = false
+                                showWhatsNewDialog = true
+                            }
+                        )
+                    }
+                }
             }
 
             if (availableAppUpdate != null) {

@@ -13,6 +13,7 @@ import android.webkit.WebViewClient
 import android.widget.ImageView
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -45,6 +46,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.shadow
@@ -54,8 +56,11 @@ import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
@@ -388,6 +393,7 @@ fun PromoBuilderScreen(
     var colorIntensity by remember { mutableStateOf(1.0f) }
     var showDimensionsPanel by remember { mutableStateOf(false) }
     var globalScale by remember { mutableStateOf(1.0f) }
+    var promoMeasuredSize by remember { mutableStateOf(IntSize.Zero) }
     var titleScale by remember { mutableStateOf(1.0f) }
     var imageScale by remember { mutableStateOf(1.0f) }
     var priceScale by remember { mutableStateOf(1.0f) }
@@ -634,10 +640,55 @@ var colorControl by remember { mutableStateOf("TONALITA") }
             val isRisparmioPreset = selectedPreset == "RISPARMIO"
             val isNovitaPreset = selectedPreset == "NOVITÀ"
 
-            Column(
+            BoxWithConstraints(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .drawWithContent {
+                    .background(Color(0xFFE7E7E7))
+                    .border(2.dp, Color.DarkGray)
+                    .padding(4.dp)
+            ) {
+                val a3Width = maxWidth
+                val a3Height = a3Width * (420f / 297f)
+                val a4Width = a3Width * (210f / 297f)
+                val a4Height = a3Height * (297f / 420f)
+                val promoFitScale = if (promoMeasuredSize.width > 0 && promoMeasuredSize.height > 0) {
+                    minOf(
+                        1f,
+                        (promoMeasuredSize.width.toFloat() * (297f / 210f)) / promoMeasuredSize.height.toFloat()
+                    )
+                } else {
+                    1f
+                }
+
+                Box(
+                    modifier = Modifier
+                        .width(a3Width)
+                        .height(a3Height)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .width(a4Width)
+                            .height(a4Height)
+                            .border(2.dp, Color.Gray)
+                    )
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .graphicsLayer {
+                                scaleX = 1f
+                                scaleY = promoFitScale
+                                transformOrigin = TransformOrigin(0f, 0f)
+                            }
+                    ) {
+
+                    Column(
+                        modifier = Modifier
+                            .width(a4Width)
+                            .onGloballyPositioned { coordinates ->
+                                promoMeasuredSize = coordinates.size
+                            }
+                            .drawWithContent {
                         promoPrintLayer.record {
                             this@drawWithContent.drawContent()
                         }
@@ -646,6 +697,7 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                     .graphicsLayer {
                         scaleX = globalScale
                         scaleY = globalScale
+                        transformOrigin = TransformOrigin(0f, 0f)
                     }
                     .border(
                         width = 3.dp,
@@ -1125,11 +1177,13 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                                     } else {
                                         shiftPromoHue(Color(0xFFE30613), colorHue, colorIntensity)
                                     },
-                                fontSize = 42.sp * priceScale,
-                                lineHeight = 44.sp * priceScale,
+                                fontSize = 22.sp * priceScale,
+                                lineHeight = 24.sp * priceScale,
                                 fontWeight = FontWeight.Black,
                                 fontFamily = promoFontFamily(priceFont),
-                                textAlign = TextAlign.Center
+                                textAlign = TextAlign.Center,
+                                maxLines = 1,
+                                softWrap = false
                             )
                         }
 
@@ -1179,6 +1233,29 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                     )
                 }
 
+            }
+
+                    }
+                    Text(
+                        text = "A4 210 x 297 mm",
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .padding(6.dp),
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.Gray
+                    )
+
+                    Text(
+                        text = "A3 297 x 420 mm",
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(6.dp),
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.DarkGray
+                    )
+                }
             }
 
             Spacer(Modifier.height(16.dp))
@@ -1255,6 +1332,9 @@ var colorControl by remember { mutableStateOf("TONALITA") }
             }
 
             Text("$dimensionControl: ${(dimensionValue * 100).toInt()}%")
+            if (dimensionControl == "GENERALE" && promoMeasuredSize.width > 0) {
+                Text("Promo reale: ${promoMeasuredSize.width} x ${promoMeasuredSize.height} px")
+            }
 
             Slider(
                 value = dimensionValue,
@@ -1267,13 +1347,14 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                     }
                 },
                 valueRange = if (dimensionControl == "GENERALE") {
-                    0.25f..1.50f
+                    0.25f..1.414f
                 } else {
                     0.70f..1.30f
                 },
                 modifier = Modifier.fillMaxWidth()
             )
         }
+
 
         if (styleSection == "FONT") {
             Row(
@@ -1763,6 +1844,26 @@ body {
 </html>
 """.trimIndent()
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
