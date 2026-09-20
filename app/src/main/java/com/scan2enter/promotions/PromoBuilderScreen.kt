@@ -271,7 +271,11 @@ private fun promoFontFamily(value: Float): FontFamily {
 }
 
 @Composable
-private fun PromoExplosionBadge(titleScale: Float, explosionFont: Float) {
+private fun PromoExplosionBadge(
+    titleScale: Float,
+    explosionFont: Float,
+    shapeIndex: Int
+) {
     Box(
         modifier = Modifier
             .size(
@@ -282,63 +286,75 @@ private fun PromoExplosionBadge(titleScale: Float, explosionFont: Float) {
         contentAlignment = Alignment.Center
     ) {
 
-        Canvas(
-            modifier = Modifier.fillMaxSize()
-        ) {
-            val cx = size.width / 2f
-            val cy = size.height / 2f
+        if (shapeIndex == 8) {
+            Canvas(
+                modifier = Modifier.fillMaxSize()
+            ) {
+                val cx = size.width / 2f
+                val cy = size.height / 2f
 
-            /*
-             * Raggi alternati lunghi/corti:
-             * il risultato è il classico "scoppio" da volantino.
-             */
-            val points = 32
-            val outerRadiusX = size.width * 0.49f
-            val outerRadiusY = size.height * 0.49f
-            val innerRadiusX = size.width * 0.38f
-            val innerRadiusY = size.height * 0.34f
+                val points = 32
+                val outerRadiusX = size.width * 0.49f
+                val outerRadiusY = size.height * 0.49f
+                val innerRadiusX = size.width * 0.38f
+                val innerRadiusY = size.height * 0.34f
 
-            val path = Path()
+                val path = Path()
 
-            for (i in 0 until points) {
-                val angle =
-                    -PI / 2.0 +
-                        (2.0 * PI * i / points)
+                for (i in 0 until points) {
+                    val angle =
+                        -PI / 2.0 +
+                            (2.0 * PI * i / points)
 
-                val useOuter = i % 2 == 0
+                    val useOuter = i % 2 == 0
 
-                val radiusX =
-                    if (useOuter) outerRadiusX
-                    else innerRadiusX
+                    val radiusX =
+                        if (useOuter) outerRadiusX
+                        else innerRadiusX
 
-                val radiusY =
-                    if (useOuter) outerRadiusY
-                    else innerRadiusY
+                    val radiusY =
+                        if (useOuter) outerRadiusY
+                        else innerRadiusY
 
-                val x =
-                    cx + cos(angle).toFloat() * radiusX
+                    val x =
+                        cx + cos(angle).toFloat() * radiusX
 
-                val y =
-                    cy + sin(angle).toFloat() * radiusY
+                    val y =
+                        cy + sin(angle).toFloat() * radiusY
 
-                if (i == 0) {
-                    path.moveTo(x, y)
-                } else {
-                    path.lineTo(x, y)
+                    if (i == 0) {
+                        path.moveTo(x, y)
+                    } else {
+                        path.lineTo(x, y)
+                    }
                 }
+
+                path.close()
+
+                drawPath(
+                    path = path,
+                    color = Color.Black,
+                    style = Stroke(width = 8f)
+                )
+
+                drawPath(
+                    path = path,
+                    color = Color(0xFFFFE000)
+                )
             }
-
-            path.close()
-
-            drawPath(
-                path = path,
-                color = Color.Black,
-                style = Stroke(width = 8f)
-            )
-
-            drawPath(
-                path = path,
-                color = Color(0xFFFFE000)
+        } else {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        color = Color(0xFFFFE000),
+                        shape = promoPriceShape(shapeIndex)
+                    )
+                    .border(
+                        width = 3.dp,
+                        color = Color.Black,
+                        shape = promoPriceShape(shapeIndex)
+                    )
             )
         }
 
@@ -461,6 +477,7 @@ fun PromoBuilderScreen(
     var priceScale by remember { mutableStateOf(1.0f) }
     var priceShape by remember { mutableStateOf(0f) }
     var discountShape by remember { mutableStateOf(8f) }
+    var titleShape by remember { mutableStateOf(0f) }
     var shapeControl by remember { mutableStateOf("PREZZO") }
 
     var explosionFont by remember { mutableStateOf(0f) }
@@ -809,12 +826,12 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                             .fillMaxWidth()
                             .background(
                                 color = shiftPromoHue(Color(0xFFFFD700), colorHue, colorIntensity),
-                                shape = RoundedCornerShape(10.dp)
+                                shape = promoPriceShape(titleShape.toInt())
                             )
                             .border(
                                 width = 2.dp,
                                 color = Color.White,
-                                shape = RoundedCornerShape(10.dp)
+                                shape = promoPriceShape(titleShape.toInt())
                             )
                             .padding(
                                 horizontal = 8.dp,
@@ -864,12 +881,12 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                             .fillMaxWidth()
                             .background(
                                 color = shiftPromoHue(Color(0xFFFF40C8), colorHue, colorIntensity),
-                                shape = RoundedCornerShape(10.dp)
+                                shape = promoPriceShape(titleShape.toInt())
                             )
                             .border(
                                 width = 2.dp,
                                 color = Color.White,
-                                shape = RoundedCornerShape(10.dp)
+                                shape = promoPriceShape(titleShape.toInt())
                             )
                             .padding(
                                 horizontal = 8.dp,
@@ -919,12 +936,12 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                             .fillMaxWidth()
                             .background(
                                 color = shiftPromoHue(Color(0xFFFFE000), colorHue, colorIntensity),
-                                shape = RoundedCornerShape(10.dp)
+                                shape = promoPriceShape(titleShape.toInt())
                             )
                             .border(
                                 width = 2.dp,
                                 color = Color.White,
-                                shape = RoundedCornerShape(10.dp)
+                                shape = promoPriceShape(titleShape.toInt())
                             )
                             .padding(
                                 horizontal = 8.dp,
@@ -960,12 +977,12 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                             .fillMaxWidth()
                             .background(
                                 color = shiftPromoHue(Color(0xFF00E5FF), colorHue, colorIntensity),
-                                shape = RoundedCornerShape(10.dp)
+                                shape = promoPriceShape(titleShape.toInt())
                             )
                             .border(
                                 width = 2.dp,
                                 color = Color.White,
-                                shape = RoundedCornerShape(10.dp)
+                                shape = promoPriceShape(titleShape.toInt())
                             )
                             .padding(
                                 horizontal = 8.dp,
@@ -1008,7 +1025,7 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                     )
 
                 } else {
-                    PromoExplosionBadge(titleScale, explosionFont)
+                    PromoExplosionBadge(titleScale, explosionFont, titleShape.toInt())
                 }
 
                 Spacer(Modifier.height(10.dp))
@@ -1440,7 +1457,7 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                listOf("PREZZO", "SCONTO").forEach { control ->
+                listOf("PREZZO", "SCONTO", "TITOLO").forEach { control ->
                     Button(
                         onClick = { shapeControl = control },
                         modifier = Modifier.weight(1f)
@@ -1452,6 +1469,7 @@ var colorControl by remember { mutableStateOf("TONALITA") }
 
             val currentShape = when (shapeControl) {
                 "SCONTO" -> discountShape
+                "TITOLO" -> titleShape
                 else -> priceShape
             }
 
@@ -1465,6 +1483,7 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                 onValueChange = { value ->
                     when (shapeControl) {
                         "SCONTO" -> discountShape = value
+                        "TITOLO" -> titleShape = value
                         else -> priceShape = value
                     }
                 },
