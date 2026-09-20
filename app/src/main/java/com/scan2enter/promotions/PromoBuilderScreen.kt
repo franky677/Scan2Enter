@@ -368,75 +368,29 @@ private fun PromoExplosionBadge(titleScale: Float, explosionFont: Float) {
 }
 @Composable
 private fun PromoDiscountBurst(
-    discountPercent: Double
+    discountPercent: Double,
+    shapeIndex: Int
 ) {
+    val discountShape = promoPriceShape(shapeIndex)
+
     Box(
         modifier = Modifier
             .size(
                 width = 92.dp,
                 height = 70.dp
             )
-            .rotate(4f),
+            .rotate(4f)
+            .background(
+                color = Color(0xFFFFE000),
+                shape = discountShape
+            )
+            .border(
+                width = 3.dp,
+                color = Color.Black,
+                shape = discountShape
+            ),
         contentAlignment = Alignment.Center
     ) {
-        Canvas(
-            modifier = Modifier.fillMaxSize()
-        ) {
-            val cx = size.width / 2f
-            val cy = size.height / 2f
-
-            val points = 24
-
-            val outerRadiusX = size.width * 0.48f
-            val outerRadiusY = size.height * 0.48f
-
-            val innerRadiusX = size.width * 0.34f
-            val innerRadiusY = size.height * 0.32f
-
-            val path = Path()
-
-            for (i in 0 until points) {
-                val angle =
-                    -PI / 2.0 +
-                        (2.0 * PI * i / points)
-
-                val useOuter = i % 2 == 0
-
-                val radiusX =
-                    if (useOuter) outerRadiusX
-                    else innerRadiusX
-
-                val radiusY =
-                    if (useOuter) outerRadiusY
-                    else innerRadiusY
-
-                val x =
-                    cx + cos(angle).toFloat() * radiusX
-
-                val y =
-                    cy + sin(angle).toFloat() * radiusY
-
-                if (i == 0) {
-                    path.moveTo(x, y)
-                } else {
-                    path.lineTo(x, y)
-                }
-            }
-
-            path.close()
-
-            drawPath(
-                path = path,
-                color = Color.Black,
-                style = Stroke(width = 7f)
-            )
-
-            drawPath(
-                path = path,
-                color = Color(0xFFFFE000)
-            )
-        }
-
         Text(
             text = String.format(
                 java.util.Locale.ITALY,
@@ -506,6 +460,8 @@ fun PromoBuilderScreen(
     var imageScale by remember { mutableStateOf(1.0f) }
     var priceScale by remember { mutableStateOf(1.0f) }
     var priceShape by remember { mutableStateOf(0f) }
+    var discountShape by remember { mutableStateOf(8f) }
+    var shapeControl by remember { mutableStateOf("PREZZO") }
 
     var explosionFont by remember { mutableStateOf(0f) }
     var descriptionFont by remember { mutableStateOf(0f) }
@@ -1174,7 +1130,8 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                                         )
                                 ) {
                                     PromoDiscountBurst(
-                                        discountPercent = effectiveDiscount
+                                        discountPercent = effectiveDiscount,
+                                        shapeIndex = discountShape.toInt()
                                     )
                                 }
                             }
@@ -1466,12 +1423,7 @@ var colorControl by remember { mutableStateOf("TONALITA") }
 
 
         if (styleSection == "FORME") {
-            Text(
-                text = "PREZZO",
-                fontWeight = FontWeight.Bold
-            )
-
-            val priceShapeNames = listOf(
+            val shapeNames = listOf(
                 "CLASSICA",
                 "PILLOLA",
                 "OVALE",
@@ -1484,16 +1436,40 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                 "DIAGONALE"
             )
 
-            val priceShapeIndex = priceShape.toInt()
-                .coerceIn(0, priceShapeNames.lastIndex)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                listOf("PREZZO", "SCONTO").forEach { control ->
+                    Button(
+                        onClick = { shapeControl = control },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text(text = control, fontSize = 9.sp)
+                    }
+                }
+            }
 
-            Text("FORMA: ${priceShapeNames[priceShapeIndex]}")
+            val currentShape = when (shapeControl) {
+                "SCONTO" -> discountShape
+                else -> priceShape
+            }
+
+            val currentShapeIndex = currentShape.toInt()
+                .coerceIn(0, shapeNames.lastIndex)
+
+            Text("$shapeControl: ${shapeNames[currentShapeIndex]}")
 
             Slider(
-                value = priceShape,
-                onValueChange = { priceShape = it },
-                valueRange = 0f..priceShapeNames.lastIndex.toFloat(),
-                steps = priceShapeNames.size - 2,
+                value = currentShape,
+                onValueChange = { value ->
+                    when (shapeControl) {
+                        "SCONTO" -> discountShape = value
+                        else -> priceShape = value
+                    }
+                },
+                valueRange = 0f..shapeNames.lastIndex.toFloat(),
+                steps = shapeNames.size - 2,
                 modifier = Modifier.fillMaxWidth()
             )
         }
