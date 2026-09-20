@@ -945,7 +945,8 @@ private fun PromoExplosionBadge(
 @Composable
 private fun PromoDiscountBurst(
     discountPercent: Double,
-    shapeIndex: Int
+    shapeIndex: Int,
+    borderWidth: Float
 ) {
     val discountShape = promoPriceShape(shapeIndex)
 
@@ -961,7 +962,7 @@ private fun PromoDiscountBurst(
                 shape = discountShape
             )
             .border(
-                width = 3.dp,
+                width = borderWidth.dp,
                 color = Color.Black,
                 shape = discountShape
             ),
@@ -1040,7 +1041,13 @@ fun PromoBuilderScreen(
     var titleShape by remember { mutableStateOf(0f) }
     var imageShape by remember { mutableStateOf(0f) }
     var footerShape by remember { mutableStateOf(0f) }
+    var priceShapeBorder by remember { mutableStateOf(3f) }
+    var discountShapeBorder by remember { mutableStateOf(3f) }
+    var titleShapeBorder by remember { mutableStateOf(2f) }
+    var imageShapeBorder by remember { mutableStateOf(2f) }
+    var footerShapeBorder by remember { mutableStateOf(2f) }
     var shapeControl by remember { mutableStateOf("PREZZO") }
+    var shapeParameter by remember { mutableStateOf("FORMA") }
 
     var explosionFont by remember { mutableStateOf(0f) }
     var descriptionFont by remember { mutableStateOf(0f) }
@@ -1391,7 +1398,7 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                                 shape = promoPriceShape(titleShape.toInt())
                             )
                             .border(
-                                width = 2.dp,
+                                width = titleShapeBorder.dp,
                                 color = Color.White,
                                 shape = promoPriceShape(titleShape.toInt())
                             )
@@ -1446,7 +1453,7 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                                 shape = promoPriceShape(titleShape.toInt())
                             )
                             .border(
-                                width = 2.dp,
+                                width = titleShapeBorder.dp,
                                 color = Color.White,
                                 shape = promoPriceShape(titleShape.toInt())
                             )
@@ -1501,7 +1508,7 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                                 shape = promoPriceShape(titleShape.toInt())
                             )
                             .border(
-                                width = 2.dp,
+                                width = titleShapeBorder.dp,
                                 color = Color.White,
                                 shape = promoPriceShape(titleShape.toInt())
                             )
@@ -1542,7 +1549,7 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                                 shape = promoPriceShape(titleShape.toInt())
                             )
                             .border(
-                                width = 2.dp,
+                                width = titleShapeBorder.dp,
                                 color = Color.White,
                                 shape = promoPriceShape(titleShape.toInt())
                             )
@@ -1668,7 +1675,7 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                                         shape = promoPriceShape(imageShape.toInt())
                                     )
                                     .border(
-                                        width = 2.dp,
+                                        width = imageShapeBorder.dp,
                                         color = Color.Black,
                                         shape = promoPriceShape(imageShape.toInt())
                                     )
@@ -1710,7 +1717,8 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                                 ) {
                                     PromoDiscountBurst(
                                         discountPercent = effectiveDiscount,
-                                        shapeIndex = discountShape.toInt()
+                                        shapeIndex = discountShape.toInt(),
+                                        borderWidth = discountShapeBorder
                                     )
                                 }
                             }
@@ -1787,7 +1795,7 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                                     shape = promoPriceShape(priceShape.toInt())
                                 )
                                 .border(
-                                    width = 3.dp,
+                                    width = priceShapeBorder.dp,
                                     color = Color.Black,
                                     shape = promoPriceShape(priceShape.toInt())
                                 )
@@ -1847,7 +1855,7 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                             shape = promoPriceShape(footerShape.toInt())
                         )
                         .border(
-                            width = 2.dp,
+                            width = footerShapeBorder.dp,
                             color = shiftPromoHue(Color(0xFFFFE000), colorHue, colorIntensity),
                             shape = promoPriceShape(footerShape.toInt())
                         )
@@ -2076,6 +2084,21 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                 }
             }
 
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                listOf("FORMA", "BORDO").forEach { parameter ->
+                    Button(
+                        onClick = { shapeParameter = parameter },
+                        modifier = Modifier.weight(1f),
+                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 8.dp)
+                    ) {
+                        Text(text = parameter, fontSize = 10.sp)
+                    }
+                }
+            }
+
             val currentShape = when (shapeControl) {
                 "SCONTO" -> discountShape
                 "TITOLO" -> titleShape
@@ -2084,26 +2107,54 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                 else -> priceShape
             }
 
-            val currentShapeIndex = currentShape.toInt()
-                .coerceIn(0, shapeNames.lastIndex)
+            val currentShapeBorder = when (shapeControl) {
+                "SCONTO" -> discountShapeBorder
+                "TITOLO" -> titleShapeBorder
+                "FOTO" -> imageShapeBorder
+                "FASCIA" -> footerShapeBorder
+                else -> priceShapeBorder
+            }
 
-            Text("$shapeControl: ${shapeNames[currentShapeIndex]}")
+            if (shapeParameter == "FORMA") {
+                val currentShapeIndex = currentShape.toInt()
+                    .coerceIn(0, shapeNames.lastIndex)
 
-            Slider(
-                value = currentShape,
-                onValueChange = { value ->
-                    when (shapeControl) {
-                        "SCONTO" -> discountShape = value
-                        "TITOLO" -> titleShape = value
-                        "FOTO" -> imageShape = value
-                        "FASCIA" -> footerShape = value
-                        else -> priceShape = value
-                    }
-                },
-                valueRange = 0f..shapeNames.lastIndex.toFloat(),
-                steps = shapeNames.size - 2,
-                modifier = Modifier.fillMaxWidth()
-            )
+                Text("$shapeControl: ${shapeNames[currentShapeIndex]}")
+
+                Slider(
+                    value = currentShape,
+                    onValueChange = { value ->
+                        when (shapeControl) {
+                            "SCONTO" -> discountShape = value
+                            "TITOLO" -> titleShape = value
+                            "FOTO" -> imageShape = value
+                            "FASCIA" -> footerShape = value
+                            else -> priceShape = value
+                        }
+                    },
+                    valueRange = 0f..shapeNames.lastIndex.toFloat(),
+                    steps = shapeNames.size - 2,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            } else if (shapeParameter == "BORDO") {
+                Text("$shapeControl - BORDO: ${String.format("%.1f", currentShapeBorder)}")
+
+                Slider(
+                    value = currentShapeBorder,
+                    onValueChange = { value ->
+                        when (shapeControl) {
+                            "SCONTO" -> discountShapeBorder = value
+                            "TITOLO" -> titleShapeBorder = value
+                            "FOTO" -> imageShapeBorder = value
+                            "FASCIA" -> footerShapeBorder = value
+                            else -> priceShapeBorder = value
+                        }
+                    },
+                    valueRange = 0f..6f,
+                    steps = 11,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
         }
         if (styleSection == "FONT") {
             Row(
