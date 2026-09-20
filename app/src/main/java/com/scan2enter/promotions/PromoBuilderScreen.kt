@@ -478,6 +478,7 @@ fun PromoBuilderScreen(
     var priceShape by remember { mutableStateOf(0f) }
     var discountShape by remember { mutableStateOf(8f) }
     var titleShape by remember { mutableStateOf(0f) }
+    var imageShape by remember { mutableStateOf(0f) }
     var shapeControl by remember { mutableStateOf("PREZZO") }
 
     var explosionFont by remember { mutableStateOf(0f) }
@@ -1103,12 +1104,12 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                                     .size(142.dp)
                                     .background(
                                         color = Color.White,
-                                        shape = RoundedCornerShape(12.dp)
+                                        shape = promoPriceShape(imageShape.toInt())
                                     )
                                     .border(
                                         width = 2.dp,
                                         color = Color.Black,
-                                        shape = RoundedCornerShape(12.dp)
+                                        shape = promoPriceShape(imageShape.toInt())
                                     )
                                     .padding(2.dp),
                                 contentAlignment = Alignment.Center
@@ -1457,7 +1458,7 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                listOf("PREZZO", "SCONTO", "TITOLO").forEach { control ->
+                listOf("PREZZO", "SCONTO", "TITOLO", "FOTO").forEach { control ->
                     Button(
                         onClick = { shapeControl = control },
                         modifier = Modifier.weight(1f)
@@ -1470,6 +1471,7 @@ var colorControl by remember { mutableStateOf("TONALITA") }
             val currentShape = when (shapeControl) {
                 "SCONTO" -> discountShape
                 "TITOLO" -> titleShape
+                "FOTO" -> imageShape
                 else -> priceShape
             }
 
@@ -1484,6 +1486,7 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                     when (shapeControl) {
                         "SCONTO" -> discountShape = value
                         "TITOLO" -> titleShape = value
+                        "FOTO" -> imageShape = value
                         else -> priceShape = value
                     }
                 },
