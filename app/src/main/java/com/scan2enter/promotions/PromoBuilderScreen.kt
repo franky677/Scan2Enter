@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -35,6 +36,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.shape.GenericShape
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
@@ -479,6 +481,7 @@ fun PromoBuilderScreen(
     var discountShape by remember { mutableStateOf(8f) }
     var titleShape by remember { mutableStateOf(0f) }
     var imageShape by remember { mutableStateOf(0f) }
+    var footerShape by remember { mutableStateOf(0f) }
     var shapeControl by remember { mutableStateOf("PREZZO") }
 
     var explosionFont by remember { mutableStateOf(0f) }
@@ -1283,12 +1286,12 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                         .rotate(-1f)
                         .background(
                             color = Color.Black,
-                            shape = RoundedCornerShape(6.dp)
+                            shape = promoPriceShape(footerShape.toInt())
                         )
                         .border(
                             width = 2.dp,
                             color = shiftPromoHue(Color(0xFFFFE000), colorHue, colorIntensity),
-                            shape = RoundedCornerShape(6.dp)
+                            shape = promoPriceShape(footerShape.toInt())
                         )
                         .padding(
                             horizontal = 10.dp,
@@ -1381,7 +1384,8 @@ var colorControl by remember { mutableStateOf("TONALITA") }
             listOf("DIMENSIONI", "FONT", "COLORI", "FORME").forEach { section ->
                 Button(
                     onClick = { styleSection = section },
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.weight(1f),
+                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 8.dp)
                 ) {
                     Text(text = section, fontSize = 11.sp)
                 }
@@ -1458,12 +1462,18 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                listOf("PREZZO", "SCONTO", "TITOLO", "FOTO").forEach { control ->
+                listOf("PREZZO", "SCONTO", "TITOLO", "FOTO", "FASCIA").forEach { control ->
                     Button(
                         onClick = { shapeControl = control },
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier.weight(1f),
+                        contentPadding = PaddingValues(horizontal = 2.dp, vertical = 8.dp)
                     ) {
-                        Text(text = control, fontSize = 9.sp)
+                        Text(
+                            text = control,
+                            fontSize = 8.sp,
+                            maxLines = 1,
+                            softWrap = false
+                        )
                     }
                 }
             }
@@ -1472,6 +1482,7 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                 "SCONTO" -> discountShape
                 "TITOLO" -> titleShape
                 "FOTO" -> imageShape
+                "FASCIA" -> footerShape
                 else -> priceShape
             }
 
@@ -1487,6 +1498,7 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                         "SCONTO" -> discountShape = value
                         "TITOLO" -> titleShape = value
                         "FOTO" -> imageShape = value
+                        "FASCIA" -> footerShape = value
                         else -> priceShape = value
                     }
                 },
@@ -1505,7 +1517,10 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                         onClick = { fontControl = control },
                         modifier = Modifier.weight(1f)
                     ) {
-                        Text(text = control, fontSize = 9.sp)
+                        Text(
+                            text = control,
+                            fontSize = 9.sp
+                        )
                     }
                 }
             }
