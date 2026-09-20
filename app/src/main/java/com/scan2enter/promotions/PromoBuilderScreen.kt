@@ -33,6 +33,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.GenericShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -62,6 +63,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
@@ -81,6 +83,112 @@ import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
 
+private fun promoPriceShape(index: Int): Shape =
+    when (index.coerceIn(0, 9)) {
+        // CLASSICA
+        0 -> RoundedCornerShape(8.dp)
+
+        // PILLOLA
+        1 -> RoundedCornerShape(50)
+
+        // OVALE
+        2 -> RoundedCornerShape(50)
+
+        // TAG
+        3 -> GenericShape { size, _ ->
+            moveTo(size.width * 0.12f, 0f)
+            lineTo(size.width, 0f)
+            lineTo(size.width, size.height)
+            lineTo(size.width * 0.12f, size.height)
+            lineTo(0f, size.height * 0.50f)
+            close()
+        }
+
+        // TRAPEZIO
+        4 -> GenericShape { size, _ ->
+            moveTo(size.width * 0.10f, 0f)
+            lineTo(size.width * 0.90f, 0f)
+            lineTo(size.width, size.height)
+            lineTo(0f, size.height)
+            close()
+        }
+
+        // FRECCIA
+        5 -> GenericShape { size, _ ->
+            moveTo(0f, 0f)
+            lineTo(size.width * 0.78f, 0f)
+            lineTo(size.width, size.height * 0.50f)
+            lineTo(size.width * 0.78f, size.height)
+            lineTo(0f, size.height)
+            lineTo(size.width * 0.10f, size.height * 0.50f)
+            close()
+        }
+
+        // SCUDO
+        6 -> GenericShape { size, _ ->
+            moveTo(size.width * 0.08f, 0f)
+            lineTo(size.width * 0.92f, 0f)
+            lineTo(size.width, size.height * 0.28f)
+            lineTo(size.width * 0.82f, size.height * 0.78f)
+            lineTo(size.width * 0.50f, size.height)
+            lineTo(size.width * 0.18f, size.height * 0.78f)
+            lineTo(0f, size.height * 0.28f)
+            close()
+        }
+
+        // STICKER
+        7 -> GenericShape { size, _ ->
+            val points = 16
+            val cx = size.width / 2f
+            val cy = size.height / 2f
+            val outerX = size.width / 2f
+            val outerY = size.height / 2f
+            val innerX = outerX * 0.86f
+            val innerY = outerY * 0.72f
+
+            for (i in 0 until points) {
+                val angle = -PI / 2.0 + (2.0 * PI * i / points)
+                val rx = if (i % 2 == 0) outerX else innerX
+                val ry = if (i % 2 == 0) outerY else innerY
+                val x = cx + (cos(angle) * rx).toFloat()
+                val y = cy + (sin(angle) * ry).toFloat()
+
+                if (i == 0) moveTo(x, y) else lineTo(x, y)
+            }
+            close()
+        }
+
+        // ESPLOSIONE
+        8 -> GenericShape { size, _ ->
+            val points = 24
+            val cx = size.width / 2f
+            val cy = size.height / 2f
+            val outerX = size.width / 2f
+            val outerY = size.height / 2f
+            val innerX = outerX * 0.74f
+            val innerY = outerY * 0.60f
+
+            for (i in 0 until points) {
+                val angle = -PI / 2.0 + (2.0 * PI * i / points)
+                val rx = if (i % 2 == 0) outerX else innerX
+                val ry = if (i % 2 == 0) outerY else innerY
+                val x = cx + (cos(angle) * rx).toFloat()
+                val y = cy + (sin(angle) * ry).toFloat()
+
+                if (i == 0) moveTo(x, y) else lineTo(x, y)
+            }
+            close()
+        }
+
+        // DIAGONALE
+        else -> GenericShape { size, _ ->
+            moveTo(size.width * 0.10f, 0f)
+            lineTo(size.width, 0f)
+            lineTo(size.width * 0.90f, size.height)
+            lineTo(0f, size.height)
+            close()
+        }
+    }
 private fun formatPromoPrice(rawPrice: String): String {
     val value = rawPrice
         .trim()
@@ -397,6 +505,7 @@ fun PromoBuilderScreen(
     var titleScale by remember { mutableStateOf(1.0f) }
     var imageScale by remember { mutableStateOf(1.0f) }
     var priceScale by remember { mutableStateOf(1.0f) }
+    var priceShape by remember { mutableStateOf(0f) }
 
     var explosionFont by remember { mutableStateOf(0f) }
     var descriptionFont by remember { mutableStateOf(0f) }
@@ -1124,7 +1233,7 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                                 .rotate(-1.5f)
                                 .shadow(
                                     elevation = 6.dp,
-                                    shape = RoundedCornerShape(8.dp)
+                                    shape = promoPriceShape(priceShape.toInt())
                                 )
                                 .background(
                                     color =
@@ -1139,12 +1248,12 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                                         } else {
                                             shiftPromoHue(Color(0xFFFFE000), colorHue, colorIntensity)
                                         },
-                                    shape = RoundedCornerShape(8.dp)
+                                    shape = promoPriceShape(priceShape.toInt())
                                 )
                                 .border(
                                     width = 3.dp,
                                     color = Color.Black,
-                                    shape = RoundedCornerShape(8.dp)
+                                    shape = promoPriceShape(priceShape.toInt())
                                 )
                                 .padding(
                                     horizontal = 4.dp,
@@ -1294,7 +1403,7 @@ var colorControl by remember { mutableStateOf("TONALITA") }
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            listOf("DIMENSIONI", "FONT", "COLORI").forEach { section ->
+            listOf("DIMENSIONI", "FONT", "COLORI", "FORME").forEach { section ->
                 Button(
                     onClick = { styleSection = section },
                     modifier = Modifier.weight(1f)
@@ -1356,6 +1465,38 @@ var colorControl by remember { mutableStateOf("TONALITA") }
         }
 
 
+        if (styleSection == "FORME") {
+            Text(
+                text = "PREZZO",
+                fontWeight = FontWeight.Bold
+            )
+
+            val priceShapeNames = listOf(
+                "CLASSICA",
+                "PILLOLA",
+                "OVALE",
+                "TAG",
+                "TRAPEZIO",
+                "FRECCIA",
+                "SCUDO",
+                "STICKER",
+                "ESPLOSIONE",
+                "DIAGONALE"
+            )
+
+            val priceShapeIndex = priceShape.toInt()
+                .coerceIn(0, priceShapeNames.lastIndex)
+
+            Text("FORMA: ${priceShapeNames[priceShapeIndex]}")
+
+            Slider(
+                value = priceShape,
+                onValueChange = { priceShape = it },
+                valueRange = 0f..priceShapeNames.lastIndex.toFloat(),
+                steps = priceShapeNames.size - 2,
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
         if (styleSection == "FONT") {
             Row(
                 modifier = Modifier.fillMaxWidth(),
