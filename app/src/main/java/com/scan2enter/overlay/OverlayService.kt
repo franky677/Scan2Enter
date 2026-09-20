@@ -7341,7 +7341,7 @@ class OverlayService : Service() {
         }
 
         val scanButton = Button(this).apply {
-            text = "ðŸ“·\nSCAN"
+            text = "SCAN"
             textSize = 18f
             setTextColor(Color.WHITE)
             gravity = Gravity.CENTER

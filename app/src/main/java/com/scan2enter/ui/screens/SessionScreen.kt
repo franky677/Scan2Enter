@@ -386,7 +386,8 @@ fun SessionScreen(
                         onClose = {
                             actionPanelOpen = false
                         },
-                        onOpenColloHistory = onOpenColloHistory
+                        onOpenColloHistory = onOpenColloHistory,
+                        onExitToHome = onBack
                     )
                 }
 
@@ -1009,7 +1010,8 @@ private fun SessionActionButton(
 private fun SessionActionPanel(
     items: List<SessionItem>,
     onClose: () -> Unit,
-    onOpenColloHistory: () -> Unit
+    onOpenColloHistory: () -> Unit,
+    onExitToHome: () -> Unit
 ) {
     val context = LocalContext.current
     val customer = SessionCustomerStore.current.value
@@ -1449,7 +1451,7 @@ private fun SessionActionPanel(
                         SessionCustomerStore.useBanco()
                         SessionStore.clear()
                         clearSessionConfirmOpen = false
-                        onClose()
+                        onExitToHome()
                     }
                 ) {
                     Text(
@@ -1703,7 +1705,7 @@ private fun SessionActionPanel(
                         createdCollo = null
                         SessionCustomerStore.useBanco()
                         SessionStore.clear()
-                        onClose()
+                        onExitToHome()
                     }
                 ) {
                     Text("FATTO • SVUOTA SESSIONE")
