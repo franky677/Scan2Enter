@@ -63,6 +63,7 @@ import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.graphics.Shape
@@ -835,8 +836,66 @@ private fun PromoExplosionBadge(
     titleScale: Float,
     explosionFont: Float,
     shapeIndex: Int,
-    rotation: Float
+    rotation: Float,
+    shadow: Float
 ) {
+    Box(
+        modifier = Modifier.size(width = 250.dp, height = 88.dp)
+    ) {
+        if (shadow > 0f && shapeIndex == 8) {
+            Canvas(
+                modifier = Modifier
+                    .size(width = 250.dp, height = 88.dp)
+                    .offset(
+                        x = (shadow / 3f).dp,
+                        y = (shadow / 3f).dp
+                    )
+                    .rotate(-3f + rotation)
+            ) {
+                val cx = size.width / 2f
+                val cy = size.height / 2f
+                val points = 32
+                val outerRadiusX = size.width * 0.49f
+                val outerRadiusY = size.height * 0.49f
+                val innerRadiusX = size.width * 0.38f
+                val innerRadiusY = size.height * 0.34f
+                val path = Path()
+
+                for (i in 0 until points) {
+                    val angle = -PI / 2.0 + (2.0 * PI * i / points)
+                    val useOuter = i % 2 == 0
+                    val radiusX = if (useOuter) outerRadiusX else innerRadiusX
+                    val radiusY = if (useOuter) outerRadiusY else innerRadiusY
+                    val x = cx + cos(angle).toFloat() * radiusX
+                    val y = cy + sin(angle).toFloat() * radiusY
+
+                    if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
+                }
+
+                path.close()
+                drawPath(
+                    path = path,
+                    color = Color.Black.copy(alpha = 0.65f)
+                )
+            }
+        }
+
+        if (shadow > 0f && shapeIndex != 8) {
+            Box(
+                modifier = Modifier
+                    .size(width = 250.dp, height = 88.dp)
+                    .offset(
+                        x = (shadow / 3f).dp,
+                        y = (shadow / 3f).dp
+                    )
+                    .rotate(-3f + rotation)
+                    .background(
+                        color = Color.Black.copy(alpha = 0.65f),
+                        shape = promoPriceShape(shapeIndex)
+                    )
+            )
+        }
+
     Box(
         modifier = Modifier
             .size(
@@ -942,44 +1001,63 @@ private fun PromoExplosionBadge(
             )
         }
     }
+    }
 }
 @Composable
 private fun PromoDiscountBurst(
     discountPercent: Double,
     shapeIndex: Int,
     borderWidth: Float,
-    rotation: Float
+    rotation: Float,
+    shadow: Float
 ) {
     val discountShape = promoPriceShape(shapeIndex)
 
     Box(
-        modifier = Modifier
-            .size(
-                width = 92.dp,
-                height = 70.dp
-            )
-            .rotate(rotation)
-            .background(
-                color = Color(0xFFFFE000),
-                shape = discountShape
-            )
-            .border(
-                width = borderWidth.dp,
-                color = Color.Black,
-                shape = discountShape
-            ),
-        contentAlignment = Alignment.Center
-    ) {
-        Text(
-            text = String.format(
-                java.util.Locale.ITALY,
-                "-%.0f%%",
-                discountPercent
-            ),
-            color = Color(0xFFE30613),
-            fontSize = 22.sp,
-            fontWeight = FontWeight.Black
+        modifier = Modifier.size(
+            width = 92.dp + shadow.dp,
+            height = 70.dp + shadow.dp
         )
+    ) {
+        if (shadow > 0f) {
+            Box(
+                modifier = Modifier
+                    .size(width = 92.dp, height = 70.dp)
+                    .offset(x = shadow.dp, y = shadow.dp)
+                    .rotate(rotation)
+                    .background(
+                        color = Color.Black.copy(alpha = 0.65f),
+                        shape = discountShape
+                    )
+            )
+        }
+
+        Box(
+            modifier = Modifier
+                .size(width = 92.dp, height = 70.dp)
+                .rotate(rotation)
+                .background(
+                    color = Color(0xFFFFE000),
+                    shape = discountShape
+                )
+                .border(
+                    width = borderWidth.dp,
+                    color = Color.Black,
+                    shape = discountShape
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = String.format(
+                    java.util.Locale.ITALY,
+                    "-%.0f%%",
+                    discountPercent
+                ),
+                color = Color(0xFFE30613),
+                fontSize = 22.sp,
+                fontWeight = FontWeight.Black
+            )
+        }
     }
 }
 @Composable
@@ -1053,6 +1131,14 @@ fun PromoBuilderScreen(
     var titleShapeRotation by remember { mutableStateOf(0f) }
     var imageShapeRotation by remember { mutableStateOf(0f) }
     var footerShapeRotation by remember { mutableStateOf(-1f) }
+    var priceShapeShadow by remember { mutableStateOf(6f) }
+    var priceShapeMeasuredSize by remember { mutableStateOf(IntSize.Zero) }
+    var discountShapeShadow by remember { mutableStateOf(0f) }
+    var titleShapeShadow by remember { mutableStateOf(0f) }
+    var titleShapeMeasuredSize by remember { mutableStateOf(IntSize.Zero) }
+    var imageShapeShadow by remember { mutableStateOf(0f) }
+    var footerShapeShadow by remember { mutableStateOf(0f) }
+    var footerShapeMeasuredSize by remember { mutableStateOf(IntSize.Zero) }
     var shapeControl by remember { mutableStateOf("PREZZO") }
     var shapeParameter by remember { mutableStateOf("FORMA") }
 
@@ -1398,8 +1484,32 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                  */
                 if (isBlackPreset) {
                     Box(
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        if (titleShapeShadow > 0f && titleShapeMeasuredSize != IntSize.Zero) {
+                            val density = LocalDensity.current
+                            val shadowWidth = with(density) { titleShapeMeasuredSize.width.toDp() }
+                            val shadowHeight = with(density) { titleShapeMeasuredSize.height.toDp() }
+
+                            Box(
+                                modifier = Modifier
+                                    .size(shadowWidth, shadowHeight)
+                                    .offset(
+                                        x = (titleShapeShadow / 3f).dp,
+                                        y = (titleShapeShadow / 3f).dp
+                                    )
+                                    .rotate(titleShapeRotation)
+                                    .background(
+                                        color = Color.White.copy(alpha = 0.70f),
+                                        shape = promoPriceShape(titleShape.toInt())
+                                    )
+                            )
+                        }
+
+                    Box(
                         modifier = Modifier
                             .fillMaxWidth()
+                            .onGloballyPositioned { titleShapeMeasuredSize = it.size }
                             .rotate(titleShapeRotation)
                             .background(
                                 color = shiftPromoHue(Color(0xFFFFD700), colorHue, colorIntensity),
@@ -1440,6 +1550,7 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                             )
                         }
                     }
+                    }
 
                     Spacer(Modifier.height(4.dp))
 
@@ -1454,8 +1565,32 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                 } else if (isLiberoPreset) {
 
                     Box(
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        if (titleShapeShadow > 0f && titleShapeMeasuredSize != IntSize.Zero) {
+                            val density = LocalDensity.current
+                            val shadowWidth = with(density) { titleShapeMeasuredSize.width.toDp() }
+                            val shadowHeight = with(density) { titleShapeMeasuredSize.height.toDp() }
+
+                            Box(
+                                modifier = Modifier
+                                    .size(shadowWidth, shadowHeight)
+                                    .offset(
+                                        x = (titleShapeShadow / 3f).dp,
+                                        y = (titleShapeShadow / 3f).dp
+                                    )
+                                    .rotate(titleShapeRotation)
+                                    .background(
+                                        color = Color.Black.copy(alpha = 0.65f),
+                                        shape = promoPriceShape(titleShape.toInt())
+                                    )
+                            )
+                        }
+
+                    Box(
                         modifier = Modifier
                             .fillMaxWidth()
+                            .onGloballyPositioned { titleShapeMeasuredSize = it.size }
                             .rotate(titleShapeRotation)
                             .background(
                                 color = shiftPromoHue(Color(0xFFFF40C8), colorHue, colorIntensity),
@@ -1497,6 +1632,7 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                         }
                     }
 
+                    }
                     Spacer(Modifier.height(4.dp))
 
                     Text(
@@ -1510,8 +1646,32 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                 } else if (isRisparmioPreset) {
 
                     Box(
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        if (titleShapeShadow > 0f && titleShapeMeasuredSize != IntSize.Zero) {
+                            val density = LocalDensity.current
+                            val shadowWidth = with(density) { titleShapeMeasuredSize.width.toDp() }
+                            val shadowHeight = with(density) { titleShapeMeasuredSize.height.toDp() }
+
+                            Box(
+                                modifier = Modifier
+                                    .size(shadowWidth, shadowHeight)
+                                    .offset(
+                                        x = (titleShapeShadow / 3f).dp,
+                                        y = (titleShapeShadow / 3f).dp
+                                    )
+                                    .rotate(titleShapeRotation)
+                                    .background(
+                                        color = Color.Black.copy(alpha = 0.65f),
+                                        shape = promoPriceShape(titleShape.toInt())
+                                    )
+                            )
+                        }
+
+                    Box(
                         modifier = Modifier
                             .fillMaxWidth()
+                            .onGloballyPositioned { titleShapeMeasuredSize = it.size }
                             .rotate(titleShapeRotation)
                             .background(
                                 color = shiftPromoHue(Color(0xFFFFE000), colorHue, colorIntensity),
@@ -1539,6 +1699,7 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                         )
                     }
 
+                    }
                     Spacer(Modifier.height(4.dp))
 
                     Text(
@@ -1552,8 +1713,32 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                 } else if (isNovitaPreset) {
 
                     Box(
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        if (titleShapeShadow > 0f && titleShapeMeasuredSize != IntSize.Zero) {
+                            val density = LocalDensity.current
+                            val shadowWidth = with(density) { titleShapeMeasuredSize.width.toDp() }
+                            val shadowHeight = with(density) { titleShapeMeasuredSize.height.toDp() }
+
+                            Box(
+                                modifier = Modifier
+                                    .size(shadowWidth, shadowHeight)
+                                    .offset(
+                                        x = (titleShapeShadow / 3f).dp,
+                                        y = (titleShapeShadow / 3f).dp
+                                    )
+                                    .rotate(titleShapeRotation)
+                                    .background(
+                                        color = Color.Black.copy(alpha = 0.65f),
+                                        shape = promoPriceShape(titleShape.toInt())
+                                    )
+                            )
+                        }
+
+                    Box(
                         modifier = Modifier
                             .fillMaxWidth()
+                            .onGloballyPositioned { titleShapeMeasuredSize = it.size }
                             .rotate(titleShapeRotation)
                             .background(
                                 color = shiftPromoHue(Color(0xFF00E5FF), colorHue, colorIntensity),
@@ -1594,6 +1779,7 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                         }
                     }
 
+                    }
                     Spacer(Modifier.height(4.dp))
 
                     Text(
@@ -1605,7 +1791,7 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                     )
 
                 } else {
-                    PromoExplosionBadge(titleScale, explosionFont, titleShape.toInt(), titleShapeRotation)
+                    PromoExplosionBadge(titleScale, explosionFont, titleShape.toInt(), titleShapeRotation, titleShapeShadow)
                 }
 
                 Spacer(Modifier.height(10.dp))
@@ -1678,6 +1864,22 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                                 height = 158.dp
                             )
                         ) {
+                            if (imageShapeShadow > 0f) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(142.dp)
+                                        .offset(
+                                            x = (imageShapeShadow / 3f).dp,
+                                            y = (imageShapeShadow / 3f).dp
+                                        )
+                                        .rotate(imageShapeRotation)
+                                        .background(
+                                            color = Color.Black.copy(alpha = 0.65f),
+                                            shape = promoPriceShape(imageShape.toInt())
+                                        )
+                                )
+                            }
+
                             Box(
                                 modifier = Modifier
                                     .size(142.dp)
@@ -1731,7 +1933,8 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                                         discountPercent = effectiveDiscount,
                                         shapeIndex = discountShape.toInt(),
                                         borderWidth = discountShapeBorder,
-                                        rotation = discountShapeRotation
+                                        rotation = discountShapeRotation,
+                                        shadow = discountShapeShadow
                                     )
                                 }
                             }
@@ -1784,14 +1987,35 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                             Spacer(Modifier.height(4.dp))
                         }
 
+
+                        Box(
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            if (priceShapeShadow > 0f && priceShapeMeasuredSize != IntSize.Zero) {
+                                val density = LocalDensity.current
+                                val shadowWidth = with(density) { priceShapeMeasuredSize.width.toDp() }
+                                val shadowHeight = with(density) { priceShapeMeasuredSize.height.toDp() }
+
+                                Box(
+                                    modifier = Modifier
+                                        .size(shadowWidth, shadowHeight)
+                                        .offset(
+                                            x = priceShapeShadow.dp,
+                                            y = priceShapeShadow.dp
+                                        )
+                                        .rotate(priceShapeRotation)
+                                        .background(
+                                            color = Color.Black.copy(alpha = 0.65f),
+                                            shape = promoPriceShape(priceShape.toInt())
+                                        )
+                                )
+                            }
+
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
+                                .onGloballyPositioned { priceShapeMeasuredSize = it.size }
                                 .rotate(priceShapeRotation)
-                                .shadow(
-                                    elevation = 6.dp,
-                                    shape = promoPriceShape(priceShape.toInt())
-                                )
                                 .background(
                                     color =
                                         if (isBlackPreset) {
@@ -1852,6 +2076,7 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                                 softWrap = false
                             )
                         }
+                        }
 
 
                     }
@@ -1860,43 +2085,68 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                 Spacer(Modifier.height(10.dp))
 
                 Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .rotate(footerShapeRotation)
-                        .background(
-                            color = Color.Black,
-                            shape = promoPriceShape(footerShape.toInt())
-                        )
-                        .border(
-                            width = footerShapeBorder.dp,
-                            color = shiftPromoHue(Color(0xFFFFE000), colorHue, colorIntensity),
-                            shape = promoPriceShape(footerShape.toInt())
-                        )
-                        .padding(
-                            horizontal = 10.dp,
-                            vertical = 7.dp
-                        ),
-                    contentAlignment = Alignment.Center
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text(
-                        text =
-                            if (isBlackPreset) {
-                                "BLACK FRIDAY  OFFERTA SPECIALE"
-                            } else if (isLiberoPreset) {
-                                "OFFERTA SPECIALE"
-                            } else if (isRisparmioPreset) {
-                                "PREZZO CONVENIENZA"
-                            } else if (isNovitaPreset) {
-                                "NOVITÀ  APPENA ARRIVATO"
-                            } else {
-                                "SUPER PREZZO DA NON PERDERE!"
-                            },
-                        color = shiftPromoHue(Color(0xFFFFE000), colorHue, colorIntensity),
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Black,
-                        fontFamily = promoFontFamily(footerFont),
-                        textAlign = TextAlign.Center
-                    )
+                    if (footerShapeShadow > 0f && footerShapeMeasuredSize != IntSize.Zero) {
+                        val density = LocalDensity.current
+                        Box(
+                            modifier = Modifier
+                                .size(
+                                    width = with(density) { footerShapeMeasuredSize.width.toDp() },
+                                    height = with(density) { footerShapeMeasuredSize.height.toDp() }
+                                )
+                                .offset(
+                                    x = (footerShapeShadow / 3f).dp,
+                                    y = (footerShapeShadow / 3f).dp
+                                )
+                                .rotate(footerShapeRotation)
+                                .background(
+                                    color = Color.Black.copy(alpha = 0.65f),
+                                    shape = promoPriceShape(footerShape.toInt())
+                                )
+                        )
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .onGloballyPositioned { footerShapeMeasuredSize = it.size }
+                            .rotate(footerShapeRotation)
+                            .background(
+                                color = Color.Black,
+                                shape = promoPriceShape(footerShape.toInt())
+                            )
+                            .border(
+                                width = footerShapeBorder.dp,
+                                color = shiftPromoHue(Color(0xFFFFE000), colorHue, colorIntensity),
+                                shape = promoPriceShape(footerShape.toInt())
+                            )
+                            .padding(
+                                horizontal = 10.dp,
+                                vertical = 7.dp
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text =
+                                if (isBlackPreset) {
+                                    "BLACK FRIDAY  OFFERTA SPECIALE"
+                                } else if (isLiberoPreset) {
+                                    "OFFERTA SPECIALE"
+                                } else if (isRisparmioPreset) {
+                                    "PREZZO CONVENIENZA"
+                                } else if (isNovitaPreset) {
+                                    "NOVITÀ  APPENA ARRIVATO"
+                                } else {
+                                    "SUPER PREZZO DA NON PERDERE!"
+                                },
+                            color = shiftPromoHue(Color(0xFFFFE000), colorHue, colorIntensity),
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Black,
+                            fontFamily = promoFontFamily(footerFont),
+                            textAlign = TextAlign.Center
+                        )
+                    }
                 }
 
             }
@@ -2101,7 +2351,7 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                listOf("FORMA", "BORDO", "INCLINAZIONE").forEach { parameter ->
+                listOf("FORMA", "BORDO", "INCLINAZIONE", "OMBRA").forEach { parameter ->
                     Button(
                         onClick = { shapeParameter = parameter },
                         modifier = Modifier.weight(1f),
@@ -2134,6 +2384,14 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                 "FOTO" -> imageShapeRotation
                 "FASCIA" -> footerShapeRotation
                 else -> priceShapeRotation
+            }
+
+            val currentShapeShadow = when (shapeControl) {
+                "SCONTO" -> discountShapeShadow
+                "TITOLO" -> titleShapeShadow
+                "FOTO" -> imageShapeShadow
+                "FASCIA" -> footerShapeShadow
+                else -> priceShapeShadow
             }
 
             if (shapeParameter == "FORMA") {
@@ -2193,7 +2451,25 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                     steps = 59,
                     modifier = Modifier.fillMaxWidth()
                 )
-        }
+            } else if (shapeParameter == "OMBRA") {
+                Text("$shapeControl - OMBRA: ${String.format("%.1f", currentShapeShadow)}")
+
+                Slider(
+                    value = currentShapeShadow,
+                    onValueChange = { value ->
+                        when (shapeControl) {
+                            "SCONTO" -> discountShapeShadow = value
+                            "TITOLO" -> titleShapeShadow = value
+                            "FOTO" -> imageShapeShadow = value
+                            "FASCIA" -> footerShapeShadow = value
+                            else -> priceShapeShadow = value
+                        }
+                    },
+                    valueRange = 0f..16f,
+                    steps = 31,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
         }
         if (styleSection == "FONT") {
             Row(
