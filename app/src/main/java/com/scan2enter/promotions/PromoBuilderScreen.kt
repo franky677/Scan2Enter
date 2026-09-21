@@ -832,6 +832,44 @@ private fun promoFontFamily(value: Float): FontFamily {
 }
 
 @Composable
+private fun AutoFitPromoText(
+    text: String,
+    modifier: Modifier = Modifier,
+    maxFontSize: Float,
+    minFontSize: Float = 8f,
+    fontWeight: FontWeight = FontWeight.Black,
+    fontFamily: FontFamily? = null,
+    color: Color = Color.Black,
+    textAlign: TextAlign = TextAlign.Center,
+    maxLines: Int = 1
+) {
+    var fontSize by remember(text, maxFontSize) { mutableStateOf(maxFontSize) }
+    var readyToDraw by remember(text, maxFontSize) { mutableStateOf(false) }
+
+    Text(
+        text = text,
+        modifier = modifier.drawWithContent {
+            if (readyToDraw) drawContent()
+        },
+        color = color,
+        fontSize = fontSize.sp,
+        lineHeight = (fontSize * 1.05f).sp,
+        fontWeight = fontWeight,
+        fontFamily = fontFamily,
+        textAlign = textAlign,
+        maxLines = maxLines,
+        softWrap = maxLines > 1,
+        onTextLayout = { result ->
+            if (result.hasVisualOverflow && fontSize > minFontSize) {
+                fontSize = (fontSize - 1f).coerceAtLeast(minFontSize)
+            } else {
+                readyToDraw = true
+            }
+        }
+    )
+}
+
+@Composable
 private fun PromoExplosionBadge(
     titleScale: Float,
     explosionFont: Float,
@@ -984,22 +1022,24 @@ private fun PromoExplosionBadge(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
-            Text(
+            AutoFitPromoText(
                 text = "OFFERTA",
+                modifier = Modifier.fillMaxWidth(0.72f),
+                maxFontSize = 15f * titleScale,
+                minFontSize = 8f,
                 color = Color.Black,
-                fontSize = 15.sp * titleScale,
-                lineHeight = 15.sp * titleScale,
                 fontWeight = FontWeight.Black,
-                fontFamily = promoFontFamily(explosionFont),
+                fontFamily = promoFontFamily(explosionFont)
             )
 
-            Text(
+            AutoFitPromoText(
                 text = "BOMBA",
+                modifier = Modifier.fillMaxWidth(0.72f),
+                maxFontSize = 31f * titleScale,
+                minFontSize = 12f,
                 color = Color(0xFFE30613),
-                fontSize = 31.sp * titleScale,
-                lineHeight = 31.sp * titleScale,
                 fontWeight = FontWeight.Black,
-                fontFamily = promoFontFamily(explosionFont),
+                fontFamily = promoFontFamily(explosionFont)
             )
         }
     }
@@ -1050,14 +1090,16 @@ private fun PromoDiscountBurst(
                 ),
             contentAlignment = Alignment.Center
         ) {
-            Text(
+            AutoFitPromoText(
                 text = String.format(
                     java.util.Locale.ITALY,
                     "-%.0f%%",
                     discountPercent
                 ),
+                modifier = Modifier.fillMaxWidth(0.72f),
+                maxFontSize = 22f,
+                minFontSize = 10f,
                 color = Color(0xFFE30613),
-                fontSize = 22.sp,
                 fontWeight = FontWeight.Black
             )
         }
@@ -1149,6 +1191,7 @@ fun PromoBuilderScreen(
     var footerShapeMeasuredSize by remember { mutableStateOf(IntSize.Zero) }
     var shapeControl by remember { mutableStateOf("PREZZO") }
     var shapeParameter by remember { mutableStateOf("FORMA") }
+    var wowVariant by remember { mutableStateOf(0) }
 
     var explosionFont by remember { mutableStateOf(0f) }
     var descriptionFont by remember { mutableStateOf(0f) }
@@ -2049,7 +2092,7 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                                 ),
                             contentAlignment = Alignment.Center
                         ) {
-                            Text(
+                            AutoFitPromoText(
                                 text =
                                     if (offerPrice != null) {
                                         String.format(
@@ -2062,6 +2105,9 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                                             product.publicPrice
                                         )
                                     },
+                                modifier = Modifier.fillMaxWidth(if (priceShape.toInt() == 19) 0.52f else 0.90f),
+                                maxFontSize = 22f * priceScale,
+                                minFontSize = 10f,
                                 color =
                                     if (isBlackPreset) {
                                         Color.Black
@@ -2074,13 +2120,9 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                                     } else {
                                         shiftPromoHue(Color(0xFFE30613), colorHue, colorIntensity)
                                     },
-                                fontSize = 22.sp * priceScale,
-                                lineHeight = 24.sp * priceScale,
                                 fontWeight = FontWeight.Black,
                                 fontFamily = promoFontFamily(priceFont),
-                                textAlign = TextAlign.Center,
-                                maxLines = 1,
-                                softWrap = false
+                                textAlign = TextAlign.Center
                             )
                         }
                         }
@@ -2136,7 +2178,7 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                             ),
                         contentAlignment = Alignment.Center
                     ) {
-                        Text(
+                        AutoFitPromoText(
                             text =
                                 if (isBlackPreset) {
                                     "BLACK FRIDAY  OFFERTA SPECIALE"
@@ -2149,8 +2191,10 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                                 } else {
                                     "SUPER PREZZO DA NON PERDERE!"
                                 },
+                            modifier = Modifier.fillMaxWidth(0.88f),
+                            maxFontSize = 16f,
+                            minFontSize = 7f,
                             color = shiftPromoHue(Color(0xFFFFE000), colorHue, colorIntensity),
-                            fontSize = 16.sp,
                             fontWeight = FontWeight.Black,
                             fontFamily = promoFontFamily(footerFont),
                             textAlign = TextAlign.Center
@@ -2611,6 +2655,174 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                 )
             }
         }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Button(
+                onClick = {
+                    val product = selectedProduct
+                    if (product != null) {
+                        val descriptionLength = product.description.trim().length
+                        val publicPrice = product.publicPrice.replace(",", ".").toDoubleOrNull() ?: 0.0
+
+                        globalScale = 1.0f
+                        titleScale = when {
+                            descriptionLength > 45 -> 0.95f
+                            descriptionLength < 25 -> 1.10f
+                            else -> 1.02f
+                        }
+                        imageScale = when {
+                            descriptionLength > 45 -> 0.95f
+                            descriptionLength < 25 -> 1.05f
+                            else -> 1.00f
+                        }
+                        priceScale = when {
+                            publicPrice < 10.0 -> 1.20f
+                            publicPrice < 100.0 -> 1.15f
+                            publicPrice < 1000.0 -> 1.08f
+                            else -> 0.98f
+                        }
+                        titleShapeProportion = 1.00f
+                        imageShapeProportion = 1.00f
+                        priceShapeProportion = if (publicPrice < 100.0) 1.08f else 1.00f
+                        discountShapeProportion = 1.00f
+                        footerShapeProportion = 1.00f
+                    }
+                },
+                modifier = Modifier.weight(1f)
+            ) {
+                Text("AUTO")
+            }
+
+            Button(
+                onClick = {
+                    when (wowVariant) {
+                        0 -> {
+                            titleScale = 1.05f
+                            imageScale = 0.95f
+                            priceScale = 1.22f
+                            explosionFont = 0.10f
+                            descriptionFont = 0.70f
+                            priceFont = 0.10f
+                            footerFont = 0.70f
+                            titleShape = 8f
+                            imageShape = 7f
+                            priceShape = 5f
+                            discountShape = 20f
+                            footerShape = 15f
+                            titleShapeProportion = 0.95f
+                            imageShapeProportion = 1.00f
+                            priceShapeProportion = 1.18f
+                            discountShapeProportion = 0.90f
+                            footerShapeProportion = 1.05f
+                            titleShapeRotation = -3f
+                            imageShapeRotation = 2f
+                            priceShapeRotation = -4f
+                            discountShapeRotation = 6f
+                            footerShapeRotation = -2f
+                            titleShapeShadow = 5f
+                            imageShapeShadow = 3f
+                            priceShapeShadow = 8f
+                            discountShapeShadow = 5f
+                            footerShapeShadow = 4f
+                        }
+                        1 -> {
+                            titleScale = 0.98f
+                            imageScale = 1.18f
+                            priceScale = 1.08f
+                            explosionFont = 0.70f
+                            descriptionFont = 0.70f
+                            priceFont = 0.10f
+                            footerFont = 0.70f
+                            titleShape = 23f
+                            imageShape = 34f
+                            priceShape = 38f
+                            discountShape = 27f
+                            footerShape = 32f
+                            titleShapeProportion = 1.00f
+                            imageShapeProportion = 0.90f
+                            priceShapeProportion = 1.05f
+                            discountShapeProportion = 1.00f
+                            footerShapeProportion = 1.00f
+                            titleShapeRotation = 0f
+                            imageShapeRotation = -2f
+                            priceShapeRotation = 2f
+                            discountShapeRotation = -5f
+                            footerShapeRotation = 1f
+                            titleShapeShadow = 5f
+                            imageShapeShadow = 7f
+                            priceShapeShadow = 7f
+                            discountShapeShadow = 5f
+                            footerShapeShadow = 4f
+                        }
+                        2 -> {
+                            titleScale = 1.00f
+                            imageScale = 1.00f
+                            priceScale = 1.05f
+                            explosionFont = 0.80f
+                            descriptionFont = 0.80f
+                            priceFont = 0.80f
+                            footerFont = 0.80f
+                            titleShape = 1f
+                            imageShape = 2f
+                            priceShape = 13f
+                            discountShape = 25f
+                            footerShape = 12f
+                            titleShapeProportion = 1.00f
+                            imageShapeProportion = 1.00f
+                            priceShapeProportion = 1.00f
+                            discountShapeProportion = 0.95f
+                            footerShapeProportion = 1.00f
+                            titleShapeRotation = 0f
+                            imageShapeRotation = 0f
+                            priceShapeRotation = -1f
+                            discountShapeRotation = 2f
+                            footerShapeRotation = 0f
+                            titleShapeShadow = 2f
+                            imageShapeShadow = 2f
+                            priceShapeShadow = 4f
+                            discountShapeShadow = 3f
+                            footerShapeShadow = 2f
+                        }
+                        else -> {
+                            titleScale = 1.10f
+                            imageScale = 1.02f
+                            priceScale = 1.28f
+                            explosionFont = 0.10f
+                            descriptionFont = 0.60f
+                            priceFont = 0.10f
+                            footerFont = 0.60f
+                            titleShape = 49f
+                            imageShape = 31f
+                            priceShape = 44f
+                            discountShape = 48f
+                            footerShape = 19f
+                            titleShapeProportion = 0.85f
+                            imageShapeProportion = 1.08f
+                            priceShapeProportion = 1.30f
+                            discountShapeProportion = 0.85f
+                            footerShapeProportion = 1.08f
+                            titleShapeRotation = -5f
+                            imageShapeRotation = 3f
+                            priceShapeRotation = 5f
+                            discountShapeRotation = -7f
+                            footerShapeRotation = -3f
+                            titleShapeShadow = 8f
+                            imageShapeShadow = 6f
+                            priceShapeShadow = 12f
+                            discountShapeShadow = 8f
+                            footerShapeShadow = 6f
+                        }
+                    }
+                    wowVariant = (wowVariant + 1) % 4
+                },
+                modifier = Modifier.weight(1f)
+            ) {
+                Text("WOW ${wowVariant + 1}")
+            }
+        }
+
         Spacer(Modifier.height(10.dp))
 
         Button(
