@@ -2200,32 +2200,26 @@ var colorControl by remember { mutableStateOf("TONALITA") }
             Spacer(Modifier.height(16.dp))
         }
 
-        Button(
-            onClick = onChooseArticle,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text(
-                if (selectedProduct == null) {
-                    "SCEGLI ARTICOLO"
-                } else {
-                    "CAMBIA ARTICOLO"
-                }
-            )
-        }
-
-        Spacer(Modifier.height(10.dp))
-
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             listOf("DIMENSIONI", "FONT", "COLORI", "FORME").forEach { section ->
+                val isSelected = styleSection == section
                 Button(
                     onClick = { styleSection = section },
                     modifier = Modifier.weight(1f),
-                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 8.dp)
+                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 8.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                        contentColor = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 ) {
-                    Text(text = section, fontSize = 11.sp)
+                    Text(
+                        text = section,
+                        fontSize = 11.sp,
+                        fontWeight = if (isSelected) FontWeight.Black else FontWeight.Bold
+                    )
                 }
             }
         }
@@ -2340,11 +2334,16 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                listOf("PREZZO", "SCONTO", "TITOLO", "FOTO", "FASCIA").forEach { control ->
+                listOf("TITOLO", "FOTO", "PREZZO", "SCONTO", "FASCIA").forEach { control ->
+                    val isSelected = shapeControl == control
                     Button(
                         onClick = { shapeControl = control },
                         modifier = Modifier.weight(1f),
-                        contentPadding = PaddingValues(horizontal = 2.dp, vertical = 8.dp)
+                        contentPadding = PaddingValues(horizontal = 2.dp, vertical = 8.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                            contentColor = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     ) {
                         Text(
                             text = control,
@@ -2361,10 +2360,15 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 listOf("FORMA", "BORDO", "INCLINAZIONE", "OMBRA", "PROPORZIONE").forEach { parameter ->
+                    val isSelected = shapeParameter == parameter
                     Button(
                         onClick = { shapeParameter = parameter },
                         modifier = Modifier.weight(1f),
-                        contentPadding = PaddingValues(horizontal = 1.dp, vertical = 8.dp)
+                        contentPadding = PaddingValues(horizontal = 1.dp, vertical = 8.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                            contentColor = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     ) {
                         Text(text = parameter, fontSize = 7.sp, maxLines = 1, softWrap = false)
                     }
