@@ -837,15 +837,17 @@ private fun PromoExplosionBadge(
     explosionFont: Float,
     shapeIndex: Int,
     rotation: Float,
-    shadow: Float
+    shadow: Float,
+    proportion: Float
 ) {
     Box(
-        modifier = Modifier.size(width = 250.dp, height = 88.dp)
+        modifier = Modifier.size(width = 250.dp, height = 88.dp),
+        contentAlignment = Alignment.Center
     ) {
         if (shadow > 0f && shapeIndex == 8) {
             Canvas(
                 modifier = Modifier
-                    .size(width = 250.dp, height = 88.dp)
+                    .size(width = 250.dp * proportion, height = 88.dp / proportion)
                     .offset(
                         x = (shadow / 3f).dp,
                         y = (shadow / 3f).dp
@@ -883,7 +885,7 @@ private fun PromoExplosionBadge(
         if (shadow > 0f && shapeIndex != 8) {
             Box(
                 modifier = Modifier
-                    .size(width = 250.dp, height = 88.dp)
+                    .size(width = 250.dp * proportion, height = 88.dp / proportion)
                     .offset(
                         x = (shadow / 3f).dp,
                         y = (shadow / 3f).dp
@@ -899,8 +901,8 @@ private fun PromoExplosionBadge(
     Box(
         modifier = Modifier
             .size(
-                width = 250.dp,
-                height = 88.dp
+                width = 250.dp * proportion,
+                height = 88.dp / proportion
             )
             .rotate(-3f + rotation),
         contentAlignment = Alignment.Center
@@ -1009,20 +1011,21 @@ private fun PromoDiscountBurst(
     shapeIndex: Int,
     borderWidth: Float,
     rotation: Float,
-    shadow: Float
+    shadow: Float,
+    proportion: Float
 ) {
     val discountShape = promoPriceShape(shapeIndex)
 
     Box(
         modifier = Modifier.size(
-            width = 92.dp + shadow.dp,
-            height = 70.dp + shadow.dp
+            width = (92.dp * proportion) + shadow.dp,
+            height = (70.dp / proportion) + shadow.dp
         )
     ) {
         if (shadow > 0f) {
             Box(
                 modifier = Modifier
-                    .size(width = 92.dp, height = 70.dp)
+                    .size(width = 92.dp * proportion, height = 70.dp / proportion)
                     .offset(x = shadow.dp, y = shadow.dp)
                     .rotate(rotation)
                     .background(
@@ -1034,7 +1037,7 @@ private fun PromoDiscountBurst(
 
         Box(
             modifier = Modifier
-                .size(width = 92.dp, height = 70.dp)
+                .size(width = 92.dp * proportion, height = 70.dp / proportion)
                 .rotate(rotation)
                 .background(
                     color = Color(0xFFFFE000),
@@ -1138,6 +1141,11 @@ fun PromoBuilderScreen(
     var titleShapeMeasuredSize by remember { mutableStateOf(IntSize.Zero) }
     var imageShapeShadow by remember { mutableStateOf(0f) }
     var footerShapeShadow by remember { mutableStateOf(0f) }
+    var priceShapeProportion by remember { mutableStateOf(1f) }
+    var discountShapeProportion by remember { mutableStateOf(1f) }
+    var titleShapeProportion by remember { mutableStateOf(1f) }
+    var imageShapeProportion by remember { mutableStateOf(1f) }
+    var footerShapeProportion by remember { mutableStateOf(1f) }
     var footerShapeMeasuredSize by remember { mutableStateOf(IntSize.Zero) }
     var shapeControl by remember { mutableStateOf("PREZZO") }
     var shapeParameter by remember { mutableStateOf("FORMA") }
@@ -1499,6 +1507,7 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                                         y = (titleShapeShadow / 3f).dp
                                     )
                                     .rotate(titleShapeRotation)
+                                    .graphicsLayer { scaleX = titleShapeProportion; scaleY = 1f / titleShapeProportion }
                                     .background(
                                         color = Color.White.copy(alpha = 0.70f),
                                         shape = promoPriceShape(titleShape.toInt())
@@ -1510,6 +1519,7 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                         modifier = Modifier
                             .fillMaxWidth()
                             .onGloballyPositioned { titleShapeMeasuredSize = it.size }
+                            .graphicsLayer { scaleX = titleShapeProportion; scaleY = 1f / titleShapeProportion }
                             .rotate(titleShapeRotation)
                             .background(
                                 color = shiftPromoHue(Color(0xFFFFD700), colorHue, colorIntensity),
@@ -1551,19 +1561,7 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                         }
                     }
                     }
-
-                    Spacer(Modifier.height(4.dp))
-
-                    Text(
-                        text = "OFFERTA SPECIALE  SOLO PER POCO",
-                        color = Color.White,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold,
-                        textAlign = TextAlign.Center
-                    )
-
                 } else if (isLiberoPreset) {
-
                     Box(
                         modifier = Modifier.fillMaxWidth()
                     ) {
@@ -1580,6 +1578,7 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                                         y = (titleShapeShadow / 3f).dp
                                     )
                                     .rotate(titleShapeRotation)
+                                    .graphicsLayer { scaleX = titleShapeProportion; scaleY = 1f / titleShapeProportion }
                                     .background(
                                         color = Color.Black.copy(alpha = 0.65f),
                                         shape = promoPriceShape(titleShape.toInt())
@@ -1591,6 +1590,7 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                         modifier = Modifier
                             .fillMaxWidth()
                             .onGloballyPositioned { titleShapeMeasuredSize = it.size }
+                            .graphicsLayer { scaleX = titleShapeProportion; scaleY = 1f / titleShapeProportion }
                             .rotate(titleShapeRotation)
                             .background(
                                 color = shiftPromoHue(Color(0xFFFF40C8), colorHue, colorIntensity),
@@ -1661,6 +1661,7 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                                         y = (titleShapeShadow / 3f).dp
                                     )
                                     .rotate(titleShapeRotation)
+                                    .graphicsLayer { scaleX = titleShapeProportion; scaleY = 1f / titleShapeProportion }
                                     .background(
                                         color = Color.Black.copy(alpha = 0.65f),
                                         shape = promoPriceShape(titleShape.toInt())
@@ -1672,6 +1673,7 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                         modifier = Modifier
                             .fillMaxWidth()
                             .onGloballyPositioned { titleShapeMeasuredSize = it.size }
+                            .graphicsLayer { scaleX = titleShapeProportion; scaleY = 1f / titleShapeProportion }
                             .rotate(titleShapeRotation)
                             .background(
                                 color = shiftPromoHue(Color(0xFFFFE000), colorHue, colorIntensity),
@@ -1728,6 +1730,7 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                                         y = (titleShapeShadow / 3f).dp
                                     )
                                     .rotate(titleShapeRotation)
+                                    .graphicsLayer { scaleX = titleShapeProportion; scaleY = 1f / titleShapeProportion }
                                     .background(
                                         color = Color.Black.copy(alpha = 0.65f),
                                         shape = promoPriceShape(titleShape.toInt())
@@ -1739,6 +1742,7 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                         modifier = Modifier
                             .fillMaxWidth()
                             .onGloballyPositioned { titleShapeMeasuredSize = it.size }
+                            .graphicsLayer { scaleX = titleShapeProportion; scaleY = 1f / titleShapeProportion }
                             .rotate(titleShapeRotation)
                             .background(
                                 color = shiftPromoHue(Color(0xFF00E5FF), colorHue, colorIntensity),
@@ -1791,7 +1795,7 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                     )
 
                 } else {
-                    PromoExplosionBadge(titleScale, explosionFont, titleShape.toInt(), titleShapeRotation, titleShapeShadow)
+                    PromoExplosionBadge(titleScale, explosionFont, titleShape.toInt(), titleShapeRotation, titleShapeShadow, titleShapeProportion)
                 }
 
                 Spacer(Modifier.height(10.dp))
@@ -1867,7 +1871,7 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                             if (imageShapeShadow > 0f) {
                                 Box(
                                     modifier = Modifier
-                                        .size(142.dp)
+                                        .size(width = 142.dp * imageShapeProportion, height = 142.dp / imageShapeProportion)
                                         .offset(
                                             x = (imageShapeShadow / 3f).dp,
                                             y = (imageShapeShadow / 3f).dp
@@ -1882,7 +1886,7 @@ var colorControl by remember { mutableStateOf("TONALITA") }
 
                             Box(
                                 modifier = Modifier
-                                    .size(142.dp)
+                                    .size(width = 142.dp * imageShapeProportion, height = 142.dp / imageShapeProportion)
                                     .rotate(imageShapeRotation)
                                     .background(
                                         color = Color.White,
@@ -1934,7 +1938,8 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                                         shapeIndex = discountShape.toInt(),
                                         borderWidth = discountShapeBorder,
                                         rotation = discountShapeRotation,
-                                        shadow = discountShapeShadow
+                                        shadow = discountShapeShadow,
+                                        proportion = discountShapeProportion
                                     )
                                 }
                             }
@@ -2004,6 +2009,7 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                                             y = priceShapeShadow.dp
                                         )
                                         .rotate(priceShapeRotation)
+                                        .graphicsLayer { scaleX = priceShapeProportion; scaleY = 1f / priceShapeProportion }
                                         .background(
                                             color = Color.Black.copy(alpha = 0.65f),
                                             shape = promoPriceShape(priceShape.toInt())
@@ -2015,6 +2021,7 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .onGloballyPositioned { priceShapeMeasuredSize = it.size }
+                                .graphicsLayer { scaleX = priceShapeProportion; scaleY = 1f / priceShapeProportion }
                                 .rotate(priceShapeRotation)
                                 .background(
                                     color =
@@ -2100,6 +2107,7 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                                     y = (footerShapeShadow / 3f).dp
                                 )
                                 .rotate(footerShapeRotation)
+                                .graphicsLayer { scaleX = footerShapeProportion; scaleY = 1f / footerShapeProportion }
                                 .background(
                                     color = Color.Black.copy(alpha = 0.65f),
                                     shape = promoPriceShape(footerShape.toInt())
@@ -2111,6 +2119,7 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                         modifier = Modifier
                             .fillMaxWidth()
                             .onGloballyPositioned { footerShapeMeasuredSize = it.size }
+                            .graphicsLayer { scaleX = footerShapeProportion; scaleY = 1f / footerShapeProportion }
                             .rotate(footerShapeRotation)
                             .background(
                                 color = Color.Black,
@@ -2351,13 +2360,13 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                listOf("FORMA", "BORDO", "INCLINAZIONE", "OMBRA").forEach { parameter ->
+                listOf("FORMA", "BORDO", "INCLINAZIONE", "OMBRA", "PROPORZIONE").forEach { parameter ->
                     Button(
                         onClick = { shapeParameter = parameter },
                         modifier = Modifier.weight(1f),
-                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 8.dp)
+                        contentPadding = PaddingValues(horizontal = 1.dp, vertical = 8.dp)
                     ) {
-                        Text(text = parameter, fontSize = 10.sp)
+                        Text(text = parameter, fontSize = 7.sp, maxLines = 1, softWrap = false)
                     }
                 }
             }
@@ -2392,6 +2401,14 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                 "FOTO" -> imageShapeShadow
                 "FASCIA" -> footerShapeShadow
                 else -> priceShapeShadow
+            }
+
+            val currentShapeProportion = when (shapeControl) {
+                "SCONTO" -> discountShapeProportion
+                "TITOLO" -> titleShapeProportion
+                "FOTO" -> imageShapeProportion
+                "FASCIA" -> footerShapeProportion
+                else -> priceShapeProportion
             }
 
             if (shapeParameter == "FORMA") {
@@ -2467,6 +2484,31 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                     },
                     valueRange = 0f..16f,
                     steps = 31,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            } else if (shapeParameter == "PROPORZIONE") {
+                Text("$shapeControl - PROPORZIONE: ${String.format("%.0f", currentShapeProportion * 100f)}%")
+                Slider(
+                    value = currentShapeProportion,
+                    onValueChange = { value ->
+                        when (shapeControl) {
+                            "SCONTO" -> discountShapeProportion = value
+                            "TITOLO" -> titleShapeProportion = value
+                            "FOTO" -> imageShapeProportion = value
+                            "FASCIA" -> footerShapeProportion = value
+                            else -> priceShapeProportion = value
+                        }
+                    },
+                    valueRange = when (shapeControl) {
+                        "TITOLO" -> 0.75f..1.10f
+                        "FASCIA" -> 0.80f..1.10f
+                        else -> 0.6f..1.4f
+                    },
+                    steps = when (shapeControl) {
+                        "TITOLO" -> 6
+                        "FASCIA" -> 5
+                        else -> 15
+                    },
                     modifier = Modifier.fillMaxWidth()
                 )
             }
