@@ -2785,7 +2785,7 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                             discountShapeShadow = 3f
                             footerShapeShadow = 2f
                         }
-                        else -> {
+                        3 -> {
                             titleScale = 1.10f
                             imageScale = 1.02f
                             priceScale = 1.28f
@@ -2795,9 +2795,9 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                             footerFont = 0.60f
                             titleShape = 49f
                             imageShape = 31f
-                            priceShape = 44f
+                            priceShape = 38f
                             discountShape = 48f
-                            footerShape = 19f
+                            footerShape = 32f
                             titleShapeProportion = 0.85f
                             imageShapeProportion = 1.08f
                             priceShapeProportion = 1.30f
@@ -2814,8 +2814,52 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                             discountShapeShadow = 8f
                             footerShapeShadow = 6f
                         }
+                        else -> {
+                            val v = wowVariant - 3
+
+                            titleScale = 1.10f + ((v % 5) - 2) * 0.025f
+                            imageScale = 1.02f + ((v * 3 % 7) - 3) * 0.025f
+                            priceScale = 1.28f + ((v * 5 % 7) - 3) * 0.025f
+
+                            explosionFont = ((v * 3) % 10) / 10f
+                            descriptionFont = ((6 + v * 2) % 10) / 10f
+                            priceFont = ((1 + v * 7) % 10) / 10f
+                            footerFont = ((6 + v * 5) % 10) / 10f
+
+                            val wowGeneralShapes = (0..49)
+                                .filter { it != 19 && it != 44 }
+                                .map { it.toFloat() }
+
+                            titleShape = wowGeneralShapes[(v * 11) % wowGeneralShapes.size]
+                            val wowImageShapes = listOf(
+                                0f, 1f, 2f, 7f, 8f, 10f, 11f, 12f, 23f,
+                                24f, 25f, 26f, 27f, 30f, 34f, 35f, 47f, 48f
+                            )
+                            imageShape = wowImageShapes[(v * 7) % wowImageShapes.size]
+                            priceShape = wowGeneralShapes[(v * 17 + 7) % wowGeneralShapes.size]
+                            discountShape = wowGeneralShapes[(v * 19 + 13) % wowGeneralShapes.size]
+                            footerShape = wowGeneralShapes[(v * 23 + 17) % wowGeneralShapes.size]
+
+                            titleShapeProportion = 0.85f + (v % 6) * 0.05f
+                            imageShapeProportion = 1.08f + ((v % 7) - 3) * 0.04f
+                            priceShapeProportion = 1.30f - (v % 8) * 0.05f
+                            discountShapeProportion = 0.85f + (v % 8) * 0.05f
+                            footerShapeProportion = 1.08f - (v % 6) * 0.05f
+
+                            titleShapeRotation = (-5 + (v * 3 % 11)).toFloat()
+                            imageShapeRotation = (3 - (v * 2 % 7)).toFloat()
+                            priceShapeRotation = (5 - (v * 3 % 11)).toFloat()
+                            discountShapeRotation = (-7 + (v * 5 % 15)).toFloat()
+                            footerShapeRotation = (-3 + (v * 2 % 7)).toFloat()
+
+                            titleShapeShadow = (8 - (v % 5)).toFloat()
+                            imageShapeShadow = (6 + (v % 4)).toFloat()
+                            priceShapeShadow = (12 - (v % 6)).toFloat()
+                            discountShapeShadow = (8 - (v % 5)).toFloat()
+                            footerShapeShadow = (6 + (v % 4)).toFloat()
+                        }
                     }
-                    wowVariant = (wowVariant + 1) % 4
+                    wowVariant = (wowVariant + 1) % 50
                 },
                 modifier = Modifier.weight(1f)
             ) {
