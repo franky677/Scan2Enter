@@ -15,6 +15,9 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.background
@@ -1192,6 +1195,22 @@ fun PromoBuilderScreen(
     var shapeControl by remember { mutableStateOf("PREZZO") }
     var shapeParameter by remember { mutableStateOf("FORMA") }
     var wowVariant by remember { mutableStateOf(0) }
+    var wowEditMode by remember { mutableStateOf(false) }
+    var previewZoom by remember { mutableStateOf(1f) }
+    var previewPanX by remember { mutableStateOf(0f) }
+    var previewPanY by remember { mutableStateOf(0f) }
+    var wowTitleVariant by remember { mutableStateOf(0) }
+    var wowImageVariant by remember { mutableStateOf(0) }
+var imageTouchScale by remember { mutableStateOf(1f) }
+var imageTouchRotation by remember { mutableStateOf(0f) }
+var imageTouchMode by remember { mutableStateOf(0) }
+var imageInternalScale by remember { mutableStateOf(1f) }
+var imageInternalRotation by remember { mutableStateOf(0f) }
+    var wowPriceVariant by remember { mutableStateOf(0) }
+    var wowDiscountVariant by remember { mutableStateOf(0) }
+    var discountTouchScale by remember { mutableStateOf(1f) }
+    var wowFooterVariant by remember { mutableStateOf(0) }
+    var footerTouchScale by remember { mutableStateOf(1f) }
 
     var explosionFont by remember { mutableStateOf(0f) }
     var descriptionFont by remember { mutableStateOf(0f) }
@@ -1459,6 +1478,28 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                     modifier = Modifier
                         .width(a3Width)
                         .height(a3Height)
+                        .graphicsLayer {
+                            scaleX = previewZoom
+                            scaleY = previewZoom
+                            translationX = previewPanX
+                            translationY = previewPanY
+                            transformOrigin = TransformOrigin(0f, 0f)
+                        }
+                        .pointerInput(wowEditMode) {
+                            if (wowEditMode) {
+                                detectTransformGestures { _, pan, zoom, _ ->
+                                    val newZoom = (previewZoom * zoom).coerceIn(1f, 3f)
+                                    previewZoom = newZoom
+                                    if (newZoom <= 1f) {
+                                        previewPanX = 0f
+                                        previewPanY = 0f
+                                    } else {
+                                        previewPanX += pan.x
+                                        previewPanY += pan.y
+                                    }
+                                }
+                            }
+                        }
                 ) {
                     Box(
                         modifier = Modifier
@@ -1533,6 +1574,63 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                  * Testata grafica BOMBA:
                  * esplosione gialla con bordo nero.
                  */
+                Box(
+                    modifier = Modifier.clickable(enabled = wowEditMode) {
+                        when (wowTitleVariant) {
+                            0 -> {
+                                titleScale = 1.05f
+                                explosionFont = 0.10f
+                                descriptionFont = 0.70f
+                                titleShape = 8f
+                                titleShapeProportion = 0.95f
+                                titleShapeRotation = -3f
+                                titleShapeShadow = 5f
+                            }
+                            1 -> {
+                                titleScale = 0.98f
+                                explosionFont = 0.70f
+                                descriptionFont = 0.70f
+                                titleShape = 23f
+                                titleShapeProportion = 1.00f
+                                titleShapeRotation = 0f
+                                titleShapeShadow = 5f
+                            }
+                            2 -> {
+                                titleScale = 1.00f
+                                explosionFont = 0.80f
+                                descriptionFont = 0.80f
+                                titleShape = 1f
+                                titleShapeProportion = 1.00f
+                                titleShapeRotation = 0f
+                                titleShapeShadow = 2f
+                            }
+                            3 -> {
+                                titleScale = 1.10f
+                                explosionFont = 0.10f
+                                descriptionFont = 0.60f
+                                titleShape = 49f
+                                titleShapeProportion = 0.85f
+                                titleShapeRotation = -5f
+                                titleShapeShadow = 8f
+                            }
+                            else -> {
+                                val v = wowTitleVariant - 3
+                                val wowGeneralShapes = (0..49)
+                                    .filter { it != 19 && it != 44 }
+                                    .map { it.toFloat() }
+
+                                titleScale = 1.10f + ((v % 5) - 2) * 0.025f
+                                explosionFont = ((v * 3) % 10) / 10f
+                                descriptionFont = ((6 + v * 2) % 10) / 10f
+                                titleShape = wowGeneralShapes[(v * 11) % wowGeneralShapes.size]
+                                titleShapeProportion = 0.85f + (v % 6) * 0.05f
+                                titleShapeRotation = (-5 + (v * 3 % 11)).toFloat()
+                                titleShapeShadow = (8 - (v % 5)).toFloat()
+                            }
+                        }
+                        wowTitleVariant = (wowTitleVariant + 1) % 50
+                    }
+                ) {
                 if (isBlackPreset) {
                     Box(
                         modifier = Modifier.fillMaxWidth()
@@ -1841,6 +1939,7 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                     PromoExplosionBadge(titleScale, explosionFont, titleShape.toInt(), titleShapeRotation, titleShapeShadow, titleShapeProportion)
                 }
 
+                }
                 Spacer(Modifier.height(10.dp))
 
                 Text(
@@ -1911,6 +2010,85 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                                 height = 158.dp
                             )
                         ) {
+                        Box(
+                            modifier = Modifier
+                                .size(
+                                    width = 142.dp,
+                                    height = 158.dp,
+                                )
+                                .combinedClickable(
+                                    enabled = wowEditMode,
+                                    onLongClick = {
+                                        imageTouchMode = (imageTouchMode + 1) % 3
+                                    },
+                                    onClick = {
+                                    when (wowImageVariant) {
+                                        0 -> {
+                                            imageScale = 0.95f
+                                            imageShape = 7f
+                                            imageShapeProportion = 1.00f
+                                            imageShapeRotation = 2f
+                                            imageShapeShadow = 3f
+                                        }
+                                        1 -> {
+                                            imageScale = 1.18f
+                                            imageShape = 34f
+                                            imageShapeProportion = 0.90f
+                                            imageShapeRotation = -2f
+                                            imageShapeShadow = 7f
+                                        }
+                                        2 -> {
+                                            imageScale = 1.00f
+                                            imageShape = 2f
+                                            imageShapeProportion = 1.00f
+                                            imageShapeRotation = 0f
+                                            imageShapeShadow = 2f
+                                        }
+                                        3 -> {
+                                            imageScale = 1.02f
+                                            imageShape = 31f
+                                            imageShapeProportion = 1.08f
+                                            imageShapeRotation = 3f
+                                            imageShapeShadow = 6f
+                                        }
+                                        else -> {
+                                            val v = wowImageVariant - 3
+                                            val wowImageShapes = listOf(
+                                                0f, 1f, 2f, 7f, 8f, 10f, 11f, 12f, 23f,
+                                                24f, 25f, 26f, 27f, 30f, 34f, 35f, 47f, 48f
+                                            )
+                                            imageScale = 1.02f + ((v * 3 % 7) - 3) * 0.025f
+                                            imageShape = wowImageShapes[(v * 7) % wowImageShapes.size]
+                                            imageShapeProportion = 1.08f + ((v % 7) - 3) * 0.04f
+                                            imageShapeRotation = (3 - (v * 2 % 7)).toFloat()
+                                            imageShapeShadow = (6 + (v % 4)).toFloat()
+                                        }
+                                    }
+                                    wowImageVariant = (wowImageVariant + 1) % 50
+                                }
+                                )
+                                .pointerInput(wowEditMode) {
+                                    if (wowEditMode) {
+                                        detectTransformGestures { _, _, zoom, rotation ->
+                                            if (imageTouchMode == 2) {
+                                                imageInternalScale = (imageInternalScale * zoom).coerceIn(0.6f, 2.5f)
+                                                imageInternalRotation += rotation
+                                            } else if (imageTouchMode == 1) {
+                                                imageShapeProportion = (imageShapeProportion * zoom).coerceIn(0.6f, 1.4f)
+                                                imageShapeRotation += rotation
+                                            } else {
+                                                imageTouchScale = (imageTouchScale * zoom).coerceIn(0.6f, 1.6f)
+                                                imageTouchRotation += rotation
+                                            }
+                                        }
+                                    }
+                                }
+                                .graphicsLayer {
+                                    scaleX = imageTouchScale
+                                    scaleY = imageTouchScale
+                                    rotationZ = imageTouchRotation
+                                }
+                        ) {
                             if (imageShapeShadow > 0f) {
                                 Box(
                                     modifier = Modifier
@@ -1947,8 +2125,9 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                                     modifier = Modifier
                                         .fillMaxSize()
                                         .graphicsLayer {
-                                            scaleX = 1.15f * imageScale
-                                            scaleY = 1.15f * imageScale
+                                            scaleX = 1.15f * imageScale * imageInternalScale
+                                            scaleY = 1.15f * imageScale * imageInternalScale
+                                            rotationZ = imageInternalRotation
                                         },
                                     factory = { imageContext ->
                                         ImageView(imageContext).apply {
@@ -1964,6 +2143,7 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                                 )
                             }
 
+                            }
                             if (
                                 effectiveDiscount != null &&
                                 effectiveDiscount > 0.0
@@ -1975,6 +2155,27 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                                             x = 26.dp,
                                             y = 18.dp
                                         )
+                                        .graphicsLayer {
+                                            scaleX = discountTouchScale
+                                            scaleY = discountTouchScale
+                                        }
+                                        .clickable(enabled = wowEditMode) {
+                                            val wowShapes = (0..49)
+                                                .filter { it != 19 && it != 44 }
+                                            discountShape = wowShapes[(wowDiscountVariant * 13 + 11) % wowShapes.size].toFloat()
+                                            discountShapeProportion = 0.85f + (wowDiscountVariant % 7) * 0.05f
+                                            discountShapeRotation = ((wowDiscountVariant * 5 % 15) - 7).toFloat()
+                                            discountShapeShadow = (3 + (wowDiscountVariant % 6)).toFloat()
+                                            wowDiscountVariant = (wowDiscountVariant + 1) % 50
+                                        }
+                                        .pointerInput(wowEditMode) {
+                                            if (wowEditMode) {
+                                                detectTransformGestures { _, _, zoom, rotation ->
+                                                    discountTouchScale = (discountTouchScale * zoom).coerceIn(0.60f, 2.50f)
+                                                    discountShapeRotation += rotation
+                                                }
+                                            }
+                                        }
                                 ) {
                                     PromoDiscountBurst(
                                         discountPercent = effectiveDiscount,
@@ -2063,6 +2264,64 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
+                                .clickable(enabled = wowEditMode) {
+                                    when (wowPriceVariant) {
+                                        0 -> {
+                                            priceScale = 1.22f
+                                            priceFont = 0.10f
+                                            priceShape = 5f
+                                            priceShapeProportion = 1.18f
+                                            priceShapeRotation = -4f
+                                            priceShapeShadow = 8f
+                                        }
+                                        1 -> {
+                                            priceScale = 1.08f
+                                            priceFont = 0.10f
+                                            priceShape = 38f
+                                            priceShapeProportion = 1.05f
+                                            priceShapeRotation = 2f
+                                            priceShapeShadow = 7f
+                                        }
+                                        2 -> {
+                                            priceScale = 1.05f
+                                            priceFont = 0.80f
+                                            priceShape = 13f
+                                            priceShapeProportion = 1.00f
+                                            priceShapeRotation = -1f
+                                            priceShapeShadow = 4f
+                                        }
+                                        3 -> {
+                                            priceScale = 1.28f
+                                            priceFont = 0.10f
+                                            priceShape = 38f
+                                            priceShapeProportion = 1.30f
+                                            priceShapeRotation = 5f
+                                            priceShapeShadow = 12f
+                                        }
+                                        else -> {
+                                            val v = wowPriceVariant - 3
+                                            val wowGeneralShapes = (0..49)
+                                                .filter { it != 19 && it != 44 }
+                                                .map { it.toFloat() }
+
+                                            priceScale = 1.28f + ((v * 5 % 7) - 3) * 0.025f
+                                            priceFont = ((1 + v * 7) % 10) / 10f
+                                            priceShape = wowGeneralShapes[(v * 17 + 7) % wowGeneralShapes.size]
+                                            priceShapeProportion = 1.30f - (v % 8) * 0.05f
+                                            priceShapeRotation = (5 - (v * 3 % 11)).toFloat()
+                                            priceShapeShadow = (12 - (v % 6)).toFloat()
+                                        }
+                                    }
+                                    wowPriceVariant = (wowPriceVariant + 1) % 50
+                                }
+                                .pointerInput(wowEditMode) {
+                                    if (wowEditMode) {
+                                        detectTransformGestures { _, _, zoom, rotation ->
+                                            priceScale = (priceScale * zoom).coerceIn(0.60f, 2.50f)
+                                            priceShapeRotation += rotation
+                                        }
+                                    }
+                                }
                                 .onGloballyPositioned { priceShapeMeasuredSize = it.size }
                                 .graphicsLayer { scaleX = priceShapeProportion; scaleY = 1f / priceShapeProportion }
                                 .rotate(priceShapeRotation)
@@ -2161,6 +2420,27 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                         modifier = Modifier
                             .fillMaxWidth()
                             .onGloballyPositioned { footerShapeMeasuredSize = it.size }
+                            .graphicsLayer {
+                                scaleX = footerTouchScale
+                                scaleY = footerTouchScale
+                            }
+                            .clickable(enabled = wowEditMode) {
+                                val wowShapes = (0..49)
+                                    .filter { it != 19 && it != 44 }
+                                footerShape = wowShapes[(wowFooterVariant * 23 + 17) % wowShapes.size].toFloat()
+                                footerShapeProportion = 0.85f + (wowFooterVariant % 6) * 0.05f
+                                footerShapeRotation = ((wowFooterVariant * 2 % 13) - 6).toFloat()
+                                footerShapeShadow = (2 + (wowFooterVariant % 7)).toFloat()
+                                wowFooterVariant = (wowFooterVariant + 1) % 50
+                            }
+                            .pointerInput(wowEditMode) {
+                                if (wowEditMode) {
+                                    detectTransformGestures { _, _, zoom, rotation ->
+                                        footerTouchScale = (footerTouchScale * zoom).coerceIn(0.60f, 2.50f)
+                                        footerShapeRotation += rotation
+                                    }
+                                }
+                            }
                             .graphicsLayer { scaleX = footerShapeProportion; scaleY = 1f / footerShapeProportion }
                             .rotate(footerShapeRotation)
                             .background(
@@ -2227,6 +2507,51 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                 }
             }
 
+            if (wowEditMode) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Color.Black.copy(alpha = 0.82f))
+                        .padding(horizontal = 6.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Button(
+                        onClick = { previewZoom = (previewZoom - 0.25f).coerceAtLeast(1f) },
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp)
+                    ) {
+                        Text("", fontWeight = FontWeight.Black)
+                    }
+
+                    Text(
+                        text = "${(previewZoom * 100).toInt()}%",
+                        color = Color.White,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+
+                    Button(
+                        onClick = { previewZoom = (previewZoom + 0.25f).coerceAtMost(3f) },
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp)
+                    ) {
+                        Text("+", fontWeight = FontWeight.Black)
+                    }
+
+                    Text(
+                        text = "WOW  FOTO  " + when (imageTouchMode) {
+                            1 -> "FORMA"
+                            2 -> "FOTO"
+                            else -> "INSIEME"
+                        },
+                        modifier = Modifier.weight(1f),
+                        color = Color.White,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        textAlign = TextAlign.Center
+                    )
+                }
+                Spacer(Modifier.height(6.dp))
+            }
             Spacer(Modifier.height(16.dp))
         }
 
@@ -2276,9 +2601,14 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 listOf("GENERALE", "TITOLI", "IMMAGINE", "PREZZO").forEach { control ->
+                    val isSelected = dimensionControl == control
                     Button(
                         onClick = { dimensionControl = control },
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                            contentColor = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     ) {
                         Text(
                             text = if (control == "IMMAGINE") "FOTO" else control,
@@ -2567,9 +2897,14 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 listOf("TITOLI", "DESCR.", "PREZZO", "SOTTO").forEach { control ->
+                    val isSelected = fontControl == control
                     Button(
                         onClick = { fontControl = control },
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                            contentColor = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     ) {
                         Text(
                             text = control,
@@ -2623,9 +2958,14 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 listOf("TONALITA", "INTENSITA").forEach { control ->
+                    val isSelected = colorControl == control
                     Button(
                         onClick = { colorControl = control },
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                            contentColor = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     ) {
                         Text(
                             text = if (control == "TONALITA") "TONO" else "INTENS.",
@@ -2697,6 +3037,8 @@ var colorControl by remember { mutableStateOf("TONALITA") }
 
             Button(
                 onClick = {
+                    wowEditMode = !wowEditMode
+                    if (false) {
                     when (wowVariant) {
                         0 -> {
                             titleScale = 1.05f
@@ -2860,10 +3202,11 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                         }
                     }
                     wowVariant = (wowVariant + 1) % 50
+                    }
                 },
                 modifier = Modifier.weight(1f)
             ) {
-                Text("WOW ${wowVariant + 1}")
+                Text(if (wowEditMode) "WOW ATTIVO" else "WOW")
             }
         }
 
