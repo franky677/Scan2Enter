@@ -494,7 +494,7 @@ fun PromotionsScreen(
 
                     items(
                         items = items,
-                        key = { "article-${it.articleId}" }
+                        key = { "promo-${it.primaryHash}-${it.articleId}-${it.updatedAt}" }
                     ) { promo ->
                         PromotionCard(
                             promo = promo,
