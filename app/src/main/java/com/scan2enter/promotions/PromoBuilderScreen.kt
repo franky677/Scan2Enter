@@ -1164,6 +1164,8 @@ fun PromoBuilderScreen(
     var titleScale by remember { mutableStateOf(1.0f) }
     var imageScale by remember { mutableStateOf(1.0f) }
     var priceScale by remember { mutableStateOf(1.0f) }
+    var discountScale by remember { mutableStateOf(1.0f) }
+    var footerScale by remember { mutableStateOf(1.0f) }
     var priceShape by remember { mutableStateOf(0f) }
     var discountShape by remember { mutableStateOf(8f) }
     var titleShape by remember { mutableStateOf(0f) }
@@ -1575,7 +1577,11 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                  * esplosione gialla con bordo nero.
                  */
                 Box(
-                    modifier = Modifier.clickable(enabled = wowEditMode) {
+                    modifier = Modifier.clickable {
+                        shapeControl = "TITOLO"
+                        dimensionControl = "TITOLI"
+                        styleSection = "DIMENSIONI"
+                        if (wowEditMode) {
                         when (wowTitleVariant) {
                             0 -> {
                                 titleScale = 1.05f
@@ -1629,6 +1635,7 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                             }
                         }
                         wowTitleVariant = (wowTitleVariant + 1) % 50
+                        }
                     }
                 ) {
                 if (isBlackPreset) {
@@ -2017,11 +2024,14 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                                     height = 158.dp,
                                 )
                                 .combinedClickable(
-                                    enabled = wowEditMode,
                                     onLongClick = {
-                                        imageTouchMode = (imageTouchMode + 1) % 3
+                                        if (wowEditMode) imageTouchMode = (imageTouchMode + 1) % 3
                                     },
                                     onClick = {
+                                        shapeControl = "FOTO"
+                                        dimensionControl = "IMMAGINE"
+                                        styleSection = "DIMENSIONI"
+                                        if (wowEditMode) {
                                     when (wowImageVariant) {
                                         0 -> {
                                             imageScale = 0.95f
@@ -2065,6 +2075,7 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                                         }
                                     }
                                     wowImageVariant = (wowImageVariant + 1) % 50
+                                        }
                                 }
                                 )
                                 .pointerInput(wowEditMode) {
@@ -2156,10 +2167,14 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                                             y = 18.dp
                                         )
                                         .graphicsLayer {
-                                            scaleX = discountTouchScale
-                                            scaleY = discountTouchScale
+                                            scaleX = discountTouchScale * discountScale
+                                            scaleY = discountTouchScale * discountScale
                                         }
-                                        .clickable(enabled = wowEditMode) {
+                                        .clickable {
+                                            shapeControl = "SCONTO"
+                                            dimensionControl = "SCONTO"
+                                            styleSection = "DIMENSIONI"
+                                            if (wowEditMode) {
                                             val wowShapes = (0..49)
                                                 .filter { it != 19 && it != 44 }
                                             discountShape = wowShapes[(wowDiscountVariant * 13 + 11) % wowShapes.size].toFloat()
@@ -2167,6 +2182,7 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                                             discountShapeRotation = ((wowDiscountVariant * 5 % 15) - 7).toFloat()
                                             discountShapeShadow = (3 + (wowDiscountVariant % 6)).toFloat()
                                             wowDiscountVariant = (wowDiscountVariant + 1) % 50
+                                            }
                                         }
                                         .pointerInput(wowEditMode) {
                                             if (wowEditMode) {
@@ -2264,7 +2280,11 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clickable(enabled = wowEditMode) {
+                                .clickable {
+                                    shapeControl = "PREZZO"
+                                    dimensionControl = "PREZZO"
+                                    styleSection = "DIMENSIONI"
+                                    if (wowEditMode) {
                                     when (wowPriceVariant) {
                                         0 -> {
                                             priceScale = 1.22f
@@ -2313,6 +2333,7 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                                         }
                                     }
                                     wowPriceVariant = (wowPriceVariant + 1) % 50
+                                    }
                                 }
                                 .pointerInput(wowEditMode) {
                                     if (wowEditMode) {
@@ -2421,10 +2442,14 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                             .fillMaxWidth()
                             .onGloballyPositioned { footerShapeMeasuredSize = it.size }
                             .graphicsLayer {
-                                scaleX = footerTouchScale
-                                scaleY = footerTouchScale
+                                scaleX = footerTouchScale * footerScale
+                                scaleY = footerTouchScale * footerScale
                             }
-                            .clickable(enabled = wowEditMode) {
+                            .clickable {
+                                shapeControl = "FASCIA"
+                                dimensionControl = "FASCIA"
+                                styleSection = "DIMENSIONI"
+                                if (wowEditMode) {
                                 val wowShapes = (0..49)
                                     .filter { it != 19 && it != 44 }
                                 footerShape = wowShapes[(wowFooterVariant * 23 + 17) % wowShapes.size].toFloat()
@@ -2432,6 +2457,7 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                                 footerShapeRotation = ((wowFooterVariant * 2 % 13) - 6).toFloat()
                                 footerShapeShadow = (2 + (wowFooterVariant % 7)).toFloat()
                                 wowFooterVariant = (wowFooterVariant + 1) % 50
+                                }
                             }
                             .pointerInput(wowEditMode) {
                                 if (wowEditMode) {
@@ -2596,33 +2622,41 @@ var colorControl by remember { mutableStateOf("TONALITA") }
         Spacer(Modifier.height(6.dp))
 
         if (styleSection == "DIMENSIONI") {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                listOf("GENERALE", "TITOLI", "IMMAGINE", "PREZZO").forEach { control ->
-                    val isSelected = dimensionControl == control
-                    Button(
-                        onClick = { dimensionControl = control },
-                        modifier = Modifier.weight(1f),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
-                            contentColor = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    ) {
-                        Text(
-                            text = if (control == "IMMAGINE") "FOTO" else control,
-                            fontSize = 9.sp
-                        )
+            listOf(
+                listOf("GENERALE", "TITOLI", "IMMAGINE"),
+                listOf("PREZZO", "SCONTO", "FASCIA")
+            ).forEach { rowControls ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    rowControls.forEach { control ->
+                        val isSelected = dimensionControl == control
+                        Button(
+                            onClick = { dimensionControl = control },
+                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                                contentColor = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        ) {
+                            Text(
+                                text = if (control == "IMMAGINE") "FOTO" else control,
+                                fontSize = 9.sp
+                            )
+                        }
                     }
                 }
+                Spacer(Modifier.height(4.dp))
             }
 
             val dimensionValue = when (dimensionControl) {
                 "GENERALE" -> globalScale
                 "TITOLI" -> titleScale
                 "IMMAGINE" -> imageScale
-                else -> priceScale
+                "PREZZO" -> priceScale
+                "SCONTO" -> discountScale
+                else -> footerScale
             }
 
             Text("$dimensionControl: ${(dimensionValue * 100).toInt()}%")
@@ -2638,6 +2672,8 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                         "TITOLI" -> titleScale = value
                         "IMMAGINE" -> imageScale = value
                         "PREZZO" -> priceScale = value
+                        "SCONTO" -> discountScale = value
+                        "FASCIA" -> footerScale = value
                     }
                 },
                 valueRange = if (dimensionControl == "GENERALE") {
@@ -2703,31 +2739,6 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                 "BOOM",
                 "MEGAFONO"
             )
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                listOf("TITOLO", "FOTO", "PREZZO", "SCONTO", "FASCIA").forEach { control ->
-                    val isSelected = shapeControl == control
-                    Button(
-                        onClick = { shapeControl = control },
-                        modifier = Modifier.weight(1f),
-                        contentPadding = PaddingValues(horizontal = 2.dp, vertical = 8.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
-                            contentColor = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    ) {
-                        Text(
-                            text = control,
-                            fontSize = 8.sp,
-                            maxLines = 1,
-                            softWrap = false
-                        )
-                    }
-                }
-            }
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
