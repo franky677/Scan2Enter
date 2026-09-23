@@ -57,6 +57,7 @@ import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.graphicsLayer
@@ -2115,7 +2116,6 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                                         )
                                 )
                             }
-
                             Box(
                                 modifier = Modifier
                                     .size(width = 142.dp * imageShapeProportion, height = 142.dp / imageShapeProportion)
@@ -2124,35 +2124,45 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                                         color = Color.White,
                                         shape = promoPriceShape(imageShape.toInt())
                                     )
+                            )
+
+                            Box(
+                                modifier = Modifier
+                                    .size(width = 142.dp * imageShapeProportion, height = 142.dp / imageShapeProportion)
+                                    .zIndex(2f)
+                                    .rotate(imageShapeRotation)
+                                    .background(
+                                        color = Color.Transparent,
+                                        shape = promoPriceShape(imageShape.toInt())
+                                    )
                                     .border(
                                         width = imageShapeBorder.dp,
                                         color = Color.Black,
                                         shape = promoPriceShape(imageShape.toInt())
                                     )
-                                    .padding(2.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                AndroidView(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .graphicsLayer {
-                                            scaleX = 1.15f * imageScale * imageInternalScale
-                                            scaleY = 1.15f * imageScale * imageInternalScale
-                                            rotationZ = imageInternalRotation
-                                        },
-                                    factory = { imageContext ->
-                                        ImageView(imageContext).apply {
-                                            scaleType =
-                                                ImageView.ScaleType.CENTER_INSIDE
-                                        }
+                                    .padding(2.dp)
+                            )
+
+                            AndroidView(
+                                modifier = Modifier
+                                    .size(142.dp)
+                                    .align(Alignment.Center)
+                                    .graphicsLayer {
+                                        scaleX = 1.15f * imageScale * imageInternalScale
+                                        scaleY = 1.15f * imageScale * imageInternalScale
+                                        rotationZ = imageInternalRotation
                                     },
-                                    update = { imageView ->
-                                        imageView.load(imageUrl) {
-                                            crossfade(true)
-                                        }
+                                factory = { imageContext ->
+                                    ImageView(imageContext).apply {
+                                        scaleType = ImageView.ScaleType.CENTER_INSIDE
                                     }
-                                )
-                            }
+                                },
+                                update = { imageView ->
+                                    imageView.load(imageUrl) {
+                                        crossfade(true)
+                                    }
+                                }
+                            )
 
                             }
                             if (
