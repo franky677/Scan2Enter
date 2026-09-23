@@ -2564,10 +2564,14 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                     }
 
                     Text(
-                        text = "WOW  FOTO  " + when (imageTouchMode) {
-                            1 -> "FORMA"
-                            2 -> "FOTO"
-                            else -> "INSIEME"
+                        text = if (shapeControl == "FOTO") {
+                            "WOW  FOTO  [" + when (imageTouchMode) {
+                                1 -> "FORMA"
+                                2 -> "FOTO"
+                                else -> "INSIEME"
+                            } + "]"
+                        } else {
+                            "WOW  $shapeControl"
                         },
                         modifier = Modifier.weight(1f),
                         color = Color.White,
