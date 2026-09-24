@@ -43,6 +43,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -820,6 +821,15 @@ private fun shiftPromoHue(color: Color, slider: Float, intensity: Float): Color 
     )
 }
 
+private fun promoContrastColor(background: Color): Color {
+    val luminance =
+        0.2126f * background.red +
+        0.7152f * background.green +
+        0.0722f * background.blue
+
+    return if (luminance > 0.55f) Color.Black else Color.White
+}
+
 private fun promoFontFamily(value: Float): FontFamily {
     return when {
         value < 0.10f -> FontFamily.SansSerif
@@ -1192,6 +1202,7 @@ fun PromoBuilderScreen(
         mutableStateOf("BOMBA")
     }
 
+
     // Regolazioni globali Promo Builder - valide per tutti i preset
     var showStylePanel by remember { mutableStateOf(false) }
     var colorHue by remember { mutableStateOf(0.40f) }
@@ -1267,6 +1278,7 @@ var priceInternalRotation by remember { mutableStateOf(0f) }
     var discountInternalScale by remember { mutableStateOf(1f) }
     var discountInternalRotation by remember { mutableStateOf(0f) }
     var wowFooterVariant by remember { mutableStateOf(0) }
+    var showPromoExpiry by remember { mutableStateOf(true) }
     var footerTouchScale by remember { mutableStateOf(1f) }
 
     var explosionFont by remember { mutableStateOf(0f) }
@@ -1465,6 +1477,26 @@ var colorControl by remember { mutableStateOf("TONALITA") }
             }
 
             Spacer(Modifier.height(12.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = "MOSTRA SCADENZA NEL REPORT",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.Black
+                )
+                Switch(
+                    checked = showPromoExpiry,
+                    onCheckedChange = { showPromoExpiry = it }
+                )
+            }
+
+            Spacer(Modifier.height(12.dp))
+
             if (selectedPreset == "LIBERO") {
                 Column(
                     modifier = Modifier.fillMaxWidth(),
@@ -2102,6 +2134,21 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                 }
 
                 }
+                val reportBackgroundColor =
+                    if (isBlackPreset) {
+                        Color.Black
+                    } else if (isLiberoPreset) {
+                        shiftPromoHue(Color(0xFF6A1B9A), colorHue, colorIntensity)
+                    } else if (isRisparmioPreset) {
+                        shiftPromoHue(Color(0xFF1B5E20), colorHue, colorIntensity)
+                    } else if (isNovitaPreset) {
+                        shiftPromoHue(Color(0xFF0D47A1), colorHue, colorIntensity)
+                    } else {
+                        shiftPromoHue(Color(0xFFE30613), colorHue, colorIntensity)
+                    }
+
+                val reportContrastColor = promoContrastColor(reportBackgroundColor)
+
                 Spacer(Modifier.height(10.dp))
 
                 Text(
@@ -2112,12 +2159,7 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                     lineHeight = 21.sp,
                     fontWeight = FontWeight.Black,
                     fontFamily = promoFontFamily(descriptionFont),
-                    color =
-                        if (isBlackPreset) {
-                            shiftPromoHue(Color(0xFFFFD700), colorHue, colorIntensity)
-                        } else {
-                            Color.White
-                        }
+                    color = reportContrastColor
                 )
 
                 Spacer(Modifier.height(10.dp))
@@ -2439,7 +2481,7 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                                     "%.2f €",
                                     originalPrice
                                 ),
-                                color = Color.White,
+                                color = reportContrastColor,
                                 fontSize = 16.sp * priceScale,
                                 fontWeight = FontWeight.Bold,
                                 fontFamily = promoFontFamily(priceFont),
@@ -2733,6 +2775,32 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                             textAlign = TextAlign.Center
                         )
                     }
+                }
+
+                val promoValidTo = selectedPromo?.validTo
+                    ?.trim()
+                    ?.takeIf { it.isNotBlank() }
+
+                if (showPromoExpiry && promoValidTo != null) {
+                    val promoExpiryText =
+                        promoValidTo.take(10).split("-").let { parts ->
+                            if (parts.size == 3) {
+                                "${parts[2]}/${parts[1]}/${parts[0]}"
+                            } else {
+                                promoValidTo.take(10)
+                            }
+                        }
+
+
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        text = "VALIDO FINO AL $promoExpiryText",
+                        modifier = Modifier.fillMaxWidth(),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Black,
+                        color = reportContrastColor,
+                        textAlign = TextAlign.Center
+                    )
                 }
 
             }
@@ -3867,6 +3935,8 @@ body {
 </html>
 """.trimIndent()
 }
+
+
 
 
 
