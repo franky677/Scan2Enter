@@ -1207,8 +1207,14 @@ fun PromoBuilderScreen(
 var imageTouchScale by remember { mutableStateOf(1f) }
 var imageTouchRotation by remember { mutableStateOf(0f) }
 var imageTouchMode by remember { mutableStateOf(0) }
+var imageShapeTouchScale by remember { mutableStateOf(1f) }
 var imageInternalScale by remember { mutableStateOf(1f) }
 var imageInternalRotation by remember { mutableStateOf(0f) }
+var priceTouchScale by remember { mutableStateOf(1f) }
+var priceTouchRotation by remember { mutableStateOf(0f) }
+var priceTouchMode by remember { mutableStateOf(0) }
+var priceInternalScale by remember { mutableStateOf(1f) }
+var priceInternalRotation by remember { mutableStateOf(0f) }
     var wowPriceVariant by remember { mutableStateOf(0) }
     var wowDiscountVariant by remember { mutableStateOf(0) }
     var discountTouchScale by remember { mutableStateOf(1f) }
@@ -2083,10 +2089,10 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                                     if (wowEditMode) {
                                         detectTransformGestures { _, _, zoom, rotation ->
                                             if (imageTouchMode == 2) {
-                                                imageInternalScale = (imageInternalScale * zoom).coerceIn(0.6f, 2.5f)
+                                                imageInternalScale = (imageInternalScale * zoom).coerceIn(0.6f, 1.30f)
                                                 imageInternalRotation += rotation
                                             } else if (imageTouchMode == 1) {
-                                                imageShapeProportion = (imageShapeProportion * zoom).coerceIn(0.6f, 1.4f)
+                                                imageShapeTouchScale = (imageShapeTouchScale * zoom).coerceIn(0.6f, 1.30f)
                                                 imageShapeRotation += rotation
                                             } else {
                                                 imageTouchScale = (imageTouchScale * zoom).coerceIn(0.6f, 1.6f)
@@ -2105,6 +2111,11 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                                 Box(
                                     modifier = Modifier
                                         .size(width = 142.dp * imageShapeProportion, height = 142.dp / imageShapeProportion)
+                                        .align(Alignment.Center)
+                                        .graphicsLayer {
+                                            scaleX = imageShapeTouchScale
+                                            scaleY = imageShapeTouchScale
+                                        }
                                         .offset(
                                             x = (imageShapeShadow / 3f).dp,
                                             y = (imageShapeShadow / 3f).dp
@@ -2119,6 +2130,11 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                             Box(
                                 modifier = Modifier
                                     .size(width = 142.dp * imageShapeProportion, height = 142.dp / imageShapeProportion)
+                                    .align(Alignment.Center)
+                                    .graphicsLayer {
+                                        scaleX = imageShapeTouchScale
+                                        scaleY = imageShapeTouchScale
+                                    }
                                     .rotate(imageShapeRotation)
                                     .background(
                                         color = Color.White,
@@ -2129,6 +2145,11 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                             Box(
                                 modifier = Modifier
                                     .size(width = 142.dp * imageShapeProportion, height = 142.dp / imageShapeProportion)
+                                    .align(Alignment.Center)
+                                    .graphicsLayer {
+                                        scaleX = imageShapeTouchScale
+                                        scaleY = imageShapeTouchScale
+                                    }
                                     .zIndex(2f)
                                     .rotate(imageShapeRotation)
                                     .background(
@@ -2264,7 +2285,13 @@ var colorControl by remember { mutableStateOf("TONALITA") }
 
 
                         Box(
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .graphicsLayer {
+                                    scaleX = priceTouchScale
+                                    scaleY = priceTouchScale
+                                    rotationZ = priceTouchRotation
+                                }
                         ) {
                             if (priceShapeShadow > 0f && priceShapeMeasuredSize != IntSize.Zero) {
                                 val density = LocalDensity.current
@@ -2290,7 +2317,11 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clickable {
+                                .combinedClickable(
+                                    onLongClick = {
+                                        if (wowEditMode) priceTouchMode = (priceTouchMode + 1) % 3
+                                    },
+                                    onClick = {
                                     shapeControl = "PREZZO"
                                     dimensionControl = "PREZZO"
                                     styleSection = "DIMENSIONI"
@@ -2345,43 +2376,55 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                                     wowPriceVariant = (wowPriceVariant + 1) % 50
                                     }
                                 }
+                                )
                                 .pointerInput(wowEditMode) {
                                     if (wowEditMode) {
                                         detectTransformGestures { _, _, zoom, rotation ->
-                                            priceScale = (priceScale * zoom).coerceIn(0.60f, 2.50f)
-                                            priceShapeRotation += rotation
+                                            if (priceTouchMode == 2) {
+                                                priceInternalScale = (priceInternalScale * zoom).coerceIn(0.60f, 2.50f)
+                                                priceInternalRotation += rotation
+                                            } else if (priceTouchMode == 1) {
+                                                priceShapeProportion = (priceShapeProportion * zoom).coerceIn(0.60f, 1.40f)
+                                                priceShapeRotation += rotation
+                                            } else {
+                                                priceTouchScale = (priceTouchScale * zoom).coerceIn(0.60f, 1.60f)
+                                                priceTouchRotation += rotation
+                                            }
                                         }
                                     }
                                 }
-                                .onGloballyPositioned { priceShapeMeasuredSize = it.size }
-                                .graphicsLayer { scaleX = priceShapeProportion; scaleY = 1f / priceShapeProportion }
-                                .rotate(priceShapeRotation)
-                                .background(
-                                    color =
-                                        if (isBlackPreset) {
-                                            shiftPromoHue(Color(0xFFFFD700), colorHue, colorIntensity)
-                                        } else if (isLiberoPreset) {
-                                            shiftPromoHue(Color(0xFFFF40C8), colorHue, colorIntensity)
-                                        } else if (isRisparmioPreset) {
-                                            shiftPromoHue(Color(0xFFFFE000), colorHue, colorIntensity)
-                                        } else if (isNovitaPreset) {
-                                            shiftPromoHue(Color(0xFF00E5FF), colorHue, colorIntensity)
-                                        } else {
-                                            shiftPromoHue(Color(0xFFFFE000), colorHue, colorIntensity)
-                                        },
-                                    shape = promoPriceShape(priceShape.toInt())
-                                )
-                                .border(
-                                    width = priceShapeBorder.dp,
-                                    color = Color.Black,
-                                    shape = promoPriceShape(priceShape.toInt())
-                                )
-                                .padding(
-                                    horizontal = 4.dp,
-                                    vertical = 10.dp
-                                ),
+                                .onGloballyPositioned { priceShapeMeasuredSize = it.size },
                             contentAlignment = Alignment.Center
                         ) {
+                            Box(
+                                modifier = Modifier
+                                    .matchParentSize()
+                                    .graphicsLayer {
+                                        scaleX = priceShapeProportion
+                                        scaleY = 1f / priceShapeProportion
+                                        rotationZ = priceShapeRotation
+                                    }
+                                    .background(
+                                        color =
+                                            if (isBlackPreset) {
+                                                shiftPromoHue(Color(0xFFFFD700), colorHue, colorIntensity)
+                                            } else if (isLiberoPreset) {
+                                                shiftPromoHue(Color(0xFFFF40C8), colorHue, colorIntensity)
+                                            } else if (isRisparmioPreset) {
+                                                shiftPromoHue(Color(0xFFFFE000), colorHue, colorIntensity)
+                                            } else if (isNovitaPreset) {
+                                                shiftPromoHue(Color(0xFF00E5FF), colorHue, colorIntensity)
+                                            } else {
+                                                shiftPromoHue(Color(0xFFFFE000), colorHue, colorIntensity)
+                                            },
+                                        shape = promoPriceShape(priceShape.toInt())
+                                    )
+                                    .border(
+                                        width = priceShapeBorder.dp,
+                                        color = Color.Black,
+                                        shape = promoPriceShape(priceShape.toInt())
+                                    )
+                            )
                             AutoFitPromoText(
                                 text =
                                     if (offerPrice != null) {
@@ -2395,7 +2438,14 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                                             product.publicPrice
                                         )
                                     },
-                                modifier = Modifier.fillMaxWidth(if (priceShape.toInt() == 19) 0.52f else 0.90f),
+                                modifier = Modifier
+                                    .fillMaxWidth(if (priceShape.toInt() == 19) 0.52f else 0.90f)
+                                    .padding(horizontal = 4.dp, vertical = 10.dp)
+                                    .graphicsLayer {
+                                        scaleX = priceInternalScale
+                                        scaleY = priceInternalScale
+                                        rotationZ = priceInternalRotation
+                                    },
                                 maxFontSize = 22f * priceScale,
                                 minFontSize = 10f,
                                 color =
@@ -2578,6 +2628,12 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                             "WOW  FOTO  [" + when (imageTouchMode) {
                                 1 -> "FORMA"
                                 2 -> "FOTO"
+                                else -> "INSIEME"
+                            } + "]"
+                        } else if (shapeControl == "PREZZO") {
+                            "WOW  PREZZO  [" + when (priceTouchMode) {
+                                1 -> "FORMA"
+                                2 -> "PREZZO"
                                 else -> "INSIEME"
                             } + "]"
                         } else {
