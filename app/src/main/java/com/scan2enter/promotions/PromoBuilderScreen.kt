@@ -880,7 +880,10 @@ private fun PromoExplosionBadge(
     shapeIndex: Int,
     rotation: Float,
     shadow: Float,
-    proportion: Float
+    proportion: Float,
+    shapeTouchScale: Float,
+    internalScale: Float,
+    internalRotation: Float
 ) {
     Box(
         modifier = Modifier.size(width = 250.dp, height = 88.dp),
@@ -890,6 +893,10 @@ private fun PromoExplosionBadge(
             Canvas(
                 modifier = Modifier
                     .size(width = 250.dp * proportion, height = 88.dp / proportion)
+                    .graphicsLayer {
+                        scaleX = shapeTouchScale
+                        scaleY = shapeTouchScale
+                    }
                     .offset(
                         x = (shadow / 3f).dp,
                         y = (shadow / 3f).dp
@@ -928,6 +935,10 @@ private fun PromoExplosionBadge(
             Box(
                 modifier = Modifier
                     .size(width = 250.dp * proportion, height = 88.dp / proportion)
+                    .graphicsLayer {
+                        scaleX = shapeTouchScale
+                        scaleY = shapeTouchScale
+                    }
                     .offset(
                         x = (shadow / 3f).dp,
                         y = (shadow / 3f).dp
@@ -946,6 +957,10 @@ private fun PromoExplosionBadge(
                 width = 250.dp * proportion,
                 height = 88.dp / proportion
             )
+                    .graphicsLayer {
+                        scaleX = shapeTouchScale
+                        scaleY = shapeTouchScale
+                    }
             .rotate(-3f + rotation),
         contentAlignment = Alignment.Center
     ) {
@@ -1022,7 +1037,13 @@ private fun PromoExplosionBadge(
             )
         }
 
+    }
         Column(
+            modifier = Modifier.graphicsLayer {
+                scaleX = internalScale
+                scaleY = internalScale
+                rotationZ = internalRotation
+            },
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
@@ -1046,7 +1067,6 @@ private fun PromoExplosionBadge(
                 fontFamily = promoFontFamily(explosionFont)
             )
         }
-    }
     }
 }
 @Composable
@@ -1192,6 +1212,12 @@ fun PromoBuilderScreen(
     var priceShapeProportion by remember { mutableStateOf(1f) }
     var discountShapeProportion by remember { mutableStateOf(1f) }
     var titleShapeProportion by remember { mutableStateOf(1f) }
+    var titleTouchScale by remember { mutableStateOf(1f) }
+    var titleTouchRotation by remember { mutableStateOf(0f) }
+    var titleTouchMode by remember { mutableStateOf(0) }
+    var titleShapeTouchScale by remember { mutableStateOf(1f) }
+    var titleInternalScale by remember { mutableStateOf(1f) }
+    var titleInternalRotation by remember { mutableStateOf(0f) }
     var imageShapeProportion by remember { mutableStateOf(1f) }
     var footerShapeProportion by remember { mutableStateOf(1f) }
     var footerShapeMeasuredSize by remember { mutableStateOf(IntSize.Zero) }
@@ -1584,7 +1610,13 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                  * esplosione gialla con bordo nero.
                  */
                 Box(
-                    modifier = Modifier.clickable {
+                    modifier = Modifier.combinedClickable(
+                        onLongClick = {
+                            if (wowEditMode) {
+                                titleTouchMode = (titleTouchMode + 1) % 3
+                            }
+                        },
+                        onClick = {
                         shapeControl = "TITOLO"
                         dimensionControl = "TITOLI"
                         styleSection = "DIMENSIONI"
@@ -1643,6 +1675,28 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                         }
                         wowTitleVariant = (wowTitleVariant + 1) % 50
                         }
+                        }
+                    )
+                    .pointerInput(wowEditMode, titleTouchMode) {
+                        if (wowEditMode) {
+                            detectTransformGestures { _, _, zoom, rotation ->
+                                if (titleTouchMode == 2) {
+                                    titleInternalScale = (titleInternalScale * zoom).coerceIn(0.6f, 1.30f)
+                                    titleInternalRotation += rotation
+                                } else if (titleTouchMode == 1) {
+                                    titleShapeTouchScale = (titleShapeTouchScale * zoom).coerceIn(0.6f, 1.30f)
+                                    titleShapeRotation += rotation
+                                } else {
+                                    titleTouchScale = (titleTouchScale * zoom).coerceIn(0.6f, 1.6f)
+                                    titleTouchRotation += rotation
+                                }
+                            }
+                        }
+                    }
+                    .graphicsLayer {
+                        scaleX = titleTouchScale
+                        scaleY = titleTouchScale
+                        rotationZ = titleTouchRotation
                     }
                 ) {
                 if (isBlackPreset) {
@@ -1662,6 +1716,10 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                                         y = (titleShapeShadow / 3f).dp
                                     )
                                     .rotate(titleShapeRotation)
+                                    .graphicsLayer {
+                                        scaleX = titleShapeTouchScale
+                                        scaleY = titleShapeTouchScale
+                                    }
                                     .graphicsLayer { scaleX = titleShapeProportion; scaleY = 1f / titleShapeProportion }
                                     .background(
                                         color = Color.White.copy(alpha = 0.70f),
@@ -1674,24 +1732,37 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                         modifier = Modifier
                             .fillMaxWidth()
                             .onGloballyPositioned { titleShapeMeasuredSize = it.size }
-                            .graphicsLayer { scaleX = titleShapeProportion; scaleY = 1f / titleShapeProportion }
-                            .rotate(titleShapeRotation)
-                            .background(
-                                color = shiftPromoHue(Color(0xFFFFD700), colorHue, colorIntensity),
-                                shape = promoPriceShape(titleShape.toInt())
-                            )
-                            .border(
-                                width = titleShapeBorder.dp,
-                                color = Color.White,
-                                shape = promoPriceShape(titleShape.toInt())
-                            )
                             .padding(
                                 horizontal = 8.dp,
                                 vertical = 5.dp
                             ),
                         contentAlignment = Alignment.Center
                     ) {
+                        Box(
+                            modifier = Modifier
+                                .matchParentSize()
+                                .graphicsLayer {
+                                    scaleX = titleShapeTouchScale
+                                    scaleY = titleShapeTouchScale
+                                }
+                                .graphicsLayer { scaleX = titleShapeProportion; scaleY = 1f / titleShapeProportion }
+                                .rotate(titleShapeRotation)
+                                .background(
+                                    color = shiftPromoHue(Color(0xFFFFD700), colorHue, colorIntensity),
+                                    shape = promoPriceShape(titleShape.toInt())
+                                )
+                                .border(
+                                    width = titleShapeBorder.dp,
+                                    color = Color.White,
+                                    shape = promoPriceShape(titleShape.toInt())
+                                )
+                        )
                         Column(
+                            modifier = Modifier.graphicsLayer {
+                                scaleX = titleInternalScale
+                                scaleY = titleInternalScale
+                                rotationZ = titleInternalRotation
+                            },
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
                             Text(
@@ -1733,6 +1804,10 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                                         y = (titleShapeShadow / 3f).dp
                                     )
                                     .rotate(titleShapeRotation)
+                                    .graphicsLayer {
+                                        scaleX = titleShapeTouchScale
+                                        scaleY = titleShapeTouchScale
+                                    }
                                     .graphicsLayer { scaleX = titleShapeProportion; scaleY = 1f / titleShapeProportion }
                                     .background(
                                         color = Color.Black.copy(alpha = 0.65f),
@@ -1745,24 +1820,37 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                         modifier = Modifier
                             .fillMaxWidth()
                             .onGloballyPositioned { titleShapeMeasuredSize = it.size }
-                            .graphicsLayer { scaleX = titleShapeProportion; scaleY = 1f / titleShapeProportion }
-                            .rotate(titleShapeRotation)
-                            .background(
-                                color = shiftPromoHue(Color(0xFFFF40C8), colorHue, colorIntensity),
-                                shape = promoPriceShape(titleShape.toInt())
-                            )
-                            .border(
-                                width = titleShapeBorder.dp,
-                                color = Color.White,
-                                shape = promoPriceShape(titleShape.toInt())
-                            )
                             .padding(
                                 horizontal = 8.dp,
                                 vertical = 6.dp
                             ),
                         contentAlignment = Alignment.Center
                     ) {
+                        Box(
+                            modifier = Modifier
+                                .matchParentSize()
+                                .graphicsLayer {
+                                    scaleX = titleShapeTouchScale
+                                    scaleY = titleShapeTouchScale
+                                }
+                                .graphicsLayer { scaleX = titleShapeProportion; scaleY = 1f / titleShapeProportion }
+                                .rotate(titleShapeRotation)
+                                .background(
+                                    color = shiftPromoHue(Color(0xFFFF40C8), colorHue, colorIntensity),
+                                    shape = promoPriceShape(titleShape.toInt())
+                                )
+                                .border(
+                                    width = titleShapeBorder.dp,
+                                    color = Color.White,
+                                    shape = promoPriceShape(titleShape.toInt())
+                                )
+                        )
                         Column(
+                            modifier = Modifier.graphicsLayer {
+                                scaleX = titleInternalScale
+                                scaleY = titleInternalScale
+                                rotationZ = titleInternalRotation
+                            },
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
                             Text(
@@ -1816,6 +1904,10 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                                         y = (titleShapeShadow / 3f).dp
                                     )
                                     .rotate(titleShapeRotation)
+                                    .graphicsLayer {
+                                        scaleX = titleShapeTouchScale
+                                        scaleY = titleShapeTouchScale
+                                    }
                                     .graphicsLayer { scaleX = titleShapeProportion; scaleY = 1f / titleShapeProportion }
                                     .background(
                                         color = Color.Black.copy(alpha = 0.65f),
@@ -1828,25 +1920,38 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                         modifier = Modifier
                             .fillMaxWidth()
                             .onGloballyPositioned { titleShapeMeasuredSize = it.size }
-                            .graphicsLayer { scaleX = titleShapeProportion; scaleY = 1f / titleShapeProportion }
-                            .rotate(titleShapeRotation)
-                            .background(
-                                color = shiftPromoHue(Color(0xFFFFE000), colorHue, colorIntensity),
-                                shape = promoPriceShape(titleShape.toInt())
-                            )
-                            .border(
-                                width = titleShapeBorder.dp,
-                                color = Color.White,
-                                shape = promoPriceShape(titleShape.toInt())
-                            )
                             .padding(
                                 horizontal = 8.dp,
                                 vertical = 7.dp
                             ),
                         contentAlignment = Alignment.Center
                     ) {
+                        Box(
+                            modifier = Modifier
+                                .matchParentSize()
+                                .graphicsLayer {
+                                    scaleX = titleShapeTouchScale
+                                    scaleY = titleShapeTouchScale
+                                }
+                                .graphicsLayer { scaleX = titleShapeProportion; scaleY = 1f / titleShapeProportion }
+                                .rotate(titleShapeRotation)
+                                .background(
+                                    color = shiftPromoHue(Color(0xFFFFE000), colorHue, colorIntensity),
+                                    shape = promoPriceShape(titleShape.toInt())
+                                )
+                                .border(
+                                    width = titleShapeBorder.dp,
+                                    color = Color.White,
+                                    shape = promoPriceShape(titleShape.toInt())
+                                )
+                        )
                         Text(
                             text = "SUPER RISPARMIO",
+                            modifier = Modifier.graphicsLayer {
+                                scaleX = titleInternalScale
+                                scaleY = titleInternalScale
+                                rotationZ = titleInternalRotation
+                            },
                             color = shiftPromoHue(Color(0xFF1B5E20), colorHue, colorIntensity),
                             fontSize = 27.sp * titleScale,
                             lineHeight = 29.sp * titleScale,
@@ -1885,6 +1990,10 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                                         y = (titleShapeShadow / 3f).dp
                                     )
                                     .rotate(titleShapeRotation)
+                                    .graphicsLayer {
+                                        scaleX = titleShapeTouchScale
+                                        scaleY = titleShapeTouchScale
+                                    }
                                     .graphicsLayer { scaleX = titleShapeProportion; scaleY = 1f / titleShapeProportion }
                                     .background(
                                         color = Color.Black.copy(alpha = 0.65f),
@@ -1897,24 +2006,37 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                         modifier = Modifier
                             .fillMaxWidth()
                             .onGloballyPositioned { titleShapeMeasuredSize = it.size }
-                            .graphicsLayer { scaleX = titleShapeProportion; scaleY = 1f / titleShapeProportion }
-                            .rotate(titleShapeRotation)
-                            .background(
-                                color = shiftPromoHue(Color(0xFF00E5FF), colorHue, colorIntensity),
-                                shape = promoPriceShape(titleShape.toInt())
-                            )
-                            .border(
-                                width = titleShapeBorder.dp,
-                                color = Color.White,
-                                shape = promoPriceShape(titleShape.toInt())
-                            )
                             .padding(
                                 horizontal = 8.dp,
                                 vertical = 6.dp
                             ),
                         contentAlignment = Alignment.Center
                     ) {
+                        Box(
+                            modifier = Modifier
+                                .matchParentSize()
+                                .graphicsLayer {
+                                    scaleX = titleShapeTouchScale
+                                    scaleY = titleShapeTouchScale
+                                }
+                                .graphicsLayer { scaleX = titleShapeProportion; scaleY = 1f / titleShapeProportion }
+                                .rotate(titleShapeRotation)
+                                .background(
+                                    color = shiftPromoHue(Color(0xFF00E5FF), colorHue, colorIntensity),
+                                    shape = promoPriceShape(titleShape.toInt())
+                                )
+                                .border(
+                                    width = titleShapeBorder.dp,
+                                    color = Color.White,
+                                    shape = promoPriceShape(titleShape.toInt())
+                                )
+                        )
                         Column(
+                            modifier = Modifier.graphicsLayer {
+                                scaleX = titleInternalScale
+                                scaleY = titleInternalScale
+                                rotationZ = titleInternalRotation
+                            },
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
                             Text(
@@ -1950,7 +2072,11 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                     )
 
                 } else {
-                    PromoExplosionBadge(titleScale, explosionFont, titleShape.toInt(), titleShapeRotation, titleShapeShadow, titleShapeProportion)
+                    PromoExplosionBadge(
+                        titleScale, explosionFont, titleShape.toInt(),
+                        titleShapeRotation, titleShapeShadow, titleShapeProportion,
+                        titleShapeTouchScale, titleInternalScale, titleInternalRotation
+                    )
                 }
 
                 }
@@ -2624,7 +2750,13 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                     }
 
                     Text(
-                        text = if (shapeControl == "FOTO") {
+                        text = if (shapeControl == "TITOLO") {
+                            "WOW  TITOLO  [" + when (titleTouchMode) {
+                                1 -> "FORMA"
+                                2 -> "TESTO"
+                                else -> "INSIEME"
+                            } + "]"
+                        } else if (shapeControl == "FOTO") {
                             "WOW  FOTO  [" + when (imageTouchMode) {
                                 1 -> "FORMA"
                                 2 -> "FOTO"
