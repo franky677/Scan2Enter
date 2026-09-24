@@ -31,6 +31,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -1278,8 +1279,13 @@ var priceInternalRotation by remember { mutableStateOf(0f) }
     var discountInternalScale by remember { mutableStateOf(1f) }
     var discountInternalRotation by remember { mutableStateOf(0f) }
     var wowFooterVariant by remember { mutableStateOf(0) }
+    var footerTouchMode by remember { mutableStateOf(0) }
+    var footerShapeTouchScale by remember { mutableStateOf(1f) }
+    var footerInternalScale by remember { mutableStateOf(1f) }
+    var footerInternalRotation by remember { mutableStateOf(0f) }
     var showPromoExpiry by remember { mutableStateOf(true) }
     var footerTouchScale by remember { mutableStateOf(1f) }
+    var footerTouchRotation by remember { mutableStateOf(0f) }
 
     var explosionFont by remember { mutableStateOf(0f) }
     var descriptionFont by remember { mutableStateOf(0f) }
@@ -2698,7 +2704,10 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                                     y = (footerShapeShadow / 3f).dp
                                 )
                                 .rotate(footerShapeRotation)
-                                .graphicsLayer { scaleX = footerShapeProportion; scaleY = 1f / footerShapeProportion }
+                                .graphicsLayer {
+                                    scaleX = footerShapeProportion * footerShapeTouchScale
+                                    scaleY = (1f / footerShapeProportion) * footerShapeTouchScale
+                                }
                                 .background(
                                     color = Color.Black.copy(alpha = 0.65f),
                                     shape = promoPriceShape(footerShape.toInt())
@@ -2709,12 +2718,20 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
+                            .heightIn(min = 44.dp)
                             .onGloballyPositioned { footerShapeMeasuredSize = it.size }
                             .graphicsLayer {
                                 scaleX = footerTouchScale * footerScale
                                 scaleY = footerTouchScale * footerScale
+                                rotationZ = footerTouchRotation
                             }
-                            .clickable {
+                            .combinedClickable(
+                                onLongClick = {
+                                    if (wowEditMode) {
+                                        footerTouchMode = (footerTouchMode + 1) % 3
+                                    }
+                                },
+                                onClick = {
                                 shapeControl = "FASCIA"
                                 dimensionControl = "FASCIA"
                                 styleSection = "DIMENSIONI"
@@ -2728,31 +2745,45 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                                 wowFooterVariant = (wowFooterVariant + 1) % 50
                                 }
                             }
-                            .pointerInput(wowEditMode) {
+                            )
+                            .pointerInput(wowEditMode, footerTouchMode) {
                                 if (wowEditMode) {
                                     detectTransformGestures { _, _, zoom, rotation ->
-                                        footerTouchScale = (footerTouchScale * zoom).coerceIn(0.60f, 2.50f)
-                                        footerShapeRotation += rotation
+                                        if (footerTouchMode == 2) {
+                                            footerInternalScale = (footerInternalScale * zoom).coerceIn(0.60f, 2.50f)
+                                            footerInternalRotation += rotation
+                                        } else if (footerTouchMode == 1) {
+                                            footerShapeTouchScale = (footerShapeTouchScale * zoom).coerceIn(0.60f, 1.30f)
+                                            footerShapeRotation += rotation
+                                        } else {
+                                            footerTouchScale = (footerTouchScale * zoom).coerceIn(0.60f, 2.50f)
+                                            footerTouchRotation += rotation
+                                        }
                                     }
                                 }
                             }
-                            .graphicsLayer { scaleX = footerShapeProportion; scaleY = 1f / footerShapeProportion }
-                            .rotate(footerShapeRotation)
-                            .background(
-                                color = Color.Black,
-                                shape = promoPriceShape(footerShape.toInt())
-                            )
-                            .border(
-                                width = footerShapeBorder.dp,
-                                color = shiftPromoHue(Color(0xFFFFE000), colorHue, colorIntensity),
-                                shape = promoPriceShape(footerShape.toInt())
-                            )
-                            .padding(
-                                horizontal = 10.dp,
-                                vertical = 7.dp
-                            ),
+                            ,
                         contentAlignment = Alignment.Center
                     ) {
+                        Box(
+                            modifier = Modifier
+                                .matchParentSize()
+                                .graphicsLayer {
+                                    scaleX = footerShapeProportion * footerShapeTouchScale
+                                    scaleY = (1f / footerShapeProportion) * footerShapeTouchScale
+                                    rotationZ = footerShapeRotation
+                                }
+                                .background(
+                                    color = Color.Black,
+                                    shape = promoPriceShape(footerShape.toInt())
+                                )
+                                .border(
+                                    width = footerShapeBorder.dp,
+                                    color = shiftPromoHue(Color(0xFFFFE000), colorHue, colorIntensity),
+                                    shape = promoPriceShape(footerShape.toInt())
+                                )
+                        )
+
                         AutoFitPromoText(
                             text =
                                 if (isBlackPreset) {
@@ -2766,7 +2797,14 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                                 } else {
                                     "SUPER PREZZO DA NON PERDERE!"
                                 },
-                            modifier = Modifier.fillMaxWidth(0.88f),
+                            modifier = Modifier
+                                .fillMaxWidth(0.88f)
+                                .padding(horizontal = 10.dp, vertical = 7.dp)
+                                .graphicsLayer {
+                                    scaleX = footerInternalScale
+                                    scaleY = footerInternalScale
+                                    rotationZ = footerInternalRotation
+                                },
                             maxFontSize = 16f,
                             minFontSize = 7f,
                             color = shiftPromoHue(Color(0xFFFFE000), colorHue, colorIntensity),
@@ -2879,6 +2917,12 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                             } + "]"
                         } else if (shapeControl == "SCONTO") {
                             "WOW  SCONTO  [" + when (discountTouchMode) {
+                                1 -> "FORMA"
+                                2 -> "TESTO"
+                                else -> "INSIEME"
+                            } + "]"
+                        } else if (shapeControl == "FASCIA") {
+                            "WOW  FASCIA  [" + when (footerTouchMode) {
                                 1 -> "FORMA"
                                 2 -> "TESTO"
                                 else -> "INSIEME"
@@ -3935,7 +3979,6 @@ body {
 </html>
 """.trimIndent()
 }
-
 
 
 
