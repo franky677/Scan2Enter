@@ -1076,7 +1076,10 @@ private fun PromoDiscountBurst(
     borderWidth: Float,
     rotation: Float,
     shadow: Float,
-    proportion: Float
+    proportion: Float,
+    shapeTouchScale: Float,
+    internalScale: Float,
+    internalRotation: Float
 ) {
     val discountShape = promoPriceShape(shapeIndex)
 
@@ -1084,13 +1087,18 @@ private fun PromoDiscountBurst(
         modifier = Modifier.size(
             width = (92.dp * proportion) + shadow.dp,
             height = (70.dp / proportion) + shadow.dp
-        )
+        ),
+        contentAlignment = Alignment.Center
     ) {
         if (shadow > 0f) {
             Box(
                 modifier = Modifier
                     .size(width = 92.dp * proportion, height = 70.dp / proportion)
                     .offset(x = shadow.dp, y = shadow.dp)
+                    .graphicsLayer {
+                        scaleX = shapeTouchScale
+                        scaleY = shapeTouchScale
+                    }
                     .rotate(rotation)
                     .background(
                         color = Color.Black.copy(alpha = 0.65f),
@@ -1102,6 +1110,10 @@ private fun PromoDiscountBurst(
         Box(
             modifier = Modifier
                 .size(width = 92.dp * proportion, height = 70.dp / proportion)
+                .graphicsLayer {
+                    scaleX = shapeTouchScale
+                    scaleY = shapeTouchScale
+                }
                 .rotate(rotation)
                 .background(
                     color = Color(0xFFFFE000),
@@ -1111,22 +1123,27 @@ private fun PromoDiscountBurst(
                     width = borderWidth.dp,
                     color = Color.Black,
                     shape = discountShape
-                ),
-            contentAlignment = Alignment.Center
-        ) {
-            AutoFitPromoText(
-                text = String.format(
-                    java.util.Locale.ITALY,
-                    "-%.0f%%",
-                    discountPercent
-                ),
-                modifier = Modifier.fillMaxWidth(0.72f),
-                maxFontSize = 22f,
-                minFontSize = 10f,
-                color = Color(0xFFE30613),
-                fontWeight = FontWeight.Black
-            )
-        }
+                )
+        )
+
+        AutoFitPromoText(
+            text = String.format(
+                java.util.Locale.ITALY,
+                "-%.0f%%",
+                discountPercent
+            ),
+            modifier = Modifier
+                .fillMaxWidth(0.72f)
+                .graphicsLayer {
+                    scaleX = internalScale
+                    scaleY = internalScale
+                    rotationZ = internalRotation
+                },
+            maxFontSize = 22f,
+            minFontSize = 10f,
+            color = Color(0xFFE30613),
+            fontWeight = FontWeight.Black
+        )
     }
 }
 @Composable
@@ -1244,6 +1261,11 @@ var priceInternalRotation by remember { mutableStateOf(0f) }
     var wowPriceVariant by remember { mutableStateOf(0) }
     var wowDiscountVariant by remember { mutableStateOf(0) }
     var discountTouchScale by remember { mutableStateOf(1f) }
+    var discountTouchRotation by remember { mutableStateOf(0f) }
+    var discountTouchMode by remember { mutableStateOf(0) }
+    var discountShapeTouchScale by remember { mutableStateOf(1f) }
+    var discountInternalScale by remember { mutableStateOf(1f) }
+    var discountInternalRotation by remember { mutableStateOf(0f) }
     var wowFooterVariant by remember { mutableStateOf(0) }
     var footerTouchScale by remember { mutableStateOf(1f) }
 
@@ -2326,8 +2348,15 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                                         .graphicsLayer {
                                             scaleX = discountTouchScale * discountScale
                                             scaleY = discountTouchScale * discountScale
+                                            rotationZ = discountTouchRotation
                                         }
-                                        .clickable {
+                                        .combinedClickable(
+                                            onLongClick = {
+                                                if (wowEditMode) {
+                                                    discountTouchMode = (discountTouchMode + 1) % 3
+                                                }
+                                            },
+                                            onClick = {
                                             shapeControl = "SCONTO"
                                             dimensionControl = "SCONTO"
                                             styleSection = "DIMENSIONI"
@@ -2341,11 +2370,20 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                                             wowDiscountVariant = (wowDiscountVariant + 1) % 50
                                             }
                                         }
-                                        .pointerInput(wowEditMode) {
+                                        )
+                                        .pointerInput(wowEditMode, discountTouchMode) {
                                             if (wowEditMode) {
                                                 detectTransformGestures { _, _, zoom, rotation ->
-                                                    discountTouchScale = (discountTouchScale * zoom).coerceIn(0.60f, 2.50f)
-                                                    discountShapeRotation += rotation
+                                                    if (discountTouchMode == 2) {
+                                                        discountInternalScale = (discountInternalScale * zoom).coerceIn(0.60f, 2.50f)
+                                                        discountInternalRotation += rotation
+                                                    } else if (discountTouchMode == 1) {
+                                                        discountShapeTouchScale = (discountShapeTouchScale * zoom).coerceIn(0.60f, 1.30f)
+                                                        discountShapeRotation += rotation
+                                                    } else {
+                                                        discountTouchScale = (discountTouchScale * zoom).coerceIn(0.60f, 2.50f)
+                                                        discountTouchRotation += rotation
+                                                    }
                                                 }
                                             }
                                         }
@@ -2356,7 +2394,10 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                                         borderWidth = discountShapeBorder,
                                         rotation = discountShapeRotation,
                                         shadow = discountShapeShadow,
-                                        proportion = discountShapeProportion
+                                        proportion = discountShapeProportion,
+                                        shapeTouchScale = discountShapeTouchScale,
+                                        internalScale = discountInternalScale,
+                                        internalRotation = discountInternalRotation
                                     )
                                 }
                             }
@@ -2766,6 +2807,12 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                             "WOW  PREZZO  [" + when (priceTouchMode) {
                                 1 -> "FORMA"
                                 2 -> "PREZZO"
+                                else -> "INSIEME"
+                            } + "]"
+                        } else if (shapeControl == "SCONTO") {
+                            "WOW  SCONTO  [" + when (discountTouchMode) {
+                                1 -> "FORMA"
+                                2 -> "TESTO"
                                 else -> "INSIEME"
                             } + "]"
                         } else {
