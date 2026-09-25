@@ -2879,7 +2879,7 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                         onClick = { previewZoom = (previewZoom - 0.25f).coerceAtLeast(1f) },
                         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp)
                     ) {
-                        Text("", fontWeight = FontWeight.Black)
+                        Text("-", fontWeight = FontWeight.Black)
                     }
 
                     Text(
