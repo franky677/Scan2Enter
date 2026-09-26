@@ -71,6 +71,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.text.font.FontFamily
@@ -88,6 +89,7 @@ import com.scan2enter.repository.ProductRepositoryProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.math.roundToInt
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
@@ -1265,11 +1267,19 @@ var imageTouchMode by remember { mutableStateOf(0) }
 var imageShapeTouchScale by remember { mutableStateOf(1f) }
 var imageInternalScale by remember { mutableStateOf(1f) }
 var imageInternalRotation by remember { mutableStateOf(0f) }
+    // V4: le posizioni usano offset di layout (non sola traslazione grafica),
+    // cosi il bersaglio touch segue davvero l'elemento spostato.
+    var imagePositionX by remember { mutableStateOf(0f) }
+    var imagePositionY by remember { mutableStateOf(0f) }
+    var descriptionPositionX by remember { mutableStateOf(0f) }
+    var descriptionPositionY by remember { mutableStateOf(0f) }
 var priceTouchScale by remember { mutableStateOf(1f) }
 var priceTouchRotation by remember { mutableStateOf(0f) }
 var priceTouchMode by remember { mutableStateOf(0) }
 var priceInternalScale by remember { mutableStateOf(1f) }
 var priceInternalRotation by remember { mutableStateOf(0f) }
+    var pricePositionX by remember { mutableStateOf(0f) }
+    var pricePositionY by remember { mutableStateOf(0f) }
     var wowPriceVariant by remember { mutableStateOf(0) }
     var wowDiscountVariant by remember { mutableStateOf(0) }
     var discountTouchScale by remember { mutableStateOf(1f) }
@@ -1278,6 +1288,8 @@ var priceInternalRotation by remember { mutableStateOf(0f) }
     var discountShapeTouchScale by remember { mutableStateOf(1f) }
     var discountInternalScale by remember { mutableStateOf(1f) }
     var discountInternalRotation by remember { mutableStateOf(0f) }
+    var discountPositionX by remember { mutableStateOf(0f) }
+    var discountPositionY by remember { mutableStateOf(0f) }
     var wowFooterVariant by remember { mutableStateOf(0) }
     var footerTouchMode by remember { mutableStateOf(0) }
     var footerShapeTouchScale by remember { mutableStateOf(1f) }
@@ -2159,7 +2171,32 @@ var colorControl by remember { mutableStateOf("TONALITA") }
 
                 Text(
                     text = product.description.uppercase(),
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .combinedClickable(
+                            onLongClick = {
+                                if (wowEditMode) {
+                                    shapeControl = "DESCRIZIONE"
+                                }
+                            },
+                            onClick = {
+                                shapeControl = "DESCRIZIONE"
+                                styleSection = "FONT"
+                                fontControl = "DESCR."
+                            }
+                        )
+                        .pointerInput(wowEditMode) {
+                            if (wowEditMode) {
+                                detectTransformGestures { _, pan, _, _ ->
+                                    descriptionPositionX = (descriptionPositionX + pan.x).coerceIn(-900f, 900f)
+                                    descriptionPositionY = (descriptionPositionY + pan.y).coerceIn(-700f, 700f)
+                                }
+                            }
+                        }
+                        .offset {
+                            IntOffset(descriptionPositionX.roundToInt(), descriptionPositionY.roundToInt())
+                        }
+                        .zIndex(if (shapeControl == "DESCRIZIONE") 30f else 1f),
                     textAlign = TextAlign.Center,
                     fontSize = 19.sp,
                     lineHeight = 21.sp,
@@ -2201,8 +2238,15 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                         else -> null
                     }
 
+                // V4: piano centrale condiviso. FOTO/PREZZO/DESCRIZIONE/SCONTO
+                // sono indipendenti; lo SCONTO non e piu figlio della FOTO.
+                Box(
+                    modifier = Modifier.fillMaxWidth()
+                ) {
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .zIndex(if (shapeControl == "FOTO" || shapeControl == "PREZZO" || shapeControl == "SCONTO") 20f else 0f),
                     verticalAlignment = Alignment.Top,
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
@@ -2211,7 +2255,10 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                      * Foto prodotto su riquadro bianco.
                      */
                     Column(
-                        modifier = Modifier.width(142.dp),
+                        modifier = Modifier
+                            .width(142.dp)
+                            .offset { IntOffset(imagePositionX.roundToInt(), imagePositionY.roundToInt()) }
+                            .zIndex(if (shapeControl == "FOTO") 30f else 2f),
                         horizontalAlignment = Alignment.Start
                     ) {
                         Box(
@@ -2228,7 +2275,10 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                                 )
                                 .combinedClickable(
                                     onLongClick = {
-                                        if (wowEditMode) imageTouchMode = (imageTouchMode + 1) % 3
+                                        if (wowEditMode) {
+                                            shapeControl = "FOTO"
+                                            imageTouchMode = (imageTouchMode + 1) % 4
+                                        }
                                     },
                                     onClick = {
                                         shapeControl = "FOTO"
@@ -2283,8 +2333,11 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                                 )
                                 .pointerInput(wowEditMode) {
                                     if (wowEditMode) {
-                                        detectTransformGestures { _, _, zoom, rotation ->
-                                            if (imageTouchMode == 2) {
+                                        detectTransformGestures { _, pan, zoom, rotation ->
+                                            if (imageTouchMode == 3) {
+                                                imagePositionX = (imagePositionX + pan.x).coerceIn(-900f, 900f)
+                                                imagePositionY = (imagePositionY + pan.y).coerceIn(-700f, 700f)
+                                            } else if (imageTouchMode == 2) {
                                                 imageInternalScale = (imageInternalScale * zoom).coerceIn(0.6f, 1.30f)
                                                 imageInternalRotation += rotation
                                             } else if (imageTouchMode == 1) {
@@ -2365,8 +2418,8 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                                     .size(142.dp)
                                     .align(Alignment.Center)
                                     .graphicsLayer {
-                                        scaleX = 1.15f * imageScale * imageInternalScale
-                                        scaleY = 1.15f * imageScale * imageInternalScale
+                                        scaleX = imageScale * imageInternalScale
+                                        scaleY = imageScale * imageInternalScale
                                         rotationZ = imageInternalRotation
                                     },
                                 factory = { imageContext ->
@@ -2381,73 +2434,6 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                                 }
                             )
 
-                            }
-                            if (
-                                effectiveDiscount != null &&
-                                effectiveDiscount > 0.0
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .align(Alignment.BottomEnd)
-                                        .offset(
-                                            x = 26.dp,
-                                            y = 18.dp
-                                        )
-                                        .graphicsLayer {
-                                            scaleX = discountTouchScale * discountScale
-                                            scaleY = discountTouchScale * discountScale
-                                            rotationZ = discountTouchRotation
-                                        }
-                                        .combinedClickable(
-                                            onLongClick = {
-                                                if (wowEditMode) {
-                                                    discountTouchMode = (discountTouchMode + 1) % 3
-                                                }
-                                            },
-                                            onClick = {
-                                            shapeControl = "SCONTO"
-                                            dimensionControl = "SCONTO"
-                                            styleSection = "DIMENSIONI"
-                                            if (wowEditMode) {
-                                            val wowShapes = (0..49)
-                                                .filter { it != 19 && it != 44 }
-                                            discountShape = wowShapes[(wowDiscountVariant * 13 + 11) % wowShapes.size].toFloat()
-                                            discountShapeProportion = 0.85f + (wowDiscountVariant % 7) * 0.05f
-                                            discountShapeRotation = ((wowDiscountVariant * 5 % 15) - 7).toFloat()
-                                            discountShapeShadow = (3 + (wowDiscountVariant % 6)).toFloat()
-                                            wowDiscountVariant = (wowDiscountVariant + 1) % 50
-                                            }
-                                        }
-                                        )
-                                        .pointerInput(wowEditMode, discountTouchMode) {
-                                            if (wowEditMode) {
-                                                detectTransformGestures { _, _, zoom, rotation ->
-                                                    if (discountTouchMode == 2) {
-                                                        discountInternalScale = (discountInternalScale * zoom).coerceIn(0.60f, 2.50f)
-                                                        discountInternalRotation += rotation
-                                                    } else if (discountTouchMode == 1) {
-                                                        discountShapeTouchScale = (discountShapeTouchScale * zoom).coerceIn(0.60f, 1.30f)
-                                                        discountShapeRotation += rotation
-                                                    } else {
-                                                        discountTouchScale = (discountTouchScale * zoom).coerceIn(0.60f, 2.50f)
-                                                        discountTouchRotation += rotation
-                                                    }
-                                                }
-                                            }
-                                        }
-                                ) {
-                                    PromoDiscountBurst(
-                                        discountPercent = effectiveDiscount,
-                                        shapeIndex = discountShape.toInt(),
-                                        borderWidth = discountShapeBorder,
-                                        rotation = discountShapeRotation,
-                                        shadow = discountShapeShadow,
-                                        proportion = discountShapeProportion,
-                                        shapeTouchScale = discountShapeTouchScale,
-                                        internalScale = discountInternalScale,
-                                        internalRotation = discountInternalRotation
-                                    )
-                                }
                             }
                         }
 
@@ -2472,7 +2458,15 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                      * Area prezzo: deve essere il punto più forte del cartello.
                      */
                     Column(
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier
+                            .weight(1f)
+                            .offset { IntOffset(pricePositionX.roundToInt(), pricePositionY.roundToInt()) }
+                            .graphicsLayer {
+                                scaleX = priceTouchScale
+                                scaleY = priceTouchScale
+                                rotationZ = priceTouchRotation
+                            }
+                            .zIndex(if (shapeControl == "PREZZO") 30f else 3f),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
 
@@ -2500,13 +2494,7 @@ var colorControl by remember { mutableStateOf("TONALITA") }
 
 
                         Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .graphicsLayer {
-                                    scaleX = priceTouchScale
-                                    scaleY = priceTouchScale
-                                    rotationZ = priceTouchRotation
-                                }
+                            modifier = Modifier.fillMaxWidth()
                         ) {
                             if (priceShapeShadow > 0f && priceShapeMeasuredSize != IntSize.Zero) {
                                 val density = LocalDensity.current
@@ -2534,7 +2522,10 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                                 .fillMaxWidth()
                                 .combinedClickable(
                                     onLongClick = {
-                                        if (wowEditMode) priceTouchMode = (priceTouchMode + 1) % 3
+                                        if (wowEditMode) {
+                                            shapeControl = "PREZZO"
+                                            priceTouchMode = (priceTouchMode + 1) % 4
+                                        }
                                     },
                                     onClick = {
                                     shapeControl = "PREZZO"
@@ -2594,8 +2585,11 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                                 )
                                 .pointerInput(wowEditMode) {
                                     if (wowEditMode) {
-                                        detectTransformGestures { _, _, zoom, rotation ->
-                                            if (priceTouchMode == 2) {
+                                        detectTransformGestures { _, pan, zoom, rotation ->
+                                            if (priceTouchMode == 3) {
+                                                pricePositionX = (pricePositionX + pan.x).coerceIn(-900f, 900f)
+                                                pricePositionY = (pricePositionY + pan.y).coerceIn(-700f, 700f)
+                                            } else if (priceTouchMode == 2) {
                                                 priceInternalScale = (priceInternalScale * zoom).coerceIn(0.60f, 2.50f)
                                                 priceInternalRotation += rotation
                                             } else if (priceTouchMode == 1) {
@@ -2686,6 +2680,84 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                     }
                 }
 
+
+                    // SCONTO indipendente dalla FOTO: stesso piano centrale, propria posizione e proprio touch.
+                    if (
+                        effectiveDiscount != null &&
+                        effectiveDiscount > 0.0
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.TopStart)
+                                .offset(
+                                    x = 142.dp - ((92.dp * discountShapeProportion) + discountShapeShadow.dp) + 26.dp,
+                                    y = 158.dp - ((70.dp / discountShapeProportion) + discountShapeShadow.dp) + 18.dp
+                                )
+                                .offset {
+                                    IntOffset(discountPositionX.roundToInt(), discountPositionY.roundToInt())
+                                }
+                                .graphicsLayer {
+                                    scaleX = discountTouchScale * discountScale
+                                    scaleY = discountTouchScale * discountScale
+                                    rotationZ = discountTouchRotation
+                                }
+                                .zIndex(if (shapeControl == "SCONTO") 60f else 40f)
+                                .combinedClickable(
+                                    onLongClick = {
+                                        if (wowEditMode) {
+                                            shapeControl = "SCONTO"
+                                            discountTouchMode = (discountTouchMode + 1) % 4
+                                        }
+                                    },
+                                    onClick = {
+                                        shapeControl = "SCONTO"
+                                        dimensionControl = "SCONTO"
+                                        styleSection = "DIMENSIONI"
+                                        if (wowEditMode) {
+                                            val wowShapes = (0..49)
+                                                .filter { it != 19 && it != 44 }
+                                            discountShape = wowShapes[(wowDiscountVariant * 13 + 11) % wowShapes.size].toFloat()
+                                            discountShapeProportion = 0.85f + (wowDiscountVariant % 7) * 0.05f
+                                            discountShapeRotation = ((wowDiscountVariant * 5 % 15) - 7).toFloat()
+                                            discountShapeShadow = (3 + (wowDiscountVariant % 6)).toFloat()
+                                            wowDiscountVariant = (wowDiscountVariant + 1) % 50
+                                        }
+                                    }
+                                )
+                                .pointerInput(wowEditMode) {
+                                    if (wowEditMode) {
+                                        detectTransformGestures { _, pan, zoom, rotation ->
+                                            if (discountTouchMode == 3) {
+                                                discountPositionX = (discountPositionX + pan.x).coerceIn(-900f, 900f)
+                                                discountPositionY = (discountPositionY + pan.y).coerceIn(-700f, 700f)
+                                            } else if (discountTouchMode == 2) {
+                                                discountInternalScale = (discountInternalScale * zoom).coerceIn(0.60f, 2.50f)
+                                                discountInternalRotation += rotation
+                                            } else if (discountTouchMode == 1) {
+                                                discountShapeTouchScale = (discountShapeTouchScale * zoom).coerceIn(0.60f, 1.30f)
+                                                discountShapeRotation += rotation
+                                            } else {
+                                                discountTouchScale = (discountTouchScale * zoom).coerceIn(0.60f, 2.50f)
+                                                discountTouchRotation += rotation
+                                            }
+                                        }
+                                    }
+                                }
+                        ) {
+                            PromoDiscountBurst(
+                                discountPercent = effectiveDiscount,
+                                shapeIndex = discountShape.toInt(),
+                                borderWidth = discountShapeBorder,
+                                rotation = discountShapeRotation,
+                                shadow = discountShapeShadow,
+                                proportion = discountShapeProportion,
+                                shapeTouchScale = discountShapeTouchScale,
+                                internalScale = discountInternalScale,
+                                internalRotation = discountInternalRotation
+                            )
+                        }
+                    }
+                }
                 Spacer(Modifier.height(10.dp))
 
                 Box(
@@ -2907,20 +2979,25 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                             "WOW  FOTO  [" + when (imageTouchMode) {
                                 1 -> "FORMA"
                                 2 -> "FOTO"
+                                3 -> "POSIZIONE"
                                 else -> "INSIEME"
                             } + "]"
                         } else if (shapeControl == "PREZZO") {
                             "WOW  PREZZO  [" + when (priceTouchMode) {
                                 1 -> "FORMA"
                                 2 -> "PREZZO"
+                                3 -> "POSIZIONE"
                                 else -> "INSIEME"
                             } + "]"
                         } else if (shapeControl == "SCONTO") {
                             "WOW  SCONTO  [" + when (discountTouchMode) {
                                 1 -> "FORMA"
                                 2 -> "TESTO"
+                                3 -> "POSIZIONE"
                                 else -> "INSIEME"
                             } + "]"
+                        } else if (shapeControl == "DESCRIZIONE") {
+                            "WOW  DESCRIZIONE  [POSIZIONE]"
                         } else if (shapeControl == "FASCIA") {
                             "WOW  FASCIA  [" + when (footerTouchMode) {
                                 1 -> "FORMA"
@@ -3271,7 +3348,15 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                 listOf("TITOLI", "DESCR.", "PREZZO", "SOTTO").forEach { control ->
                     val isSelected = fontControl == control
                     Button(
-                        onClick = { fontControl = control },
+                        onClick = {
+                            fontControl = control
+                            when (control) {
+                                "TITOLI" -> shapeControl = "TITOLO"
+                                "DESCR." -> shapeControl = "DESCRIZIONE"
+                                "PREZZO" -> shapeControl = "PREZZO"
+                                "SOTTO" -> shapeControl = "FASCIA"
+                            }
+                        },
                         modifier = Modifier.weight(1f),
                         colors = ButtonDefaults.buttonColors(
                             containerColor = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
@@ -3377,6 +3462,17 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                     if (product != null) {
                         val descriptionLength = product.description.trim().length
                         val publicPrice = product.publicPrice.replace(",", ".").toDoubleOrNull() ?: 0.0
+
+                        // AUTO layout: riporta gli elementi mobili in una composizione sicura
+                        // e poi applica il dimensionamento intelligente già esistente.
+                        imagePositionX = 0f
+                        imagePositionY = 0f
+                        descriptionPositionX = 0f
+                        descriptionPositionY = 0f
+                        pricePositionX = 0f
+                        pricePositionY = 0f
+                        discountPositionX = 0f
+                        discountPositionY = 0f
 
                         globalScale = 1.0f
                         titleScale = when {
