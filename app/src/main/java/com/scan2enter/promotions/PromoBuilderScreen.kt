@@ -37,6 +37,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.shape.GenericShape
 import androidx.compose.material3.Button
@@ -758,6 +759,69 @@ private fun promoPriceShape(index: Int): Shape =
             close()
         }
     }
+private fun promoReportShape(name: String): Shape =
+    when (name) {
+        "QUADRATO" -> RoundedCornerShape(0.dp)
+        "CERCHIO" -> GenericShape { size, _ ->
+            // Cerchio reale inscritto nel report: non viene mai tagliato sui lati.
+            val d = minOf(size.width, size.height)
+            val left = (size.width - d) / 2f
+            val top = (size.height - d) / 2f
+            val k = 0.5522848f
+            val r = d / 2f
+            val cx = left + r
+            val cy = top + r
+            moveTo(cx, top)
+            cubicTo(cx + k * r, top, left + d, cy - k * r, left + d, cy)
+            cubicTo(left + d, cy + k * r, cx + k * r, top + d, cx, top + d)
+            cubicTo(cx - k * r, top + d, left, cy + k * r, left, cy)
+            cubicTo(left, cy - k * r, cx - k * r, top, cx, top)
+            close()
+        }
+        "OVALE" -> GenericShape { size, _ ->
+            // Ovale inscritto con margine laterale: resta sempre intero sul foglio.
+            val left = size.width * 0.03f
+            val right = size.width * 0.97f
+            val top = size.height * 0.10f
+            val bottom = size.height * 0.90f
+            val rx = (right - left) / 2f
+            val ry = (bottom - top) / 2f
+            val cx = (left + right) / 2f
+            val cy = (top + bottom) / 2f
+            val k = 0.5522848f
+            moveTo(cx, top)
+            cubicTo(cx + k * rx, top, right, cy - k * ry, right, cy)
+            cubicTo(right, cy + k * ry, cx + k * rx, bottom, cx, bottom)
+            cubicTo(cx - k * rx, bottom, left, cy + k * ry, left, cy)
+            cubicTo(left, cy - k * ry, cx - k * rx, top, cx, top)
+            close()
+        }
+        "NUVOLA" -> promoPriceShape(30)
+        "CUORE" -> promoPriceShape(40)
+        "POLLICE" -> GenericShape { size, _ ->
+            // Pollice alzato V2: palmo molto ampio; il contenuto vive nel palmo.
+            moveTo(size.width * 0.16f, size.height * 0.38f)
+            lineTo(size.width * 0.31f, size.height * 0.38f)
+            lineTo(size.width * 0.39f, size.height * 0.12f)
+            lineTo(size.width * 0.47f, size.height * 0.02f)
+            lineTo(size.width * 0.56f, 0f)
+            lineTo(size.width * 0.62f, size.height * 0.06f)
+            lineTo(size.width * 0.61f, size.height * 0.30f)
+            lineTo(size.width * 0.88f, size.height * 0.30f)
+            lineTo(size.width * 0.97f, size.height * 0.38f)
+            lineTo(size.width * 0.94f, size.height * 0.86f)
+            lineTo(size.width * 0.84f, size.height * 0.96f)
+            lineTo(size.width * 0.28f, size.height * 0.96f)
+            lineTo(size.width * 0.16f, size.height * 0.86f)
+            lineTo(size.width * 0.05f, size.height * 0.86f)
+            lineTo(0f, size.height * 0.78f)
+            lineTo(0f, size.height * 0.48f)
+            lineTo(size.width * 0.05f, size.height * 0.40f)
+            close()
+        }
+        else -> RoundedCornerShape(18.dp)
+    }
+
 private fun formatPromoPrice(rawPrice: String): String {
     val value = rawPrice
         .trim()
@@ -896,16 +960,17 @@ private fun PromoExplosionBadge(
     proportion: Float,
     shapeTouchScale: Float,
     internalScale: Float,
-    internalRotation: Float
+    internalRotation: Float,
+    layoutFit: Float = 1f
 ) {
     Box(
-        modifier = Modifier.size(width = 250.dp, height = 88.dp),
+        modifier = Modifier.size(width = (250.dp * layoutFit), height = (88.dp * layoutFit)),
         contentAlignment = Alignment.Center
     ) {
         if (shadow > 0f && shapeIndex == 8) {
             Canvas(
                 modifier = Modifier
-                    .size(width = 250.dp * proportion, height = 88.dp / proportion)
+                    .size(width = (250.dp * layoutFit) * proportion, height = (88.dp * layoutFit) / proportion)
                     .graphicsLayer {
                         scaleX = shapeTouchScale
                         scaleY = shapeTouchScale
@@ -947,7 +1012,7 @@ private fun PromoExplosionBadge(
         if (shadow > 0f && shapeIndex != 8) {
             Box(
                 modifier = Modifier
-                    .size(width = 250.dp * proportion, height = 88.dp / proportion)
+                    .size(width = (250.dp * layoutFit) * proportion, height = (88.dp * layoutFit) / proportion)
                     .graphicsLayer {
                         scaleX = shapeTouchScale
                         scaleY = shapeTouchScale
@@ -967,8 +1032,8 @@ private fun PromoExplosionBadge(
     Box(
         modifier = Modifier
             .size(
-                width = 250.dp * proportion,
-                height = 88.dp / proportion
+                width = (250.dp * layoutFit) * proportion,
+                height = (88.dp * layoutFit) / proportion
             )
                     .graphicsLayer {
                         scaleX = shapeTouchScale
@@ -1092,21 +1157,22 @@ private fun PromoDiscountBurst(
     proportion: Float,
     shapeTouchScale: Float,
     internalScale: Float,
-    internalRotation: Float
+    internalRotation: Float,
+    layoutScale: Float = 1f
 ) {
     val discountShape = promoPriceShape(shapeIndex)
 
     Box(
         modifier = Modifier.size(
-            width = (92.dp * proportion) + shadow.dp,
-            height = (70.dp / proportion) + shadow.dp
+            width = (92.dp * layoutScale * proportion) + shadow.dp,
+            height = (70.dp * layoutScale / proportion) + shadow.dp
         ),
         contentAlignment = Alignment.Center
     ) {
         if (shadow > 0f) {
             Box(
                 modifier = Modifier
-                    .size(width = 92.dp * proportion, height = 70.dp / proportion)
+                    .size(width = 92.dp * layoutScale * proportion, height = 70.dp * layoutScale / proportion)
                     .offset(x = shadow.dp, y = shadow.dp)
                     .graphicsLayer {
                         scaleX = shapeTouchScale
@@ -1122,7 +1188,7 @@ private fun PromoDiscountBurst(
 
         Box(
             modifier = Modifier
-                .size(width = 92.dp * proportion, height = 70.dp / proportion)
+                .size(width = 92.dp * layoutScale * proportion, height = 70.dp * layoutScale / proportion)
                 .graphicsLayer {
                     scaleX = shapeTouchScale
                     scaleY = shapeTouchScale
@@ -1269,6 +1335,8 @@ var imageInternalScale by remember { mutableStateOf(1f) }
 var imageInternalRotation by remember { mutableStateOf(0f) }
     // V4: le posizioni usano offset di layout (non sola traslazione grafica),
     // cosi il bersaglio touch segue davvero l'elemento spostato.
+    var titlePositionX by remember { mutableStateOf(0f) }
+    var titlePositionY by remember { mutableStateOf(0f) }
     var imagePositionX by remember { mutableStateOf(0f) }
     var imagePositionY by remember { mutableStateOf(0f) }
     var descriptionPositionX by remember { mutableStateOf(0f) }
@@ -1292,10 +1360,23 @@ var priceInternalRotation by remember { mutableStateOf(0f) }
     var discountPositionY by remember { mutableStateOf(0f) }
     var wowFooterVariant by remember { mutableStateOf(0) }
     var footerTouchMode by remember { mutableStateOf(0) }
+    var footerPositionX by remember { mutableStateOf(0f) }
+    var footerPositionY by remember { mutableStateOf(0f) }
     var footerShapeTouchScale by remember { mutableStateOf(1f) }
     var footerInternalScale by remember { mutableStateOf(1f) }
     var footerInternalRotation by remember { mutableStateOf(0f) }
     var showPromoExpiry by remember { mutableStateOf(true) }
+    // Madre delle modifiche: forma globale del report + visibilita degli elementi.
+    var reportShapeName by remember { mutableStateOf("CLASSICO") }
+    var showTitleElement by remember { mutableStateOf(true) }
+    var showPhotoElement by remember { mutableStateOf(true) }
+    var showDescriptionElement by remember { mutableStateOf(true) }
+    var descriptionAutoScale by remember { mutableStateOf(1.0f) }
+    var descriptionAutoWidth by remember { mutableStateOf(1.0f) }
+    var showPriceElement by remember { mutableStateOf(true) }
+    var priceAutoWidth by remember { mutableStateOf(1.0f) }
+    var showDiscountElement by remember { mutableStateOf(true) }
+    var showFooterElement by remember { mutableStateOf(true) }
     var footerTouchScale by remember { mutableStateOf(1f) }
     var footerTouchRotation by remember { mutableStateOf(0f) }
 
@@ -1513,6 +1594,73 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                 )
             }
 
+            Spacer(Modifier.height(8.dp))
+
+            Text(
+                text = "FORMA REPORT",
+                modifier = Modifier.fillMaxWidth(),
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Black,
+                textAlign = TextAlign.Start
+            )
+            listOf(
+                listOf("CLASSICO", "QUADRATO", "CERCHIO", "OVALE"),
+                listOf("NUVOLA", "CUORE", "POLLICE")
+            ).forEach { shapeRow ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    shapeRow.forEach { reportShape ->
+                        val selected = reportShapeName == reportShape
+                        Button(
+                            onClick = { reportShapeName = reportShape },
+                            modifier = Modifier.weight(1f),
+                            contentPadding = PaddingValues(horizontal = 2.dp, vertical = 5.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                                contentColor = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        ) {
+                            Text(reportShape, fontSize = 8.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+                Spacer(Modifier.height(3.dp))
+            }
+
+            Text(
+                text = "ELEMENTI REPORT",
+                modifier = Modifier.fillMaxWidth(),
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Black,
+                textAlign = TextAlign.Start
+            )
+            listOf(
+                Triple("TITOLO", showTitleElement) { value: Boolean -> showTitleElement = value },
+                Triple("FOTO", showPhotoElement) { value: Boolean -> showPhotoElement = value },
+                Triple("DESCR.", showDescriptionElement) { value: Boolean -> showDescriptionElement = value },
+                Triple("PREZZO", showPriceElement) { value: Boolean -> showPriceElement = value },
+                Triple("SCONTO", showDiscountElement) { value: Boolean -> showDiscountElement = value },
+                Triple("FASCIA", showFooterElement) { value: Boolean -> showFooterElement = value }
+            ).chunked(3).forEach { elementRow ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    elementRow.forEach { (label, checked, setter) ->
+                        Row(
+                            modifier = Modifier.weight(1f),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            Text(label, fontSize = 8.sp, fontWeight = FontWeight.Bold)
+                            Switch(checked = checked, onCheckedChange = setter)
+                        }
+                    }
+                }
+            }
+
             Spacer(Modifier.height(12.dp))
 
             if (selectedPreset == "LIBERO") {
@@ -1572,15 +1720,6 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                 val a3Height = a3Width * (420f / 297f)
                 val a4Width = a3Width * (210f / 297f)
                 val a4Height = a3Height * (297f / 420f)
-                val promoFitScale = if (promoMeasuredSize.width > 0 && promoMeasuredSize.height > 0) {
-                    minOf(
-                        1f,
-                        (promoMeasuredSize.width.toFloat() * (297f / 210f)) / promoMeasuredSize.height.toFloat()
-                    )
-                } else {
-                    1f
-                }
-
                 Box(
                     modifier = Modifier
                         .width(a3Width)
@@ -1616,18 +1755,16 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                             .border(2.dp, Color.Gray)
                     )
                     Box(
-                        modifier = Modifier
-                            .align(Alignment.TopStart)
-                            .graphicsLayer {
-                                scaleX = 1f
-                                scaleY = promoFitScale
-                                transformOrigin = TransformOrigin(0f, 0f)
-                            }
+                        modifier = Modifier.align(Alignment.TopStart)
                     ) {
 
+                    val reportOuterShape = promoReportShape(reportShapeName)
                     Column(
                         modifier = Modifier
                             .width(a4Width)
+                            // V6: dimensione fisica stabile del report.
+                            // FOTO/SCADENZA/contenuto non possono piu cambiare la sagoma.
+                            .height(a4Height)
                             .onGloballyPositioned { coordinates ->
                                 promoMeasuredSize = coordinates.size
                             }
@@ -1656,8 +1793,9 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                             } else {
                                 Color.Black
                             },
-                        shape = RoundedCornerShape(18.dp)
+                        shape = reportOuterShape
                     )
+                    .clip(reportOuterShape)
                     .background(
                         color =
                             if (isBlackPreset) {
@@ -1671,9 +1809,13 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                             } else {
                                 shiftPromoHue(Color(0xFFE30613), colorHue, colorIntensity)
                             },
-                        shape = RoundedCornerShape(18.dp)
+                        shape = reportOuterShape
                     )
-                    .padding(10.dp),
+                    .padding(
+                        start = if (reportShapeName in listOf("CERCHIO", "OVALE", "NUVOLA", "CUORE", "POLLICE")) 28.dp else 10.dp, end = if (reportShapeName in listOf("CERCHIO", "OVALE", "NUVOLA", "CUORE", "POLLICE")) 28.dp else 10.dp,
+                        top = when (reportShapeName) { "CERCHIO" -> ((a4Height - a4Width) / 2) + 14.dp; "NUVOLA", "CUORE", "POLLICE" -> 24.dp; else -> 10.dp },
+                        bottom = if (reportShapeName in listOf("NUVOLA", "CUORE", "POLLICE")) 24.dp else 10.dp
+                    ),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
 
@@ -1681,11 +1823,32 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                  * Testata grafica BOMBA:
                  * esplosione gialla con bordo nero.
                  */
+                // DIAGNOSTICA 2: agiamo direttamente sulla scala del testo renderizzato.
+                // Se CERCHIO e' il ramo visibile, il titolo deve diventare inequivocabilmente minuscolo.
+                val renderedTitleScale = titleScale
+
+                if (showTitleElement) {
                 Box(
-                    modifier = Modifier.combinedClickable(
+                    modifier = Modifier
+                    .fillMaxWidth(
+                        when (reportShapeName) {
+                            // DIAGNOSTICA: volutamente minuscolo per verificare il ramo reale.
+                            "CERCHIO" -> 0.56f
+                            "CUORE" -> 0.52f
+                            "POLLICE" -> 0.48f
+                            "NUVOLA" -> 0.64f
+                            "OVALE" -> 0.68f
+                            else -> 1.00f
+                        }
+                    )
+                    .widthIn(
+                        max = 160.dp
+                    )
+                    .combinedClickable(
                         onLongClick = {
                             if (wowEditMode) {
-                                titleTouchMode = (titleTouchMode + 1) % 3
+                                shapeControl = "TITOLO"
+                                titleTouchMode = 3
                             }
                         },
                         onClick = {
@@ -1749,10 +1912,10 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                         }
                         }
                     )
-                    .pointerInput(wowEditMode, titleTouchMode) {
+                    .pointerInput(wowEditMode) {
                         if (wowEditMode) {
-                            detectTransformGestures { _, _, zoom, rotation ->
-                                if (titleTouchMode == 2) {
+                            detectTransformGestures { _, pan, zoom, rotation ->
+                                if (titleTouchMode == 3) { titlePositionX = (titlePositionX + pan.x).coerceIn(-900f, 900f); titlePositionY = (titlePositionY + pan.y).coerceIn(-700f, 700f) } else if (titleTouchMode == 2) {
                                     titleInternalScale = (titleInternalScale * zoom).coerceIn(0.6f, 1.30f)
                                     titleInternalRotation += rotation
                                 } else if (titleTouchMode == 1) {
@@ -1765,6 +1928,7 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                             }
                         }
                     }
+                    .offset { IntOffset(titlePositionX.roundToInt(), titlePositionY.roundToInt()) }
                     .graphicsLayer {
                         scaleX = titleTouchScale
                         scaleY = titleTouchScale
@@ -1840,8 +2004,8 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                             Text(
                                 text = "BLACK",
                                 color = Color.Black,
-                                fontSize = 34.sp * titleScale,
-                                lineHeight = 32.sp * titleScale,
+                                fontSize = 34.sp * renderedTitleScale,
+                                lineHeight = 32.sp * renderedTitleScale,
                                 fontWeight = FontWeight.Black,
                                 fontFamily = promoFontFamily(explosionFont),
                                 textAlign = TextAlign.Center
@@ -1850,8 +2014,8 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                             Text(
                                 text = "FRIDAY",
                                 color = Color.Black,
-                                fontSize = 25.sp * titleScale,
-                                lineHeight = 24.sp * titleScale,
+                                fontSize = 25.sp * renderedTitleScale,
+                                lineHeight = 24.sp * renderedTitleScale,
                                 fontWeight = FontWeight.Black,
                                 fontFamily = promoFontFamily(explosionFont),
                                 textAlign = TextAlign.Center
@@ -1928,8 +2092,8 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                             Text(
                                 text = liberoTitle1,
                                 color = Color.White,
-                                fontSize = 31.sp * titleScale,
-                                lineHeight = 31.sp * titleScale,
+                                fontSize = 31.sp * renderedTitleScale,
+                                lineHeight = 31.sp * renderedTitleScale,
                                 fontWeight = FontWeight.Black,
                                 fontFamily = promoFontFamily(explosionFont),
                                 textAlign = TextAlign.Center
@@ -1938,8 +2102,8 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                             Text(
                                 text = liberoTitle2,
                                 color = Color.White,
-                                fontSize = 22.sp * titleScale,
-                                lineHeight = 23.sp * titleScale,
+                                fontSize = 22.sp * renderedTitleScale,
+                                lineHeight = 23.sp * renderedTitleScale,
                                 fontWeight = FontWeight.Black,
                                 fontFamily = promoFontFamily(explosionFont),
                                 textAlign = TextAlign.Center
@@ -2025,8 +2189,8 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                                 rotationZ = titleInternalRotation
                             },
                             color = shiftPromoHue(Color(0xFF1B5E20), colorHue, colorIntensity),
-                            fontSize = 27.sp * titleScale,
-                            lineHeight = 29.sp * titleScale,
+                            fontSize = 27.sp * renderedTitleScale,
+                            lineHeight = 29.sp * renderedTitleScale,
                             fontWeight = FontWeight.Black,
                             fontFamily = promoFontFamily(explosionFont),
                             textAlign = TextAlign.Center
@@ -2114,8 +2278,8 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                             Text(
                                 text = "NOVITÀ",
                                 color = shiftPromoHue(Color(0xFF0D47A1), colorHue, colorIntensity),
-                                fontSize = 32.sp * titleScale,
-                                lineHeight = 32.sp * titleScale,
+                                fontSize = 32.sp * renderedTitleScale,
+                                lineHeight = 32.sp * renderedTitleScale,
                                 fontWeight = FontWeight.Black,
                                 fontFamily = promoFontFamily(explosionFont),
                                 textAlign = TextAlign.Center
@@ -2124,7 +2288,7 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                             Text(
                                 text = "APPENA ARRIVATO",
                                 color = shiftPromoHue(Color(0xFF0D47A1), colorHue, colorIntensity),
-                                fontSize = 15.sp * titleScale,
+                                fontSize = 15.sp * renderedTitleScale,
                                 fontWeight = FontWeight.Bold,
                                 fontFamily = promoFontFamily(explosionFont),
                                 textAlign = TextAlign.Center
@@ -2145,12 +2309,14 @@ var colorControl by remember { mutableStateOf("TONALITA") }
 
                 } else {
                     PromoExplosionBadge(
-                        titleScale, explosionFont, titleShape.toInt(),
+                        renderedTitleScale, explosionFont, titleShape.toInt(),
                         titleShapeRotation, titleShapeShadow, titleShapeProportion,
-                        titleShapeTouchScale, titleInternalScale, titleInternalRotation
+                        titleShapeTouchScale, titleInternalScale, titleInternalRotation,
+                        layoutFit = if (reportShapeName == "CERCHIO") 0.55f else 1.00f
                     )
                 }
 
+                }
                 }
                 val reportBackgroundColor =
                     if (isBlackPreset) {
@@ -2167,12 +2333,43 @@ var colorControl by remember { mutableStateOf("TONALITA") }
 
                 val reportContrastColor = promoContrastColor(reportBackgroundColor)
 
-                Spacer(Modifier.height(10.dp))
+                Spacer(Modifier.height(if (reportShapeName == "CERCHIO") 2.dp else 10.dp))
 
+                if (showDescriptionElement) {
+                if (reportShapeName == "CERCHIO") {
+                    AutoFitPromoText(
+                        text = product.description.uppercase(),
+                        modifier = Modifier
+                            .fillMaxWidth(0.88f)
+                            .widthIn(max = 220.dp)
+                            .align(Alignment.CenterHorizontally)
+                            .offset {
+                                IntOffset(descriptionPositionX.roundToInt(), descriptionPositionY.roundToInt())
+                            },
+                        maxFontSize = 19f * descriptionAutoScale,
+                        minFontSize = 8f,
+                        fontWeight = FontWeight.Black,
+                        fontFamily = promoFontFamily(descriptionFont),
+                        color = reportContrastColor,
+                        textAlign = TextAlign.Center,
+                        maxLines = 1
+                    )
+                } else {
                 Text(
                     text = product.description.uppercase(),
                     modifier = Modifier
-                        .fillMaxWidth()
+                        .fillMaxWidth(
+                            when (reportShapeName) {
+                                "CERCHIO" -> 0.56f
+                                "CUORE" -> 0.52f
+                                "POLLICE" -> 0.48f
+                                "NUVOLA" -> 0.64f
+                                "OVALE" -> 0.68f
+                                else -> descriptionAutoWidth
+                            }
+                        )
+                        .widthIn(max = 160.dp)
+                        .align(Alignment.CenterHorizontally)
                         .combinedClickable(
                             onLongClick = {
                                 if (wowEditMode) {
@@ -2198,14 +2395,16 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                         }
                         .zIndex(if (shapeControl == "DESCRIZIONE") 30f else 1f),
                     textAlign = TextAlign.Center,
-                    fontSize = 19.sp,
-                    lineHeight = 21.sp,
+                    fontSize = 19.sp * descriptionAutoScale,
+                    lineHeight = 21.sp * descriptionAutoScale,
                     fontWeight = FontWeight.Black,
                     fontFamily = promoFontFamily(descriptionFont),
                     color = reportContrastColor
                 )
+                }
+                }
 
-                Spacer(Modifier.height(10.dp))
+                Spacer(Modifier.height(if (reportShapeName == "CERCHIO") 2.dp else 10.dp))
 
                 val promo = selectedPromo
 
@@ -2241,7 +2440,11 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                 // V4: piano centrale condiviso. FOTO/PREZZO/DESCRIZIONE/SCONTO
                 // sono indipendenti; lo SCONTO non e piu figlio della FOTO.
                 Box(
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        // V5: il piano non collassa quando FOTO e' OFF.
+                        // SCONTO e gli altri elementi mantengono quindi lo stesso sistema di riferimento.
+.height(if (reportShapeName == "CERCHIO") 110.dp else 190.dp)
                 ) {
                 Row(
                     modifier = Modifier
@@ -2254,30 +2457,33 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                     /*
                      * Foto prodotto su riquadro bianco.
                      */
+                    val reportPhotoWidth = if (reportShapeName == "CERCHIO") 122.dp else 142.dp
+                    val reportPhotoHeight = if (reportShapeName == "CERCHIO") 136.dp else 158.dp
                     Column(
                         modifier = Modifier
-                            .width(142.dp)
+                            .width(reportPhotoWidth)
+                            .graphicsLayer { alpha = if (showPhotoElement) 1f else 0f }
                             .offset { IntOffset(imagePositionX.roundToInt(), imagePositionY.roundToInt()) }
                             .zIndex(if (shapeControl == "FOTO") 30f else 2f),
                         horizontalAlignment = Alignment.Start
                     ) {
                         Box(
                             modifier = Modifier.size(
-                                width = 142.dp,
-                                height = 158.dp
+                                width = reportPhotoWidth,
+                                height = reportPhotoHeight
                             )
                         ) {
                         Box(
                             modifier = Modifier
                                 .size(
-                                    width = 142.dp,
-                                    height = 158.dp,
+                                    width = reportPhotoWidth,
+                                    height = reportPhotoHeight,
                                 )
                                 .combinedClickable(
                                     onLongClick = {
                                         if (wowEditMode) {
                                             shapeControl = "FOTO"
-                                            imageTouchMode = (imageTouchMode + 1) % 4
+                                            imageTouchMode = 3
                                         }
                                     },
                                     onClick = {
@@ -2457,12 +2663,36 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                     /*
                      * Area prezzo: deve essere il punto più forte del cartello.
                      */
+                    if (showPriceElement) {
                     Column(
                         modifier = Modifier
-                            .weight(1f)
+                            .then(
+                                if (reportShapeName in listOf("CLASSICO", "QUADRATO") && showPhotoElement) {
+                                    Modifier.weight(1f)
+                                } else {
+                                    // V7: larghezza fisica vera, indipendente dalla presenza FOTO.
+                                    Modifier
+                                        .fillMaxWidth(
+                                            when (reportShapeName) {
+                                                "CERCHIO" -> 0.78f
+                                                "CUORE" -> 0.47f
+                                                "POLLICE" -> 0.44f
+                                                "NUVOLA" -> 0.58f
+                                                "OVALE" -> 0.62f
+                                                else -> priceAutoWidth
+                                            }
+                                        )
+                                        .widthIn(max = 150.dp)
+                                }
+                            )
+                            .offset(x = if (reportShapeName == "CERCHIO") 31.dp else 0.dp)
                             .offset { IntOffset(pricePositionX.roundToInt(), pricePositionY.roundToInt()) }
                             .graphicsLayer {
-                                scaleX = priceTouchScale
+                                // Con FOTO ON conserviamo il comportamento V4.
+                                // Con FOTO OFF la larghezza e' gia' fisicamente vincolata sopra.
+                                scaleX = priceTouchScale * if (
+                                    showPhotoElement && reportShapeName in listOf("CLASSICO", "QUADRATO")
+                                ) priceAutoWidth else 1f
                                 scaleY = priceTouchScale
                                 rotationZ = priceTouchRotation
                             }
@@ -2678,20 +2908,24 @@ var colorControl by remember { mutableStateOf("TONALITA") }
 
 
                     }
+                    }
                 }
 
 
                     // SCONTO indipendente dalla FOTO: stesso piano centrale, propria posizione e proprio touch.
                     if (
+                        showDiscountElement &&
                         effectiveDiscount != null &&
                         effectiveDiscount > 0.0
                     ) {
                         Box(
                             modifier = Modifier
-                                .align(Alignment.TopStart)
+                                .align(Alignment.TopCenter)
+                                // V4: niente piu ancora geometrica alla FOTO 142x158.
+                                // Lo SCONTO nasce nel piano centrale e AUTO lo colloca in zona sicura.
                                 .offset(
-                                    x = 142.dp - ((92.dp * discountShapeProportion) + discountShapeShadow.dp) + 26.dp,
-                                    y = 158.dp - ((70.dp / discountShapeProportion) + discountShapeShadow.dp) + 18.dp
+                                    x = if (reportShapeName == "CERCHIO" && showPhotoElement) 32.dp else 0.dp,
+                                    y = if (reportShapeName == "CERCHIO" && showPhotoElement) 58.dp else 6.dp
                                 )
                                 .offset {
                                     IntOffset(discountPositionX.roundToInt(), discountPositionY.roundToInt())
@@ -2706,7 +2940,7 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                                     onLongClick = {
                                         if (wowEditMode) {
                                             shapeControl = "SCONTO"
-                                            discountTouchMode = (discountTouchMode + 1) % 4
+                                            discountTouchMode = 3
                                         }
                                     },
                                     onClick = {
@@ -2753,13 +2987,15 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                                 proportion = discountShapeProportion,
                                 shapeTouchScale = discountShapeTouchScale,
                                 internalScale = discountInternalScale,
-                                internalRotation = discountInternalRotation
+                                internalRotation = discountInternalRotation,
+                                layoutScale = if (reportShapeName == "CERCHIO") 0.80f else 1.00f
                             )
                         }
                     }
                 }
-                Spacer(Modifier.height(10.dp))
+                Spacer(Modifier.height(if (reportShapeName == "CERCHIO") 0.dp else 10.dp))
 
+                if (showFooterElement) {
                 Box(
                     modifier = Modifier.fillMaxWidth()
                 ) {
@@ -2790,17 +3026,19 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .heightIn(min = 44.dp)
+                            .heightIn(min = if (reportShapeName == "CERCHIO") 30.dp else 44.dp)
+                            .offset { IntOffset(footerPositionX.roundToInt(), footerPositionY.roundToInt()) }
                             .onGloballyPositioned { footerShapeMeasuredSize = it.size }
                             .graphicsLayer {
-                                scaleX = footerTouchScale * footerScale
-                                scaleY = footerTouchScale * footerScale
+                                scaleX = footerTouchScale * footerScale * if (reportShapeName == "CERCHIO") 0.95f else 1f
+                                scaleY = footerTouchScale * footerScale * if (reportShapeName == "CERCHIO") 0.95f else 1f
                                 rotationZ = footerTouchRotation
                             }
                             .combinedClickable(
                                 onLongClick = {
                                     if (wowEditMode) {
-                                        footerTouchMode = (footerTouchMode + 1) % 3
+                                        shapeControl = "FASCIA"
+                                        footerTouchMode = 3
                                     }
                                 },
                                 onClick = {
@@ -2820,8 +3058,11 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                             )
                             .pointerInput(wowEditMode, footerTouchMode) {
                                 if (wowEditMode) {
-                                    detectTransformGestures { _, _, zoom, rotation ->
-                                        if (footerTouchMode == 2) {
+                                    detectTransformGestures { _, pan, zoom, rotation ->
+                                        if (footerTouchMode == 3) {
+                                            footerPositionX = (footerPositionX + pan.x).coerceIn(-900f, 900f)
+                                            footerPositionY = (footerPositionY + pan.y).coerceIn(-700f, 700f)
+                                        } else if (footerTouchMode == 2) {
                                             footerInternalScale = (footerInternalScale * zoom).coerceIn(0.60f, 2.50f)
                                             footerInternalRotation += rotation
                                         } else if (footerTouchMode == 1) {
@@ -2886,29 +3127,42 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                         )
                     }
                 }
+                }
 
                 val promoValidTo = selectedPromo?.validTo
                     ?.trim()
                     ?.takeIf { it.isNotBlank() }
 
-                if (showPromoExpiry && promoValidTo != null) {
-                    val promoExpiryText =
-                        promoValidTo.take(10).split("-").let { parts ->
-                            if (parts.size == 3) {
-                                "${parts[2]}/${parts[1]}/${parts[0]}"
-                            } else {
-                                promoValidTo.take(10)
-                            }
-                        }
+                val promoExpiryText = promoValidTo?.take(10)?.split("-")?.let { parts ->
+                    if (parts.size == 3) {
+                        "${parts[2]}/${parts[1]}/${parts[0]}"
+                    } else {
+                        promoValidTo.take(10)
+                    }
+                }
 
-
-                    Spacer(Modifier.height(6.dp))
+                // V8: lo slot esiste sempre; ON/OFF cambia solo il contenuto disegnato.
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(18.dp),
+                    contentAlignment = Alignment.Center
+                ) {
                     Text(
-                        text = "VALIDO FINO AL $promoExpiryText",
+                        text = if (promoExpiryText != null) {
+                            "VALIDO FINO AL $promoExpiryText"
+                        } else {
+                            "VALIDO FINO AL 00/00/0000"
+                        },
                         modifier = Modifier.fillMaxWidth(),
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Black,
-                        color = reportContrastColor,
+                        // V9: stesso identico nodo e stessa misura ON/OFF.
+                        color = if (showPromoExpiry && promoExpiryText != null) {
+                            reportContrastColor
+                        } else {
+                            Color.Transparent
+                        },
                         textAlign = TextAlign.Center
                     )
                 }
@@ -2973,6 +3227,7 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                             "WOW  TITOLO  [" + when (titleTouchMode) {
                                 1 -> "FORMA"
                                 2 -> "TESTO"
+                                3 -> "POSIZIONE"
                                 else -> "INSIEME"
                             } + "]"
                         } else if (shapeControl == "FOTO") {
@@ -2994,6 +3249,7 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                                 1 -> "FORMA"
                                 2 -> "TESTO"
                                 3 -> "POSIZIONE"
+                                3 -> "POSIZIONE"
                                 else -> "INSIEME"
                             } + "]"
                         } else if (shapeControl == "DESCRIZIONE") {
@@ -3002,6 +3258,7 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                             "WOW  FASCIA  [" + when (footerTouchMode) {
                                 1 -> "FORMA"
                                 2 -> "TESTO"
+                                3 -> "POSIZIONE"
                                 else -> "INSIEME"
                             } + "]"
                         } else {
@@ -3463,8 +3720,10 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                         val descriptionLength = product.description.trim().length
                         val publicPrice = product.publicPrice.replace(",", ".").toDoubleOrNull() ?: 0.0
 
-                        // AUTO layout: riporta gli elementi mobili in una composizione sicura
-                        // e poi applica il dimensionamento intelligente già esistente.
+                        // AUTO intelligente: parte da zero e ricompone in base alla sagoma
+                        // globale e agli elementi che l'utente ha deciso di mostrare.
+                        titlePositionX = 0f
+                        titlePositionY = 0f
                         imagePositionX = 0f
                         imagePositionY = 0f
                         descriptionPositionX = 0f
@@ -3473,6 +3732,61 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                         pricePositionY = 0f
                         discountPositionX = 0f
                         discountPositionY = 0f
+                        descriptionAutoScale = 1.00f
+                        descriptionAutoWidth = 1.00f
+                        priceAutoWidth = 1.00f
+
+                        when (reportShapeName) {
+                            "CERCHIO" -> {
+                                titlePositionY = 0f
+                                // Tutto converge verso il disco centrale, lontano dagli angoli.
+                                imagePositionX = if (showPhotoElement) 10f else 0f
+                                imagePositionY = 0f
+                                pricePositionX = if (showPhotoElement) -10f else 0f
+                                pricePositionY = 0f
+                                descriptionPositionY = 0f
+                                discountPositionX = 0f
+                                discountPositionY = 0f
+                            }
+                            "OVALE" -> {
+                                imagePositionX = if (showPhotoElement) 8f else 0f
+                                imagePositionY = 28f
+                                pricePositionX = if (showPhotoElement) -8f else 0f
+                                pricePositionY = 18f
+                                descriptionPositionY = 18f
+                                discountPositionX = 0f
+                                discountPositionY = 34f
+                            }
+                            "NUVOLA" -> {
+                                imagePositionX = if (showPhotoElement) 12f else 0f
+                                imagePositionY = 30f
+                                pricePositionX = if (showPhotoElement) -14f else 0f
+                                pricePositionY = 22f
+                                descriptionPositionY = 18f
+                                discountPositionX = 0f
+                                discountPositionY = 38f
+                            }
+                            "CUORE" -> {
+                                imagePositionX = if (showPhotoElement) 8f else 0f
+                                imagePositionY = 70f
+                                pricePositionX = if (showPhotoElement) -12f else 0f
+                                pricePositionY = 46f
+                                descriptionPositionY = 38f
+                                discountPositionX = 0f
+                                discountPositionY = 58f
+                            }
+                            "POLLICE" -> {
+                                // Il palmo è la zona utile: evitiamo la parte alta del pollice.
+                                imagePositionX = if (showPhotoElement) 8f else 0f
+                                imagePositionY = 78f
+                                pricePositionX = if (showPhotoElement) -12f else 0f
+                                pricePositionY = 58f
+                                descriptionPositionX = 0f
+                                descriptionPositionY = 42f
+                                discountPositionX = -6f
+                                discountPositionY = 68f
+                            }
+                        }
 
                         globalScale = 1.0f
                         titleScale = when {
@@ -3481,21 +3795,94 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                             else -> 1.02f
                         }
                         imageScale = when {
+                            !showPhotoElement -> 1.00f
+                            reportShapeName in listOf("CERCHIO", "CUORE", "POLLICE") -> 0.68f
+                            reportShapeName in listOf("OVALE", "NUVOLA") -> 0.78f
                             descriptionLength > 45 -> 0.95f
                             descriptionLength < 25 -> 1.05f
                             else -> 1.00f
                         }
-                        priceScale = when {
+                        val baseAutoPriceScale = when {
                             publicPrice < 10.0 -> 1.20f
                             publicPrice < 100.0 -> 1.15f
                             publicPrice < 1000.0 -> 1.08f
                             else -> 0.98f
+                        }
+                        val reportPriceFit = when (reportShapeName) {
+                            "CERCHIO" -> 0.52f
+                            "CUORE" -> 0.50f
+                            "POLLICE" -> 0.48f
+                            "NUVOLA" -> 0.62f
+                            "OVALE" -> 0.68f
+                            else -> 1.00f
+                        }
+                        // V5: FOTO OFF libera spazio, ma non autorizza il prezzo ad allargarsi.
+                        priceScale = baseAutoPriceScale * reportPriceFit
+
+                        // V3: anche la descrizione partecipa realmente al fit AUTO.
+                        // Le sagome strette e le descrizioni lunghe ricevono una compressione extra.
+                        val descriptionLengthFit = when {
+                            descriptionLength > 70 -> 0.58f
+                            descriptionLength > 50 -> 0.66f
+                            descriptionLength > 35 -> 0.76f
+                            else -> 0.88f
+                        }
+                        val reportDescriptionFit = when (reportShapeName) {
+                            "CERCHIO" -> 0.62f
+                            "CUORE" -> 0.58f
+                            "POLLICE" -> 0.56f
+                            "NUVOLA" -> 0.70f
+                            "OVALE" -> 0.76f
+                            else -> 1.00f
+                        }
+                        descriptionAutoScale = if (reportShapeName in listOf("CLASSICO", "QUADRATO")) {
+                            1.00f
+                        } else {
+                            (descriptionLengthFit * reportDescriptionFit).coerceIn(0.38f, 0.78f)
+                        }
+
+                        // V4: fit orizzontale indipendente dalla scala verticale.
+                        // Nelle sagome curve la larghezza utile e' molto inferiore al bounding box.
+                        descriptionAutoWidth = when (reportShapeName) {
+                            "CERCHIO" -> 0.48f
+                            "CUORE" -> 0.46f
+                            "POLLICE" -> 0.44f
+                            "NUVOLA" -> 0.58f
+                            "OVALE" -> 0.62f
+                            else -> 1.00f
+                        }
+                        priceAutoWidth = when (reportShapeName) {
+                            "CERCHIO" -> 0.52f
+                            "CUORE" -> 0.50f
+                            "POLLICE" -> 0.46f
+                            "NUVOLA" -> 0.60f
+                            "OVALE" -> 0.64f
+                            else -> 1.00f
                         }
                         titleShapeProportion = 1.00f
                         imageShapeProportion = 1.00f
                         priceShapeProportion = if (publicPrice < 100.0) 1.08f else 1.00f
                         discountShapeProportion = 1.00f
                         footerShapeProportion = 1.00f
+
+                        // V2: AUTO ridimensiona anche gli elementi fissi per rispettare
+                        // l'area sicura delle sagome non rettangolari.
+                        val safeShapeScale = when (reportShapeName) {
+                            "CERCHIO" -> 0.60f
+                            "CUORE" -> 0.58f
+                            "POLLICE" -> 0.56f
+                            "NUVOLA" -> 0.68f
+                            "OVALE" -> 0.74f
+                            else -> 1.00f
+                        }
+                        if (reportShapeName != "CLASSICO" && reportShapeName != "QUADRATO") {
+                            titleScale *= safeShapeScale
+                            discountScale = safeShapeScale
+                            footerScale = safeShapeScale
+                        } else {
+                            discountScale = 1.00f
+                            footerScale = 1.00f
+                        }
                     }
                 },
                 modifier = Modifier.weight(1f)
@@ -4075,6 +4462,64 @@ body {
 </html>
 """.trimIndent()
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
