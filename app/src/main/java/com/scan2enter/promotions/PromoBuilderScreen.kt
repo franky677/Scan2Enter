@@ -1375,6 +1375,9 @@ var priceInternalRotation by remember { mutableStateOf(0f) }
     var descriptionAutoWidth by remember { mutableStateOf(1.0f) }
     var showPriceElement by remember { mutableStateOf(true) }
     var priceAutoWidth by remember { mutableStateOf(1.0f) }
+    var circleDescriptionWidth by remember { mutableStateOf(0.88f) }
+    var circlePriceWidth by remember { mutableStateOf(0.78f) }
+    var autoCollapsePhotoSlot by remember { mutableStateOf(false) }
     var showDiscountElement by remember { mutableStateOf(true) }
     var showFooterElement by remember { mutableStateOf(true) }
     var footerTouchScale by remember { mutableStateOf(1f) }
@@ -2340,7 +2343,7 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                     AutoFitPromoText(
                         text = product.description.uppercase(),
                         modifier = Modifier
-                            .fillMaxWidth(0.88f)
+                            .fillMaxWidth(circleDescriptionWidth)
                             .widthIn(max = 220.dp)
                             .align(Alignment.CenterHorizontally)
                             .offset {
@@ -2457,7 +2460,7 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                     /*
                      * Foto prodotto su riquadro bianco.
                      */
-                    val reportPhotoWidth = if (reportShapeName == "CERCHIO") 122.dp else 142.dp
+                    val reportPhotoWidth = if (reportShapeName == "CERCHIO" && autoCollapsePhotoSlot && !showPhotoElement) 0.dp else if (reportShapeName == "CERCHIO") 122.dp else 142.dp
                     val reportPhotoHeight = if (reportShapeName == "CERCHIO") 136.dp else 158.dp
                     Column(
                         modifier = Modifier
@@ -2674,7 +2677,7 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                                     Modifier
                                         .fillMaxWidth(
                                             when (reportShapeName) {
-                                                "CERCHIO" -> 0.78f
+                                                "CERCHIO" -> circlePriceWidth
                                                 "CUORE" -> 0.47f
                                                 "POLLICE" -> 0.44f
                                                 "NUVOLA" -> 0.58f
@@ -3720,6 +3723,15 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                         val descriptionLength = product.description.trim().length
                         val publicPrice = product.publicPrice.replace(",", ".").toDoubleOrNull() ?: 0.0
 
+                        val activeElementCount = listOf(
+                            showTitleElement,
+                            showPhotoElement,
+                            showDescriptionElement,
+                            showPriceElement,
+                            showDiscountElement,
+                            showFooterElement
+                        ).count { it }
+
                         // AUTO intelligente: parte da zero e ricompone in base alla sagoma
                         // globale e agli elementi che l'utente ha deciso di mostrare.
                         titlePositionX = 0f
@@ -3738,15 +3750,52 @@ var colorControl by remember { mutableStateOf("TONALITA") }
 
                         when (reportShapeName) {
                             "CERCHIO" -> {
-                                titlePositionY = 0f
-                                // Tutto converge verso il disco centrale, lontano dagli angoli.
-                                imagePositionX = if (showPhotoElement) 10f else 0f
-                                imagePositionY = 0f
-                                pricePositionX = if (showPhotoElement) -10f else 0f
-                                pricePositionY = 0f
-                                descriptionPositionY = 0f
-                                discountPositionX = 0f
-                                discountPositionY = 0f
+                                // AUTO CERCHIO V2: densita' e presenza degli elementi guidano la composizione.
+                                val crowded = activeElementCount >= 6
+                                val relaxed = activeElementCount <= 4
+                                autoCollapsePhotoSlot = !showPhotoElement
+
+                                circleDescriptionWidth = when {
+                                    !showPhotoElement && relaxed -> 0.96f
+                                    !showPhotoElement -> 0.92f
+                                    crowded -> 0.78f
+                                    else -> 0.86f
+                                }
+                                circlePriceWidth = when {
+                                    !showPhotoElement && relaxed -> 0.94f
+                                    !showPhotoElement -> 0.88f
+                                    crowded -> 0.68f
+                                    else -> 0.76f
+                                }
+
+                                titlePositionY = if (crowded) -4f else if (relaxed) 3f else 0f
+                                descriptionPositionY = if (crowded) -2f else if (relaxed) 3f else 0f
+
+                                if (showPhotoElement && showPriceElement) {
+                                    imagePositionX = if (crowded) 4f else 8f
+                                    imagePositionY = if (crowded) -2f else 2f
+                                    pricePositionX = if (crowded) -14f else -8f
+                                    pricePositionY = if (crowded) 0f else 3f
+                                } else if (showPhotoElement) {
+                                    imagePositionX = 38f
+                                    imagePositionY = if (relaxed) 4f else 0f
+                                } else if (showPriceElement) {
+                                    pricePositionX = -54f
+                                    pricePositionY = if (relaxed) 6f else 2f
+                                }
+
+                                if (showDiscountElement) {
+                                    discountPositionX = when {
+                                        showPhotoElement -> 4f
+                                        showPriceElement -> 46f
+                                        else -> 0f
+                                    }
+                                    discountPositionY = when {
+                                        showPhotoElement -> if (crowded) -4f else 2f
+                                        showPriceElement -> 18f
+                                        else -> 8f
+                                    }
+                                }
                             }
                             "OVALE" -> {
                                 imagePositionX = if (showPhotoElement) 8f else 0f
@@ -3809,7 +3858,12 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                             else -> 0.98f
                         }
                         val reportPriceFit = when (reportShapeName) {
-                            "CERCHIO" -> 0.52f
+                            "CERCHIO" -> when {
+                                !showPhotoElement && activeElementCount <= 4 -> 0.88f
+                                !showPhotoElement -> 0.76f
+                                activeElementCount >= 6 -> 0.58f
+                                else -> 0.68f
+                            }
                             "CUORE" -> 0.50f
                             "POLLICE" -> 0.48f
                             "NUVOLA" -> 0.62f
@@ -3828,7 +3882,12 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                             else -> 0.88f
                         }
                         val reportDescriptionFit = when (reportShapeName) {
-                            "CERCHIO" -> 0.62f
+                            "CERCHIO" -> when {
+                                !showPhotoElement && activeElementCount <= 4 -> 0.92f
+                                !showPhotoElement -> 0.82f
+                                activeElementCount >= 6 -> 0.64f
+                                else -> 0.74f
+                            }
                             "CUORE" -> 0.58f
                             "POLLICE" -> 0.56f
                             "NUVOLA" -> 0.70f
@@ -3852,7 +3911,12 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                             else -> 1.00f
                         }
                         priceAutoWidth = when (reportShapeName) {
-                            "CERCHIO" -> 0.52f
+                            "CERCHIO" -> when {
+                                !showPhotoElement && activeElementCount <= 4 -> 0.88f
+                                !showPhotoElement -> 0.76f
+                                activeElementCount >= 6 -> 0.58f
+                                else -> 0.68f
+                            }
                             "CUORE" -> 0.50f
                             "POLLICE" -> 0.46f
                             "NUVOLA" -> 0.60f
@@ -3868,7 +3932,12 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                         // V2: AUTO ridimensiona anche gli elementi fissi per rispettare
                         // l'area sicura delle sagome non rettangolari.
                         val safeShapeScale = when (reportShapeName) {
-                            "CERCHIO" -> 0.60f
+                            "CERCHIO" -> when {
+                                activeElementCount <= 3 -> 0.88f
+                                activeElementCount == 4 -> 0.78f
+                                activeElementCount == 5 -> 0.68f
+                                else -> 0.60f
+                            }
                             "CUORE" -> 0.58f
                             "POLLICE" -> 0.56f
                             "NUVOLA" -> 0.68f
@@ -3877,8 +3946,8 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                         }
                         if (reportShapeName != "CLASSICO" && reportShapeName != "QUADRATO") {
                             titleScale *= safeShapeScale
-                            discountScale = safeShapeScale
-                            footerScale = safeShapeScale
+                            discountScale = if (reportShapeName == "CERCHIO") 1.00f else safeShapeScale
+                            footerScale = if (reportShapeName == "CERCHIO") 1.00f else safeShapeScale
                         } else {
                             discountScale = 1.00f
                             footerScale = 1.00f
@@ -4462,6 +4531,18 @@ body {
 </html>
 """.trimIndent()
 }
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
