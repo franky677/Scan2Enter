@@ -83,6 +83,7 @@ import com.scan2enter.api.ProductPriceListDto
 import com.scan2enter.session.SessionItem
 import com.scan2enter.session.SessionStore
 import com.scan2enter.session.SessionCustomerStore
+import com.scan2enter.printing.ListPdfGenerator
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -90,6 +91,7 @@ import kotlin.math.abs
 import com.scan2enter.scanner.ScannerModeDetector
 private const val SESSION_UI_PREFS = "session_ui_prefs"
 private const val KEY_SEARCH_ON_LEFT = "search_on_left"
+private const val KEY_SESSION_BUTTON_POSITION = "session_button_position"
 
 @Composable
 fun SessionScreen(
@@ -138,6 +140,17 @@ fun SessionScreen(
         )
     }
 
+    var sessionButtonPosition by remember {
+        mutableStateOf(
+            context.getSharedPreferences(
+                SESSION_UI_PREFS,
+                Context.MODE_PRIVATE
+            ).getInt(
+                KEY_SESSION_BUTTON_POSITION,
+                2
+            ).coerceIn(0, 2)
+        )
+    }
     var actionPanelOpen by remember {
         mutableStateOf(false)
     }
@@ -393,6 +406,7 @@ fun SessionScreen(
 
                 SessionBottomBar(
                     searchOnLeft = searchOnLeft,
+                    sessionButtonPosition = sessionButtonPosition,
                     sessionCount = sessionItems.size,
                     onSessionClick = {
                         actionPanelOpen = !actionPanelOpen
@@ -407,6 +421,23 @@ fun SessionScreen(
                             .putBoolean(
                                 KEY_SEARCH_ON_LEFT,
                                 searchOnLeft
+                            )
+                            .apply()
+
+                        vibrateSwap(context)
+                    },
+                    onMoveSessionButton = { direction ->
+                        sessionButtonPosition =
+                            (sessionButtonPosition + direction)
+                                .coerceIn(0, 2)
+
+                        context.getSharedPreferences(
+                            SESSION_UI_PREFS,
+                            Context.MODE_PRIVATE
+                        ).edit()
+                            .putInt(
+                                KEY_SESSION_BUTTON_POSITION,
+                                sessionButtonPosition
                             )
                             .apply()
 
@@ -920,9 +951,11 @@ fun SessionScreen(
 @Composable
 private fun SessionBottomBar(
     searchOnLeft: Boolean,
+    sessionButtonPosition: Int,
     sessionCount: Int,
     onSessionClick: () -> Unit,
     onSwap: () -> Unit,
+    onMoveSessionButton: (Int) -> Unit,
     onScan: () -> Unit,
     onSearch: () -> Unit
 ) {
@@ -937,47 +970,92 @@ private fun SessionBottomBar(
                 .padding(8.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            if (searchOnLeft) {
-                SearchActionButton(
-                    modifier = Modifier.weight(4.5f),
-                    onClick = onSearch,
-                    onSwap = onSwap
-                )
+            val leftAction: @Composable (Modifier) -> Unit =
+                { modifier ->
+                    if (searchOnLeft) {
+                        SearchActionButton(
+                            modifier = modifier,
+                            onClick = onSearch,
+                            onSwap = onSwap
+                        )
+                    } else {
+                        ScanActionButton(
+                            modifier = modifier,
+                            onClick = onScan,
+                            onSwap = onSwap
+                        )
+                    }
+                }
 
-                ScanActionButton(
-                    modifier = Modifier.weight(4.5f),
-                    onClick = onScan,
-                    onSwap = onSwap
-                )
-            } else {
-                ScanActionButton(
-                    modifier = Modifier.weight(4.5f),
-                    onClick = onScan,
-                    onSwap = onSwap
-                )
+            val rightAction: @Composable (Modifier) -> Unit =
+                { modifier ->
+                    if (searchOnLeft) {
+                        ScanActionButton(
+                            modifier = modifier,
+                            onClick = onScan,
+                            onSwap = onSwap
+                        )
+                    } else {
+                        SearchActionButton(
+                            modifier = modifier,
+                            onClick = onSearch,
+                            onSwap = onSwap
+                        )
+                    }
+                }
 
-                SearchActionButton(
-                    modifier = Modifier.weight(4.5f),
-                    onClick = onSearch,
-                    onSwap = onSwap
-                )
+            when (sessionButtonPosition.coerceIn(0, 2)) {
+                0 -> {
+                    SessionActionButton(
+                        modifier = Modifier.weight(1f),
+                        count = sessionCount,
+                        onClick = onSessionClick,
+                        onMove = onMoveSessionButton
+                    )
+
+                    leftAction(Modifier.weight(4.5f))
+                    rightAction(Modifier.weight(4.5f))
+                }
+
+                1 -> {
+                    leftAction(Modifier.weight(4.5f))
+
+                    SessionActionButton(
+                        modifier = Modifier.weight(1f),
+                        count = sessionCount,
+                        onClick = onSessionClick,
+                        onMove = onMoveSessionButton
+                    )
+
+                    rightAction(Modifier.weight(4.5f))
+                }
+
+                else -> {
+                    leftAction(Modifier.weight(4.5f))
+                    rightAction(Modifier.weight(4.5f))
+
+                    SessionActionButton(
+                        modifier = Modifier.weight(1f),
+                        count = sessionCount,
+                        onClick = onSessionClick,
+                        onMove = onMoveSessionButton
+                    )
+                }
             }
-
-            SessionActionButton(
-                modifier = Modifier.weight(1f),
-                count = sessionCount,
-                onClick = onSessionClick
-            )
         }
     }
 }
-
 @Composable
 private fun SessionActionButton(
     modifier: Modifier,
     count: Int,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onMove: (Int) -> Unit
 ) {
+    var accumulatedDragX by remember {
+        mutableFloatStateOf(0f)
+    }
+
     Box(
         modifier = modifier
             .height(96.dp)
@@ -985,6 +1063,31 @@ private fun SessionActionButton(
                 color = Color(0xFF424242),
                 shape = RoundedCornerShape(18.dp)
             )
+            .pointerInput(Unit) {
+                detectDragGesturesAfterLongPress(
+                    onDragStart = {
+                        accumulatedDragX = 0f
+                    },
+                    onDrag = { change, dragAmount ->
+                        change.consume()
+                        accumulatedDragX += dragAmount.x
+                    },
+                    onDragEnd = {
+                        when {
+                            accumulatedDragX > 30f ->
+                                onMove(1)
+
+                            accumulatedDragX < -30f ->
+                                onMove(-1)
+                        }
+
+                        accumulatedDragX = 0f
+                    },
+                    onDragCancel = {
+                        accumulatedDragX = 0f
+                    }
+                )
+            }
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
@@ -992,7 +1095,7 @@ private fun SessionActionButton(
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text(
-                text = "📋",
+                text = "\uD83D\uDCCB",
                 fontSize = 24.sp
             )
 
@@ -1005,7 +1108,6 @@ private fun SessionActionButton(
         }
     }
 }
-
 @Composable
 private fun SessionActionPanel(
     items: List<SessionItem>,
@@ -1064,8 +1166,16 @@ private fun SessionActionPanel(
         mutableStateOf(false)
     }
 
+
     var paymentDialogOpen by remember {
         mutableStateOf(false)
+    }
+
+    var deliveryReportDialogOpen by remember {
+        mutableStateOf(false)
+    }
+    var deliveryReportShowPrices by remember {
+        mutableStateOf(true)
     }
 
     val gatewayApiClient = remember {
@@ -1193,6 +1303,7 @@ private fun SessionActionPanel(
                 )
             }
 
+
             Button(
                 onClick = {
                     val payloadItems =
@@ -1307,6 +1418,8 @@ private fun SessionActionPanel(
                     }
                 )
             }
+
+
 
             Button(
                 onClick = onOpenColloHistory,
@@ -1603,6 +1716,15 @@ private fun SessionActionPanel(
                         Text("💶  PAGAMENTO / RESTO")
                     }
 
+                    Button(
+                        onClick = {
+                            deliveryReportDialogOpen = true
+                        },
+                        enabled = items.isNotEmpty(),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("RAPPORTINO CONSEGNA")
+                    }
                     colloLabelMessage?.let { message ->
                         Text(
                             text = message,
@@ -1722,6 +1844,63 @@ private fun SessionActionPanel(
             }
         )
     }
+    if (deliveryReportDialogOpen) {
+        AlertDialog(
+            onDismissRequest = {
+                deliveryReportDialogOpen = false
+            },
+            title = {
+                Text("RAPPORTINO CONSEGNA")
+            },
+            text = {
+                Column {
+                    Text("Cliente: ${customer.name}")
+                    Spacer(Modifier.height(12.dp))
+                    Button(
+                        onClick = {
+                            deliveryReportShowPrices = !deliveryReportShowPrices
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            if (deliveryReportShowPrices) "PREZZI: SI"
+                            else "PREZZI: NO"
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        deliveryReportDialogOpen = false
+                        ListPdfGenerator.generateDeliveryReportAndOpen(
+                            context = context,
+                            customerName = customer.name,
+                            items = items,
+                            showPrices = deliveryReportShowPrices,
+                            notes = colloNote,
+                            barcodeCollo = createdCollo?.barcodeCollo.orEmpty()
+                        ).onFailure { error ->
+                            sendError = error.message
+                                ?: "Errore creazione rapportino"
+                        }
+                    }
+                ) {
+                    Text("CREA PDF")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        deliveryReportDialogOpen = false
+                    }
+                ) {
+                    Text("ANNULLA")
+                }
+            }
+        )
+    }
+
     if (paymentDialogOpen) {
         PaymentDialog(
             totalEuro = totalEuro,
@@ -4448,3 +4627,4 @@ private fun vibrateSwap(context: Context) {
         )
     }
 }
+
