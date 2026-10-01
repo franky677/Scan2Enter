@@ -1,4 +1,4 @@
-﻿package com.scan2enter.promotions
+package com.scan2enter.promotions
 
 import android.graphics.Typeface
 import android.content.Context
@@ -1853,7 +1853,7 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                         onLongClick = {
                             if (wowEditMode) {
                                 shapeControl = "TITOLO"
-                                titleTouchMode = 3
+                                titleTouchMode = (titleTouchMode + 1) % 4
                             }
                         },
                         onClick = {
@@ -2488,7 +2488,7 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                                     onLongClick = {
                                         if (wowEditMode) {
                                             shapeControl = "FOTO"
-                                            imageTouchMode = 3
+                                            imageTouchMode = (imageTouchMode + 1) % 4
                                         }
                                     },
                                     onClick = {
@@ -2945,7 +2945,7 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                                     onLongClick = {
                                         if (wowEditMode) {
                                             shapeControl = "SCONTO"
-                                            discountTouchMode = 3
+                                            discountTouchMode = (discountTouchMode + 1) % 4
                                         }
                                     },
                                     onClick = {
@@ -3043,7 +3043,7 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                                 onLongClick = {
                                     if (wowEditMode) {
                                         shapeControl = "FASCIA"
-                                        footerTouchMode = 3
+                                        footerTouchMode = (footerTouchMode + 1) % 4
                                     }
                                 },
                                 onClick = {
@@ -3253,7 +3253,6 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                             "WOW  SCONTO  [" + when (discountTouchMode) {
                                 1 -> "FORMA"
                                 2 -> "TESTO"
-                                3 -> "POSIZIONE"
                                 3 -> "POSIZIONE"
                                 else -> "INSIEME"
                             } + "]"
