@@ -12,6 +12,7 @@ import android.os.Environment
 import androidx.core.content.FileProvider
 import com.scan2enter.favorites.FavoriteItem
 import com.scan2enter.reorder.ReorderItem
+import com.scan2enter.session.SessionItem
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -38,7 +39,7 @@ object ListPdfGenerator {
             ListRow(
                 code = item.articleCode,
                 description = item.description,
-                column1 = item.stock.ifBlank { "—" },
+                column1 = item.stock.ifBlank { "”" },
                 column2 = formatPrice(item.publicPrice)
             )
         }
@@ -47,7 +48,7 @@ object ListPdfGenerator {
             context = context,
             filePrefix = "Preferiti",
             title = "PREFERITI",
-            subtitle = "${items.size} articoli • $sortDescription",
+            subtitle = "${items.size} articoli ¢ $sortDescription",
             headers = listOf(
                 "Codice",
                 "Descrizione",
@@ -64,6 +65,185 @@ object ListPdfGenerator {
         )
     }
 
+    fun generateDeliveryReportAndOpen(
+        context: Context,
+        customerName: String,
+        items: List<SessionItem>,
+        showPrices: Boolean,
+        notes: String,
+        barcodeCollo: String
+    ): Result<Uri> = runCatching {
+        require(items.isNotEmpty()) {
+            "Nessun articolo nel Collo veloce"
+        }
+
+        // Il rapportino può essere creato anche se il collo non è ancora stato creato.
+        // La pagina barcode viene aggiunta solo quando abbiamo un EAN-13 valido.
+        val validBarcodeCollo =
+            barcodeCollo.length == 13 &&
+                barcodeCollo.all(Char::isDigit)
+
+        val document = PdfDocument()
+
+        try {
+            val deliveryTotalPages =
+                calculateDeliveryReportPageCount(
+                    itemCount = items.size,
+                    showPrices = showPrices,
+                    notes = notes
+                )
+
+            val renderer =
+                Renderer(
+                    document = document,
+                    deliveryTotalPages = deliveryTotalPages
+                )
+
+            val totalPieces = items.sumOf { it.quantity }
+
+            renderer.startDeliveryReport(
+                title = "RAPPORTINO CONSEGNA MERCE",
+                subtitle = "Cliente: ${customerName.ifBlank { "BANCO" }}",
+                itemCount = items.size,
+                showPrices = showPrices,
+                notes = notes
+            )
+
+            val headers =
+                if (showPrices) {
+                    listOf(
+                        "Codice",
+                        "Descrizione",
+                        "Qta",
+                        "Prezzo",
+                        "Totale"
+                    )
+                } else {
+                    listOf(
+                        "Codice",
+                        "Descrizione",
+                        "Qta"
+                    )
+                }
+
+            val fractions =
+                if (showPrices) {
+                    floatArrayOf(
+                        0.18f,
+                        0.43f,
+                        0.09f,
+                        0.14f,
+                        0.16f
+                    )
+                } else {
+                    floatArrayOf(
+                        0.22f,
+                        0.63f,
+                        0.15f
+                    )
+                }
+
+            renderer.drawHeader(
+                headers = headers,
+                fractions = fractions
+            )
+
+            var grandTotal = 0.0
+
+            items.forEach { item ->
+                val unitPrice =
+                    item.basePrice
+                        .replace(",", ".")
+                        .toDoubleOrNull()
+                        ?: 0.0
+
+                val rowTotal =
+                    unitPrice * item.quantity
+
+                grandTotal += rowTotal
+
+                val values =
+                    if (showPrices) {
+                        listOf(
+                            item.articleCode,
+                            item.description,
+                            item.quantity.toString(),
+                            String.format(
+                                Locale.ITALY,
+                                "%.2f EUR",
+                                unitPrice
+                            ),
+                            String.format(
+                                Locale.ITALY,
+                                "%.2f EUR",
+                                rowTotal
+                            )
+                        )
+                    } else {
+                        listOf(
+                            item.articleCode,
+                            item.description,
+                            item.quantity.toString()
+                        )
+                    }
+
+                renderer.drawRow(
+                    values = values,
+                    fractions = fractions
+                )
+            }
+
+            renderer.addGap(mm(4f))
+
+            renderer.drawSectionTitle(
+                "Totale pezzi: $totalPieces"
+            )
+
+            if (showPrices) {
+                renderer.drawSectionTitle(
+                    String.format(
+                        Locale.ITALY,
+                        "Totale: %.2f EUR",
+                        grandTotal
+                    )
+                )
+            }
+
+            if (notes.isNotBlank()) {
+                renderer.addGap(mm(3f))
+                renderer.drawSectionTitle(
+                    "Note: ${notes.trim()}"
+                )
+            }
+
+            renderer.finishDeliveryReport()
+
+            // La pagina barcode è separata dal rapportino.
+            // Il barcodeCollo viene mantenuto esattamente quello
+            // già utilizzato dalla funzione di identificazione collo.
+            if (validBarcodeCollo) {
+                renderer.startColloBarcodePage(
+                    customerName = customerName,
+                    barcodeCollo = barcodeCollo,
+                    items = items,
+                    notes = notes
+                )
+            }
+
+            renderer.finishPage()
+
+            val uri = writeDocument(
+                context = context,
+                document = document,
+                filePrefix = "RapportinoConsegna"
+            )
+
+            openPdf(context, uri)
+            uri
+        } finally {
+            document.close()
+        }
+    }
     fun generateReorderAndOpen(
         context: Context,
         items: List<ReorderItem>,
@@ -89,15 +269,15 @@ object ListPdfGenerator {
             renderer.startPage(
                 title = "RIORDINO",
                 subtitle =
-                    "Filtro: $filterDescription • " +
-                    "${items.size} articoli • " +
+                    "Filtro: $filterDescription ¢ " +
+                    "${items.size} articoli ¢ " +
                     "Da ordinare: ${formatNumber(totalQuantity)}"
             )
 
             grouped.forEach { (supplier, supplierItems) ->
                 renderer.ensureSpace(mm(14f))
                 renderer.drawSectionTitle(
-                    "$supplier • ${supplierItems.size} articoli"
+                    "$supplier ¢ ${supplierItems.size} articoli"
                 )
 
                 renderer.drawHeader(
@@ -218,8 +398,133 @@ object ListPdfGenerator {
         }
     }
 
+    private fun calculateDeliveryReportPageCount(
+        itemCount: Int,
+        showPrices: Boolean,
+        notes: String
+    ): Int {
+        val pageHeight = mm(PAGE_HEIGHT_MM)
+        val margin = mm(MARGIN_MM)
+        val bottomLimit = pageHeight - margin
+
+        fun initialY(): Float =
+            margin +
+                    mm(9f) +
+                    mm(7f) +
+                    mm(3f)
+
+        var pages = 1
+        var y = initialY()
+
+        fun ensureSpace(height: Float) {
+            if (y + height > bottomLimit) {
+                pages += 1
+                y = initialY()
+            }
+        }
+
+        // Intestazione tabella.
+        ensureSpace(mm(7f))
+        y += mm(7f)
+
+        // Righe articoli.
+        repeat(itemCount) {
+            ensureSpace(mm(8f))
+            y += mm(8f)
+        }
+
+        // Spazio + totale pezzi.
+        ensureSpace(mm(4f))
+        y += mm(4f)
+
+        ensureSpace(mm(7f))
+        y += mm(7f)
+
+        // Totale economico.
+        if (showPrices) {
+            ensureSpace(mm(7f))
+            y += mm(7f)
+        }
+
+        // Note.
+        if (notes.isNotBlank()) {
+            ensureSpace(mm(3f))
+            y += mm(3f)
+
+            ensureSpace(mm(7f))
+            y += mm(7f)
+        }
+
+        // Spazio riservato alla firma.
+        val signatureHeight = mm(28f)
+
+        if (y + signatureHeight + mm(8f) > bottomLimit) {
+            pages += 1
+        }
+
+        return pages
+    }
+    private fun encodeEan13Modules(
+        code: String
+    ): String {
+        if (
+            code.length != 13 ||
+            !code.all(Char::isDigit)
+        ) {
+            return ""
+        }
+
+        val lPatterns = arrayOf(
+            "0001101", "0011001", "0010011", "0111101", "0100011",
+            "0110001", "0101111", "0111011", "0110111", "0001011"
+        )
+
+        val gPatterns = arrayOf(
+            "0100111", "0110011", "0011011", "0100001", "0011101",
+            "0111001", "0000101", "0010001", "0001001", "0010111"
+        )
+
+        val rPatterns = arrayOf(
+            "1110010", "1100110", "1101100", "1000010", "1011100",
+            "1001110", "1010000", "1000100", "1001000", "1110100"
+        )
+
+        val parity = arrayOf(
+            "LLLLLL", "LLGLGG", "LLGGLG", "LLGGGL", "LGLLGG",
+            "LGGLLG", "LGGGLL", "LGLGLG", "LGLGGL", "LGGLGL"
+        )
+
+        val first = code[0].digitToInt()
+        val result = StringBuilder(95)
+
+        result.append("101")
+
+        for (index in 1..6) {
+            val digit = code[index].digitToInt()
+
+            result.append(
+                if (parity[first][index - 1] == 'L') {
+                    lPatterns[digit]
+                } else {
+                    gPatterns[digit]
+                }
+            )
+        }
+
+        result.append("01010")
+
+        for (index in 7..12) {
+            val digit = code[index].digitToInt()
+            result.append(rPatterns[digit])
+        }
+
+        result.append("101")
+
+        return result.toString()
+    }
     private class Renderer(
-        private val document: PdfDocument
+        private val document: PdfDocument,
+        private val deliveryTotalPages: Int? = null
     ) {
         private val pageWidth = mm(PAGE_WIDTH_MM).roundToInt()
         private val pageHeight = mm(PAGE_HEIGHT_MM).roundToInt()
@@ -306,12 +611,14 @@ object ListPdfGenerator {
             canvas!!.drawColor(Color.WHITE)
 
             y = margin
+
             canvas!!.drawText(
                 currentTitle,
                 margin,
                 y + titlePaint.textSize,
                 titlePaint
             )
+
             y += mm(9f)
 
             canvas!!.drawText(
@@ -320,11 +627,13 @@ object ListPdfGenerator {
                 y + subtitlePaint.textSize,
                 subtitlePaint
             )
+
             y += mm(7f)
 
+            // Data: solo giorno/mese/anno, senza ora.
             val stamp =
                 SimpleDateFormat(
-                    "dd/MM/yyyy HH:mm",
+                    "dd/MM/yyyy",
                     Locale.ITALY
                 ).format(Date())
 
@@ -338,6 +647,22 @@ object ListPdfGenerator {
                 subtitlePaint
             )
 
+            // Paginazione del solo rapportino.
+            if (deliveryTotalPages != null) {
+                val pageText =
+                    "Pag. $pageNumber di $deliveryTotalPages"
+
+                val pageTextWidth =
+                    subtitlePaint.measureText(pageText)
+
+                canvas!!.drawText(
+                    pageText,
+                    pageWidth - margin - pageTextWidth,
+                    margin + mm(7.0f),
+                    subtitlePaint
+                )
+            }
+
             canvas!!.drawLine(
                 margin,
                 y,
@@ -348,7 +673,6 @@ object ListPdfGenerator {
 
             y += mm(3f)
         }
-
         fun finishPage() {
             page?.let {
                 document.finishPage(it)
@@ -385,6 +709,405 @@ object ListPdfGenerator {
             y += height
         }
 
+        fun drawReceiptSignature() {
+            val requiredHeight = mm(32f)
+            ensureSpace(requiredHeight)
+
+            y += mm(8f)
+
+            canvas!!.drawText(
+                "FIRMA PER RICEVUTA",
+                margin,
+                y + sectionPaint.textSize,
+                sectionPaint
+            )
+
+            y += mm(13f)
+
+            canvas!!.drawLine(
+                margin,
+                y,
+                margin + mm(95f),
+                y,
+                gridPaint
+            )
+
+            y += mm(8f)
+        }
+        fun startDeliveryReport(
+            title: String,
+            subtitle: String,
+            itemCount: Int,
+            showPrices: Boolean,
+            notes: String
+        ) {
+            currentTitle = title
+            currentSubtitle = subtitle
+            newPage()
+        }
+
+        fun finishDeliveryReport() {
+            val signatureWidth = mm(75f)
+            val signatureHeight = mm(28f)
+
+            // Se la firma non entra, viene creata una nuova pagina
+            // che diventa automaticamente l'ultima pagina del rapportino.
+            ensureSpace(signatureHeight + mm(8f))
+
+            val signatureY =
+                bottomLimit - signatureHeight
+
+            val signatureX =
+                pageWidth - margin - signatureWidth
+
+            canvas!!.drawText(
+                "FIRMA PER RICEVUTA",
+                signatureX,
+                signatureY,
+                sectionPaint
+            )
+
+            canvas!!.drawLine(
+                signatureX,
+                signatureY + mm(17f),
+                signatureX + signatureWidth,
+                signatureY + mm(17f),
+                gridPaint
+            )
+
+            canvas!!.drawText(
+                "Firma",
+                signatureX,
+                signatureY + mm(22f),
+                subtitlePaint
+            )
+
+            finishPage()
+        }
+        fun startColloBarcodePage(
+            customerName: String,
+            barcodeCollo: String,
+            items: List<SessionItem>,
+            notes: String
+        ) {
+            currentTitle = "IDENTIFICAZIONE COLLO"
+            currentSubtitle =
+                "Cliente: ${customerName.ifBlank { "BANCO" }}"
+            newPage()
+
+            y += mm(8f)
+
+            canvas!!.drawText(
+                "COLLO DA LEGGERE IN CASSA",
+                margin,
+                y + sectionPaint.textSize,
+                sectionPaint
+            )
+
+            y += mm(12f)
+
+            val modules = encodeEan13Modules(barcodeCollo)
+
+            if (modules.isEmpty()) {
+                error("Impossibile generare il barcode del collo")
+            }
+
+            /*
+             * Barcode volutamente più compatto.
+             * Manteniamo invariata l'altezza e riduciamo solo
+             * la larghezza, centrando il codice nella pagina.
+             */
+            val barcodeWidth = contentWidth * 0.68f
+            val barcodeLeft =
+                (pageWidth - barcodeWidth) / 2f
+            val moduleWidth =
+                barcodeWidth / modules.length.toFloat()
+
+            val barcodeHeight = mm(45f)
+
+            val barcodePaint =
+                Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = Color.BLACK
+                    style = Paint.Style.FILL
+                }
+
+            modules.forEachIndexed { index, bit ->
+                if (bit == '1') {
+                    val left =
+                        barcodeLeft +
+                                index.toFloat() * moduleWidth
+
+                    canvas!!.drawRect(
+                        left,
+                        y,
+                        left + moduleWidth,
+                        y + barcodeHeight,
+                        barcodePaint
+                    )
+                }
+            }
+
+            y += barcodeHeight + mm(4f)
+
+            val barcodePaintText =
+                Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = Color.BLACK
+                    textSize = mm(5f)
+                    typeface =
+                        Typeface.create(
+                            Typeface.DEFAULT,
+                            Typeface.BOLD
+                        )
+                    textAlign = Paint.Align.CENTER
+                }
+
+            canvas!!.drawText(
+                barcodeCollo,
+                pageWidth / 2f,
+                y + barcodePaintText.textSize,
+                barcodePaintText
+            )
+
+            y += mm(12f)
+
+            val instructionPaint =
+                Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = Color.DKGRAY
+                    textSize = mm(3.5f)
+                    textAlign = Paint.Align.CENTER
+                }
+
+            canvas!!.drawText(
+                "LEGGERE QUESTO CODICE IN CASSA",
+                pageWidth / 2f,
+                y + instructionPaint.textSize,
+                instructionPaint
+            )
+
+            // =====================================================
+            // CONTENUTO DEL COLLO
+            // Prezzi sempre visibili sulla pagina 2.
+            // =====================================================
+
+            y += mm(10f)
+
+            drawSectionTitle(
+                "CONTENUTO DEL COLLO"
+            )
+
+            /*
+             * CODICE | DESCRIZIONE | QTA |
+             * PREZZO PIENO | SCONTO | PREZZO SCONTATO | TOTALE
+             */
+            val colloFractions = floatArrayOf(
+                0.13f,
+                0.29f,
+                0.07f,
+                0.13f,
+                0.10f,
+                0.14f,
+                0.14f
+            )
+
+            drawHeader(
+                headers = listOf(
+                    "CODICE",
+                    "DESCRIZIONE",
+                    "QTA",
+                    "PREZZO PIENO",
+                    "SCONTO",
+                    "PREZZO SCONT.",
+                    "TOTALE"
+                ),
+                fractions = colloFractions
+            )
+
+            fun parsePrice(value: String): Double {
+                val cleaned =
+                    value
+                        .replace("€", "")
+                        .replace(
+                            "EUR",
+                            "",
+                            ignoreCase = true
+                        )
+                        .replace(" ", "")
+                        .trim()
+
+                if (cleaned.isBlank()) {
+                    return 0.0
+                }
+
+                return if (
+                    cleaned.contains(",") &&
+                    cleaned.contains(".")
+                ) {
+                    cleaned
+                        .replace(".", "")
+                        .replace(",", ".")
+                        .toDoubleOrNull()
+                        ?: 0.0
+                } else {
+                    cleaned
+                        .replace(",", ".")
+                        .toDoubleOrNull()
+                        ?: 0.0
+                }
+            }
+
+            fun formatPrice(value: Double): String =
+                String.format(
+                    Locale.ITALY,
+                    "%.2f",
+                    value
+                )
+
+            fun formatDiscountValue(value: Double): String {
+                if (value <= 0.0001) {
+                    return "-"
+                }
+
+                return if (
+                    kotlin.math.abs(
+                        value - kotlin.math.round(value)
+                    ) < 0.0001
+                ) {
+                    String.format(
+                        Locale.ITALY,
+                        "%.0f%%",
+                        value
+                    )
+                } else {
+                    String.format(
+                        Locale.ITALY,
+                        "%.2f%%",
+                        value
+                    )
+                }
+            }
+
+            var colloTotal = 0.0
+
+            items.forEach { item ->
+
+                /*
+                 * Prezzo realmente applicato:
+                 * usa esattamente la gerarchia già prevista
+                 * da SessionItem.
+                 */
+                val effectivePrice =
+                    parsePrice(
+                        item.effectivePrice
+                            .ifBlank { item.basePrice }
+                            .ifBlank { item.publicPrice }
+                    )
+
+                /*
+                 * Prezzo pieno:
+                 * listPrice rappresenta il prezzo di partenza
+                 * delle condizioni cliente.
+                 *
+                 * Se manca, ricadiamo sul prezzo pubblico;
+                 * se manca anche quello, sul prezzo effettivo.
+                 */
+                val fullPriceText =
+                    item.listPrice
+                        .ifBlank { item.publicPrice }
+                        .ifBlank {
+                            item.effectivePrice
+                                .ifBlank { item.basePrice }
+                        }
+
+                val fullPrice =
+                    parsePrice(fullPriceText)
+
+                /*
+                 * Gli sconti commerciali 1..4 sono successivi,
+                 * non vanno sommati.
+                 *
+                 * Per la stampa mostriamo quindi lo sconto
+                 * equivalente complessivo.
+                 *
+                 * Se esiste uno sconto manuale di riga,
+                 * viene applicato successivamente alle condizioni
+                 * commerciali.
+                 */
+                val commercialFactor =
+                    (1.0 - item.discount1.coerceIn(0.0, 100.0) / 100.0) *
+                    (1.0 - item.discount2.coerceIn(0.0, 100.0) / 100.0) *
+                    (1.0 - item.discount3.coerceIn(0.0, 100.0) / 100.0) *
+                    (1.0 - item.discount4.coerceIn(0.0, 100.0) / 100.0)
+
+                val manualFactor =
+                    1.0 -
+                            item.manualDiscount
+                                .coerceIn(0.0, 100.0) / 100.0
+
+                val calculatedDiscount =
+                    if (fullPrice > 0.0) {
+                        (
+                            1.0 -
+                                    (commercialFactor * manualFactor)
+                            ) * 100.0
+                    } else {
+                        0.0
+                    }
+
+                /*
+                 * Se c'è un prezzo manuale, Scan2Enter considera
+                 * quello come prezzo applicato e non gli attribuiamo
+                 * automaticamente una percentuale di sconto.
+                 */
+                val discountToShow =
+                    if (item.manualPrice.isNotBlank()) {
+                        0.0
+                    } else {
+                        calculatedDiscount
+                    }
+
+                val rowTotal =
+                    effectivePrice * item.quantity
+
+                colloTotal += rowTotal
+
+                drawRow(
+                    values = listOf(
+                        item.articleCode,
+                        item.description,
+                        item.quantity.toString(),
+                        formatPrice(fullPrice),
+                        formatDiscountValue(discountToShow),
+                        formatPrice(effectivePrice),
+                        formatPrice(rowTotal)
+                    ),
+                    fractions = colloFractions
+                )
+            }
+
+            addGap(mm(4f))
+
+            drawSectionTitle(
+                "Totale pezzi: ${items.sumOf { it.quantity }}"
+            )
+
+            drawSectionTitle(
+                String.format(
+                    Locale.ITALY,
+                    "Totale collo: %.2f EUR",
+                    colloTotal
+                )
+            )
+
+            /*
+             * Stesse note del rapportino principale.
+             */
+            if (notes.isNotBlank()) {
+                addGap(mm(3f))
+                drawSectionTitle(
+                    "Note: ${notes.trim()}"
+                )
+            }
+        }
         fun drawHeader(
             headers: List<String>,
             fractions: FloatArray
@@ -457,7 +1180,7 @@ object ListPdfGenerator {
 
                 val text =
                     fitText(
-                        rawValue.ifBlank { "—" },
+                        rawValue.ifBlank { "”" },
                         paint,
                         maxTextWidth
                     )
@@ -506,7 +1229,7 @@ object ListPdfGenerator {
                 return clean
             }
 
-            val suffix = "…"
+            val suffix = "¦"
             var low = 0
             var high = clean.length
 
@@ -597,11 +1320,11 @@ object ListPdfGenerator {
                 .toDoubleOrNull()
 
         return if (number == null) {
-            value.ifBlank { "—" }
+            value.ifBlank { "”" }
         } else {
             String.format(
                 Locale.ITALY,
-                "%.2f €",
+                "%.2f €‚¬",
                 number
             )
         }
@@ -610,7 +1333,7 @@ object ListPdfGenerator {
     private fun formatNullable(
         value: Double?
     ): String =
-        value?.let(::formatNumber) ?: "—"
+        value?.let(::formatNumber) ?: "”"
 
     private fun formatNumber(
         value: Double
@@ -633,3 +1356,4 @@ object ListPdfGenerator {
     private fun mm(value: Float): Float =
         value * PT_PER_MM
 }
+
