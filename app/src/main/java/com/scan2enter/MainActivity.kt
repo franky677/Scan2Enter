@@ -600,7 +600,8 @@ class MainActivity : ComponentActivity() {
                             },
                             onArticleOpened = {
                                 currentScreen = "SESSIONE"
-                            }
+                            },
+                            sessionSearchMode = true
                         )
                     }
 

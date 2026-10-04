@@ -40,6 +40,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.scan2enter.favorites.FavoriteRepository
 import com.scan2enter.overlay.OverlayService
 import com.scan2enter.search.GatewaySearchClient
 import com.scan2enter.search.SearchResult
@@ -52,7 +53,8 @@ import java.util.Locale
 fun TrovaTuttoScreen(
     onBack: () -> Unit,
     onArticleOpened: (() -> Unit)? = null,
-    onArticleSelected: ((String) -> Unit)? = null
+    onArticleSelected: ((String) -> Unit)? = null,
+    sessionSearchMode: Boolean = false
 ) {
     val context = LocalContext.current
     val client = remember { GatewaySearchClient() }
@@ -65,6 +67,11 @@ fun TrovaTuttoScreen(
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var includeInactive by remember { mutableStateOf(false) }
 
+    // Ricerca speciale disponibile solo da Collo veloce.
+    var favoritesOnly by remember { mutableStateOf(false) }
+    var priceFrom by remember { mutableStateOf("") }
+    var priceTo by remember { mutableStateOf("") }
+
     val visibleResults =
         if (includeInactive) {
             results
@@ -74,9 +81,111 @@ fun TrovaTuttoScreen(
 
     BackHandler(onBack = onBack)
 
-    LaunchedEffect(query) {
+    LaunchedEffect(query, favoritesOnly, priceFrom, priceTo) {
         val normalized = query.trim()
 
+        fun parseItalianNumber(value: String): Double? {
+            val cleaned =
+                value
+                    .trim()
+                    .replace("€", "")
+                    .replace(" ", "")
+
+            if (cleaned.isBlank()) {
+                return null
+            }
+
+            val normalizedNumber =
+                if (cleaned.contains(",")) {
+                    cleaned
+                        .replace(".", "")
+                        .replace(",", ".")
+                } else {
+                    cleaned
+                }
+
+            return normalizedNumber.toDoubleOrNull()
+        }
+
+        if (sessionSearchMode && favoritesOnly) {
+            delay(150L)
+
+            val minPrice = parseItalianNumber(priceFrom)
+            val maxPrice = parseItalianNumber(priceTo)
+
+            val tokens =
+                normalized
+                    .lowercase(Locale.ITALY)
+                    .split(Regex("\\s+"))
+                    .filter { it.isNotBlank() }
+
+            results =
+                FavoriteRepository
+                    .getAll()
+                    .asSequence()
+                    .map { favorite ->
+                        SearchResult(
+                            id = favorite.articleId,
+                            code = favorite.articleCode,
+                            description = favorite.description,
+                            barcode = favorite.barcode,
+                            price = favorite.publicPrice,
+                            stock = favorite.stock,
+                            active = true,
+                            moved = false,
+                            lastMovement = null
+                        )
+                    }
+                    .filter { item ->
+                        (parseItalianNumber(item.stock) ?: 0.0) > 0.0
+                    }
+                    .filter { item ->
+                        if (tokens.isEmpty()) {
+                            true
+                        } else {
+                            val searchable =
+                                "${item.code} ${item.description} ${item.barcode}"
+                                    .lowercase(Locale.ITALY)
+
+                            tokens.all { token ->
+                                searchable.contains(token)
+                            }
+                        }
+                    }
+                    .filter { item ->
+                        val price = parseItalianNumber(item.price)
+
+                        when {
+                            minPrice != null && maxPrice != null ->
+                                price != null &&
+                                    price >= minPrice &&
+                                    price <= maxPrice
+
+                            minPrice != null ->
+                                price != null && price >= minPrice
+
+                            maxPrice != null ->
+                                price != null && price <= maxPrice
+
+                            else ->
+                                true
+                        }
+                    }
+                    .sortedWith(
+                        compareBy<SearchResult> {
+                            parseItalianNumber(it.price) ?: Double.MAX_VALUE
+                        }.thenBy {
+                            it.description.lowercase(Locale.ITALY)
+                        }
+                    )
+                    .toList()
+
+            loading = false
+            errorMessage = null
+            return@LaunchedEffect
+        }
+
+        // Da qui in poi: comportamento originale di TrovaTutto.
         if (normalized.length < 2) {
             results = emptyList()
             loading = false
@@ -160,6 +269,93 @@ fun TrovaTuttoScreen(
                 modifier = Modifier.height(6.dp)
             )
 
+            if (sessionSearchMode) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            favoritesOnly = !favoritesOnly
+
+                            if (!favoritesOnly) {
+                                priceFrom = ""
+                                priceTo = ""
+                            }
+                        }
+                        .padding(
+                            horizontal = 2.dp,
+                            vertical = 2.dp
+                        ),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Checkbox(
+                        checked = favoritesOnly,
+                        onCheckedChange = {
+                            favoritesOnly = it
+
+                            if (!it) {
+                                priceFrom = ""
+                                priceTo = ""
+                            }
+                        }
+                    )
+
+                    Text(
+                        text = " Cerca solo nei preferiti",
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
+                if (favoritesOnly) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedTextField(
+                            value = priceFrom,
+                            onValueChange = { priceFrom = it },
+                            modifier = Modifier.weight(1f),
+                            singleLine = true,
+                            label = {
+                                Text("PREZZO DA")
+                            },
+                            placeholder = {
+                                Text("es. 20,00")
+                            },
+                            keyboardOptions = KeyboardOptions(
+                                imeAction = ImeAction.Next
+                            )
+                        )
+
+                        OutlinedTextField(
+                            value = priceTo,
+                            onValueChange = { priceTo = it },
+                            modifier = Modifier.weight(1f),
+                            singleLine = true,
+                            label = {
+                                Text("PREZZO A")
+                            },
+                            placeholder = {
+                                Text("es. 30,00")
+                            },
+                            keyboardOptions = KeyboardOptions(
+                                imeAction = ImeAction.Search
+                            )
+                        )
+                    }
+
+                    Text(
+                        text = "Mostra solo preferiti con giacenza maggiore di 0",
+                        fontSize = 13.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(
+                            horizontal = 4.dp,
+                            vertical = 4.dp
+                        )
+                    )
+                }
+            }
+
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -191,7 +387,7 @@ fun TrovaTuttoScreen(
             )
 
             when {
-                query.trim().length < 2 -> {
+                !(sessionSearchMode && favoritesOnly) && query.trim().length < 2 -> {
                     Text(
                         text = "Scrivi almeno 2 caratteri.",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -342,7 +538,12 @@ private fun TrovaTuttoResultRow(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = item.code.ifBlank { "Codice non disponibile" },
+                    text =
+                        if (FavoriteRepository.isFavorite(item.id)) {
+                            "\u2B50 ${item.code.ifBlank { "Codice non disponibile" }}"
+                        } else {
+                            item.code.ifBlank { "Codice non disponibile" }
+                        },
                     fontSize = 17.sp,
                     fontWeight = FontWeight.Bold,
                     color = mainTextColor,
