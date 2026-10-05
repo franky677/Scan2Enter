@@ -498,6 +498,9 @@ private fun TrovaTuttoResultRow(
     item: SearchResult,
     onClick: () -> Unit
 ) {
+    val favoriteItem = FavoriteRepository.get(item.id)
+    val sellableRemaining = favoriteItem?.sellableRemaining
+
     val backgroundColor =
         when {
             !item.active -> Color(0xFFFFE0E0)
@@ -558,11 +561,30 @@ private fun TrovaTuttoResultRow(
                         color = Color(0xFFB00020)
                     )
                 } else if (item.moved) {
+                    Column(horizontalAlignment = Alignment.End) {
+                        Text(
+                            text = "MOVIMENTATO",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF795548)
+                        )
+                        if (sellableRemaining != null) {
+                            val sellableText = if (sellableRemaining % 1.0 == 0.0) sellableRemaining.toInt().toString() else sellableRemaining.toString()
+                            Text(
+                                text = "VENDIBILI $sellableText",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = mainTextColor
+                            )
+                        }
+                    }
+                } else if (sellableRemaining != null) {
+                    val sellableText = if (sellableRemaining % 1.0 == 0.0) sellableRemaining.toInt().toString() else sellableRemaining.toString()
                     Text(
-                        text = "MOVIMENTATO",
+                        text = "VENDIBILI $sellableText",
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
-                        color = Color(0xFF795548)
+                        color = mainTextColor
                     )
                 }
             }

@@ -97,6 +97,9 @@ object FavoriteRepository {
     fun isFavorite(articleId: Long): Boolean =
         FavoriteStore.contains(articleId)
 
+    fun get(articleId: Long): FavoriteItem? =
+        FavoriteStore.get(articleId)
+
     fun getAll(): List<FavoriteItem> =
         FavoriteStore.getAll()
 
@@ -225,6 +228,28 @@ object FavoriteRepository {
             .apply()
     }
 
+    fun setSellableQuantity(articleId: Long, quantity: Double?) {
+        if (articleId <= 0L) return
+        if (quantity != null && quantity < 0.0) return
+
+        syncExecutor.execute {
+            gatewayApiClient
+                .setFavoriteSellableQuantity(articleId, quantity)
+                .onSuccess { saved ->
+                    if (saved) {
+                        refreshFromGateway()
+                    }
+                }
+                .onFailure { error ->
+                    Log.e(
+                        TAG,
+                        "QUANTITA VENDIBILE SAVE FALLITA id=$articleId quantity=$quantity",
+                        error
+                    )
+                }
+        }
+    }
+
     private fun saveRemote(item: FavoriteItem) {
         gatewayApiClient
             .saveFavorite(
@@ -258,7 +283,11 @@ object FavoriteRepository {
                             articleCode = item.articleCode,
                             description = item.description,
                             publicPrice = item.publicPrice,
-                            stock = item.stock
+                            stock = item.stock,
+                            sellableQuantity = item.sellableQuantity,
+                            sellableReferenceStock = item.sellableReferenceStock,
+                            currentStock = item.currentStock,
+                            sellableRemaining = item.sellableRemaining
                         )
                     }
 

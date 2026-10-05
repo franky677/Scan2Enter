@@ -8,7 +8,11 @@ data class FavoriteItem(
     val articleCode: String,
     val description: String,
     val publicPrice: String,
-    val stock: String
+    val stock: String,
+    val sellableQuantity: Double? = null,
+    val sellableReferenceStock: Double? = null,
+    val currentStock: Double? = null,
+    val sellableRemaining: Double? = null
 ) {
     companion object {
         fun fromProduct(product: ProductInfo): FavoriteItem {

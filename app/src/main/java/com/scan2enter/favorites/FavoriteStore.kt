@@ -179,7 +179,11 @@ object FavoriteStore {
                     articleCode = json.optString("articleCode", ""),
                     description = json.optString("description", ""),
                     publicPrice = json.optString("publicPrice", ""),
-                    stock = json.optString("stock", "")
+                    stock = json.optString("stock", ""),
+                    sellableQuantity = if (json.isNull("sellableQuantity")) null else json.optDouble("sellableQuantity"),
+                    sellableReferenceStock = if (json.isNull("sellableReferenceStock")) null else json.optDouble("sellableReferenceStock"),
+                    currentStock = if (json.isNull("currentStock")) null else json.optDouble("currentStock"),
+                    sellableRemaining = if (json.isNull("sellableRemaining")) null else json.optDouble("sellableRemaining")
                 )
 
                 items[item.articleId] = item
@@ -223,6 +227,10 @@ object FavoriteStore {
                         put("description", item.description)
                         put("publicPrice", item.publicPrice)
                         put("stock", item.stock)
+                        put("sellableQuantity", item.sellableQuantity ?: JSONObject.NULL)
+                        put("sellableReferenceStock", item.sellableReferenceStock ?: JSONObject.NULL)
+                        put("currentStock", item.currentStock ?: JSONObject.NULL)
+                        put("sellableRemaining", item.sellableRemaining ?: JSONObject.NULL)
                     }
                 )
             }

@@ -55,6 +55,10 @@ class ProductInfoPopup(
         val barcodeImageView: ImageView,
         val productImageView: ImageView,
         val favoriteButton: ImageView,
+        val sellableContainer: LinearLayout,
+        val sellableMinusButton: TextView,
+        val sellableValueText: TextView,
+        val sellablePlusButton: TextView,
         val descriptionValueText: TextView,
         val purchaseNetValueText: TextView,
         val supplierNameValueText: TextView,
@@ -343,6 +347,10 @@ class ProductInfoPopup(
             barcodeImageView = popupView.findViewById(R.id.productBarcodeImage),
             productImageView = popupView.findViewById(R.id.productImagePlaceholder),
             favoriteButton = popupView.findViewById(R.id.productFavoriteButton),
+            sellableContainer = popupView.findViewById(R.id.productSellableContainer),
+            sellableMinusButton = popupView.findViewById(R.id.productSellableMinusButton),
+            sellableValueText = popupView.findViewById(R.id.productSellableValueText),
+            sellablePlusButton = popupView.findViewById(R.id.productSellablePlusButton),
             descriptionValueText = popupView.findViewById(R.id.productDescriptionText),
             purchaseNetValueText = popupView.findViewById(R.id.productPurchaseNetText),
             supplierNameValueText = popupView.findViewById(R.id.productSupplierNameText),
@@ -693,6 +701,34 @@ class ProductInfoPopup(
         current.minimumStockValueText.text = valueOrEmpty(product.minimumStock)
         current.reorderLotValueText.text = valueOrEmpty(product.reorderLot)
         val isFavorite = FavoriteRepository.isFavorite(product.articleId)
+        val favoriteItem = FavoriteRepository.get(product.articleId)
+
+        current.sellableContainer.visibility =
+            if (isFavorite) View.VISIBLE else View.GONE
+
+        current.sellableValueText.text =
+            favoriteItem?.sellableRemaining
+                ?.let { value ->
+                    if (value % 1.0 == 0.0) value.toInt().toString() else value.toString()
+                }
+                ?: "0"
+
+        current.sellableMinusButton.setOnClickListener {
+            val displayed = current.sellableValueText.text.toString().toDoubleOrNull() ?: 0.0
+            val newQuantity = (displayed - 1.0).coerceAtLeast(0.0)
+            current.sellableValueText.text = newQuantity.toInt().toString()
+            FavoriteRepository.setSellableQuantity(product.articleId, newQuantity)
+        }
+
+        current.sellablePlusButton.setOnClickListener {
+            val displayed = current.sellableValueText.text.toString().toDoubleOrNull() ?: 0.0
+            val currentStock = favoriteItem?.currentStock
+                ?: product.stock.replace(",", ".").toDoubleOrNull()
+                ?: 0.0
+            val newQuantity = (displayed + 1.0).coerceAtMost(currentStock.coerceAtLeast(0.0))
+            current.sellableValueText.text = newQuantity.toInt().toString()
+            FavoriteRepository.setSellableQuantity(product.articleId, newQuantity)
+        }
 
         current.favoriteButton.setImageResource(
             if (isFavorite) {

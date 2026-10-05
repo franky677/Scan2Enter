@@ -33,7 +33,7 @@ class GatewayApiClient(
      */
     fun getProductImageUrl(barcode: String): String {
         require(barcode.isNotBlank()) {
-            "Il barcode non può essere vuoto"
+            "Il barcode non puÃƒÆ’Ã‚Â² essere vuoto"
         }
 
         val encodedBarcode = URLEncoder.encode(
@@ -48,7 +48,7 @@ class GatewayApiClient(
         barcode: String
     ): Result<GatewayProductDto> = runCatching {
         require(barcode.isNotBlank()) {
-            "Il barcode non può essere vuoto"
+            "Il barcode non puÃƒÆ’Ã‚Â² essere vuoto"
         }
 
         val normalizedBarcode = barcode.trim()
@@ -137,7 +137,7 @@ class GatewayApiClient(
         }
 
         require(price >= 0.0) {
-            "Il prezzo non può essere negativo"
+            "Il prezzo non puÃƒÆ’Ã‚Â² essere negativo"
         }
 
         val url =
@@ -256,7 +256,7 @@ class GatewayApiClient(
         require(promotionId == null || promotionId > 0L) { "idPromotion non valido: $promotionId" }
         require(fixedPrice > 0.0) { "Il prezzo promo deve essere maggiore di zero" }
         require(publicPrice > 0.0) { "Il prezzo pubblico deve essere maggiore di zero" }
-        require(fixedPrice <= publicPrice) { "Il prezzo promo non può superare il prezzo pubblico" }
+        require(fixedPrice <= publicPrice) { "Il prezzo promo non puÃƒÆ’Ã‚Â² superare il prezzo pubblico" }
 
         val today = java.time.LocalDate.now()
         val normalizedFrom = validFrom?.trim()?.takeIf { it.isNotBlank() }
@@ -335,7 +335,7 @@ class GatewayApiClient(
 
     /**
      * Elimina una promo ARTICOLO proprietaria Scan2Enter.
-     * promotionId è l'IdPromotion restituito dall'endpoint effective.
+     * promotionId ÃƒÆ’Ã‚Â¨ l'IdPromotion restituito dall'endpoint effective.
      */
     fun deleteProductPromo(
         promotionId: Long
@@ -363,8 +363,8 @@ class GatewayApiClient(
      * GET /api/scan2enter-promotions
      *
      * Il Gateway restituisce le definizioni promo nel campo "value".
-     * Lo stato viene ricavato lato Android da abilitazione e date, così la
-     * schermata Promozioni non dipende più dal vecchio motore promo Due.
+     * Lo stato viene ricavato lato Android da abilitazione e date, cosÃƒÆ’Ã‚Â¬ la
+     * schermata Promozioni non dipende piÃƒÆ’Ã‚Â¹ dal vecchio motore promo Due.
      */
     fun getPromotions(
         status: String? = null,
@@ -665,7 +665,7 @@ class GatewayApiClient(
      * PUT  /api/scan2enter-promotions/{idPromotion}        (modifica)
      *
      * Manteniamo il nome storico del metodo per non propagare modifiche inutili
-     * alla UI Android, ma non usa più il vecchio motore promo Due.
+     * alla UI Android, ma non usa piÃƒÆ’Ã‚Â¹ il vecchio motore promo Due.
      */
     fun updateProducerPromotionGroup(
         producerId: Long,
@@ -1344,7 +1344,7 @@ class GatewayApiClient(
      * POST /api/product/{articleId}/locations/{locationId}
      *
      * Restituisce true quando l'associazione viene creata.
-     * Restituisce false quando era già presente.
+     * Restituisce false quando era giÃƒÆ’Ã‚Â  presente.
      */
     fun addLocation(
         articleId: Long,
@@ -1434,7 +1434,7 @@ class GatewayApiClient(
 
     fun createLocation(name: String): Result<LocationDto> = runCatching {
         val normalizedName = name.trim().uppercase()
-        require(normalizedName.isNotBlank()) { "Il nome dell'ubicazione è obbligatorio" }
+        require(normalizedName.isNotBlank()) { "Il nome dell'ubicazione ÃƒÆ’Ã‚Â¨ obbligatorio" }
 
         val url = "${baseUrl.trimEnd('/')}/api/locations"
         val response = executeJson(
@@ -1484,7 +1484,7 @@ class GatewayApiClient(
 
         val normalizedName = name.trim().uppercase()
         require(normalizedName.isNotBlank()) {
-            "Il nome dell'ubicazione è obbligatorio"
+            "Il nome dell'ubicazione ÃƒÆ’Ã‚Â¨ obbligatorio"
         }
 
         val url = "${baseUrl.trimEnd('/')}/api/locations/$locationId"
@@ -1566,7 +1566,11 @@ class GatewayApiClient(
                     articleCode = item.optString("articleCode", "").trim(),
                     description = item.optString("description", "").trim(),
                     publicPrice = item.optString("publicPrice", "").trim(),
-                    stock = item.optString("stock", "").trim()
+                    stock = item.optString("stock", "").trim(),
+                    sellableQuantity = if (item.isNull("sellableQuantity")) null else item.optDouble("sellableQuantity"),
+                    sellableReferenceStock = if (item.isNull("sellableReferenceStock")) null else item.optDouble("sellableReferenceStock"),
+                    currentStock = if (item.isNull("currentStock")) null else item.optDouble("currentStock"),
+                    sellableRemaining = if (item.isNull("sellableRemaining")) null else item.optDouble("sellableRemaining")
                 )
             )
         }
@@ -1606,6 +1610,35 @@ class GatewayApiClient(
 
         JSONObject(response.body)
             .optBoolean("saved", true)
+    }
+
+    fun setFavoriteSellableQuantity(
+        articleId: Long,
+        quantity: Double?
+    ): Result<Boolean> = runCatching {
+        require(articleId > 0L) { "articleId non valido" }
+
+        val url =
+            "${baseUrl.trimEnd('/')}/api/favorites/$articleId/sellable"
+
+        val body = JSONObject()
+            .put("quantity", quantity ?: JSONObject.NULL)
+            .toString()
+
+        val response = executeJson(
+            urlString = url,
+            method = "PUT",
+            jsonBody = body
+        )
+
+        if (response.code !in 200..299) {
+            error(
+                "Gateway HTTP ${response.code}: ${response.body.take(500)}"
+            )
+        }
+
+        JSONObject(response.body)
+            .optBoolean("saved", false)
     }
 
     fun removeFavorite(
@@ -2041,7 +2074,7 @@ class GatewayApiClient(
         }
 
         require(items.isNotEmpty()) {
-            "La sessione è vuota"
+            "La sessione ÃƒÆ’Ã‚Â¨ vuota"
         }
 
         require(note.length <= 4000) {
@@ -2145,7 +2178,7 @@ class GatewayApiClient(
     }
 
     /**
-     * Invia un collo già creato al FRONT Due Retail.
+     * Invia un collo giÃƒÆ’Ã‚Â  creato al FRONT Due Retail.
      *
      * POST /api/session/colli/{testataId}/send-to-front
      */
@@ -2214,7 +2247,7 @@ class GatewayApiClient(
             "Barcode non disponibile"
         }
         require(quantity in 1..100) {
-            "Quantità non valida"
+            "QuantitÃƒÆ’Ã‚Â  non valida"
         }
 
         val url = "${baseUrl.trimEnd('/')}/api/labels/print"
@@ -3326,7 +3359,11 @@ data class FavoriteDto(
     val articleCode: String,
     val description: String,
     val publicPrice: String,
-    val stock: String
+    val stock: String,
+    val sellableQuantity: Double? = null,
+    val sellableReferenceStock: Double? = null,
+    val currentStock: Double? = null,
+    val sellableRemaining: Double? = null
 )
 
 data class ColloHistorySummaryDto(
@@ -3632,7 +3669,7 @@ data class ProductExpiryDto(
                     year
                 )
             } else {
-                "—"
+                "ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â"
             }
 }
 
