@@ -1,5 +1,6 @@
 package com.scan2enter.api
 
+import android.util.Base64
 import android.util.Log
 import com.scan2enter.reorder.ReorderItem
 import org.json.JSONArray
@@ -2230,6 +2231,117 @@ class GatewayApiClient(
     /**
      * Invia un lavoro di stampa etichette al Gateway.
      */
+    fun getDeliveryReportEmailConfig(
+        clientId: Int
+    ): Result<DeliveryReportEmailConfig> = runCatching {
+        require(clientId > 0) {
+            "Id cliente non valido"
+        }
+
+        val url =
+            "${baseUrl.trimEnd('/')}/api/delivery-report-email/client/$clientId"
+
+        val response = executeGet(url)
+
+        if (response.code !in 200..299) {
+            error(
+                "Gateway HTTP ${response.code}: ${response.body.take(500)}"
+            )
+        }
+
+        val root = JSONObject(response.body)
+
+        DeliveryReportEmailConfig(
+            enabled = root.optBoolean("enabled", false),
+            recipientConfigured =
+                root.optBoolean("recipientConfigured", false)
+        )
+    }
+    fun setDeliveryReportEmailEnabled(
+        clientId: Int,
+        enabled: Boolean
+    ): Result<DeliveryReportEmailConfig> = runCatching {
+        require(clientId > 0) {
+            "Id cliente non valido"
+        }
+
+        val url =
+            "${baseUrl.trimEnd('/')}/api/delivery-report-email/client/$clientId"
+
+        val body = JSONObject()
+            .put("enabled", enabled)
+            .toString()
+
+        val response = executeJson(
+            urlString = url,
+            method = "PUT",
+            jsonBody = body
+        )
+
+        if (response.code !in 200..299) {
+            error(
+                "Gateway HTTP ${response.code}: ${response.body.take(500)}"
+            )
+        }
+
+        val root = JSONObject(response.body)
+
+        DeliveryReportEmailConfig(
+            enabled = root.optBoolean("enabled", false),
+            recipientConfigured =
+                root.optBoolean("recipientConfigured", false)
+        )
+    }
+
+    fun sendDeliveryReportEmail(
+        testataId: Int,
+        pdfBytes: ByteArray
+    ): Result<DeliveryReportEmailResult> = runCatching {
+        require(testataId > 0) {
+            "Id collo non valido"
+        }
+
+        require(pdfBytes.isNotEmpty()) {
+            "PDF rapportino vuoto"
+        }
+
+        val url =
+            "${baseUrl.trimEnd('/')}/api/delivery-report-email/send"
+
+        val pdfBase64 =
+            Base64.encodeToString(
+                pdfBytes,
+                Base64.NO_WRAP
+            )
+
+        val body = JSONObject()
+            .put("testataId", testataId)
+            .put("pdfBase64", pdfBase64)
+            .toString()
+
+        val response = executeJson(
+            urlString = url,
+            method = "POST",
+            jsonBody = body
+        )
+
+        if (response.code !in 200..299) {
+            error(
+                "Gateway HTTP ${response.code}: ${response.body.take(500)}"
+            )
+        }
+
+        val root = JSONObject(response.body)
+
+        DeliveryReportEmailResult(
+            sent = root.optBoolean("sent", false),
+            skipped = root.optBoolean("skipped", false),
+            alreadySent = root.optBoolean("alreadySent", false),
+            message = root.optString("message", "").trim()
+        )
+    }
+
+
     fun printLabel(
         articleCode: String,
         description: String,
@@ -3430,6 +3542,18 @@ data class SendColloToFrontResultDto(
     val testataId: Int,
     val numeroCollo: String,
     val barcodeCollo: String,
+    val message: String
+)
+
+data class DeliveryReportEmailConfig(
+    val enabled: Boolean,
+    val recipientConfigured: Boolean
+)
+
+data class DeliveryReportEmailResult(
+    val sent: Boolean,
+    val skipped: Boolean,
+    val alreadySent: Boolean,
     val message: String
 )
 

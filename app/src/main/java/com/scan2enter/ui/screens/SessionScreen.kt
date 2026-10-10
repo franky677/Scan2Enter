@@ -89,6 +89,7 @@ import java.util.Date
 import java.util.Locale
 import kotlin.math.abs
 import com.scan2enter.scanner.ScannerModeDetector
+import androidx.compose.material3.Switch
 private const val SESSION_UI_PREFS = "session_ui_prefs"
 private const val KEY_SEARCH_ON_LEFT = "search_on_left"
 private const val KEY_SESSION_BUTTON_POSITION = "session_button_position"
@@ -180,7 +181,56 @@ fun SessionScreen(
     val gatewayApiClient = remember {
         GatewayApiClient()
     }
+    var deliveryReportEmailEnabled by remember {
+        mutableStateOf(false)
+    }
 
+    var deliveryReportEmailRecipientConfigured by remember {
+        mutableStateOf(false)
+    }
+
+    var deliveryReportEmailConfigLoading by remember {
+        mutableStateOf(false)
+    }
+
+    var deliveryReportEmailConfigError by remember {
+        mutableStateOf<String?>(null)
+    }
+
+    LaunchedEffect(currentCustomer.id) {
+        deliveryReportEmailEnabled = false
+        deliveryReportEmailRecipientConfigured = false
+        deliveryReportEmailConfigError = null
+
+        if (currentCustomer.id <= 0) {
+            deliveryReportEmailConfigLoading = false
+            return@LaunchedEffect
+        }
+
+        deliveryReportEmailConfigLoading = true
+
+        Thread {
+            val result =
+                gatewayApiClient.getDeliveryReportEmailConfig(
+                    currentCustomer.id
+                )
+
+            Handler(Looper.getMainLooper()).post {
+                deliveryReportEmailConfigLoading = false
+
+                result.onSuccess { config ->
+                    deliveryReportEmailEnabled = config.enabled
+                    deliveryReportEmailRecipientConfigured =
+                        config.recipientConfigured
+                }.onFailure { error ->
+                    deliveryReportEmailEnabled = false
+                    deliveryReportEmailRecipientConfigured = false
+                    deliveryReportEmailConfigError =
+                        error.message ?: "Errore configurazione email"
+                }
+            }
+        }.start()
+    }
     fun searchCustomers() {
         customerLoading = true
         customerError = null
@@ -504,50 +554,140 @@ fun SessionScreen(
                 modifier = Modifier.height(10.dp)
             )
 
-            Surface(
+                       Surface(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(12.dp),
                 tonalElevation = 2.dp
             ) {
-                Row(
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(12.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                        .padding(12.dp)
                 ) {
-                    Column(
-                        modifier = Modifier.weight(1f)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
-                            text = "👤 Cliente",
-                            fontSize = 13.sp
+                        Column(
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text(
+                                text = "👤 Cliente",
+                                fontSize = 13.sp
+                            )
+
+                            Text(
+                                text = currentCustomer.name,
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1
+                            )
+                        }
+
+                        Spacer(
+                            modifier = Modifier.width(10.dp)
                         )
 
-                        Text(
-                            text = currentCustomer.name,
-                            fontSize = 18.sp,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1
-                        )
+                        Button(
+                            onClick = {
+                                customerDialogOpen = true
+                                customerQuery = ""
+                                customerResults = emptyList()
+                                customerError = null
+                            }
+                        ) {
+                            Text(
+                                text = "CAMBIA",
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
                     }
 
-                    Spacer(
-                        modifier = Modifier.width(10.dp)
-                    )
-
-                    Button(
-                        onClick = {
-                            customerDialogOpen = true
-                            customerQuery = ""
-                            customerResults = emptyList()
-                            customerError = null
-                        }
-                    ) {
-                        Text(
-                            text = "CAMBIA",
-                            fontWeight = FontWeight.Bold
+                    if (currentCustomer.id > 0) {
+                        Spacer(
+                            modifier = Modifier.height(8.dp)
                         )
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text(
+                                    text = "INVIA RAPPORTINO PER EMAIL",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+
+                                when {
+                                    deliveryReportEmailConfigLoading -> {
+                                        Text(
+                                            text = "Caricamento configurazione...",
+                                            fontSize = 12.sp
+                                        )
+                                    }
+
+                                    deliveryReportEmailConfigError != null -> {
+                                        Text(
+                                            text = deliveryReportEmailConfigError!!,
+                                            fontSize = 12.sp
+                                        )
+                                    }
+
+                                    deliveryReportEmailEnabled &&
+                                            !deliveryReportEmailRecipientConfigured -> {
+                                        Text(
+                                            text = "Email cliente non presente",
+                                            fontSize = 12.sp
+                                        )
+                                    }
+                                }
+                            }
+
+                            Spacer(
+                                modifier = Modifier.width(10.dp)
+                            )
+
+                            Switch(
+                                checked = deliveryReportEmailEnabled,
+                                enabled = !deliveryReportEmailConfigLoading,
+                                onCheckedChange = { enabled ->
+                                    deliveryReportEmailConfigLoading = true
+                                    deliveryReportEmailConfigError = null
+
+                                    Thread {
+                                        val result =
+                                            gatewayApiClient
+                                                .setDeliveryReportEmailEnabled(
+                                                    currentCustomer.id,
+                                                    enabled
+                                                )
+
+                                        Handler(
+                                            Looper.getMainLooper()
+                                        ).post {
+                                            deliveryReportEmailConfigLoading =
+                                                false
+
+                                            result.onSuccess { config ->
+                                                deliveryReportEmailEnabled =
+                                                    config.enabled
+                                                deliveryReportEmailRecipientConfigured =
+                                                    config.recipientConfigured
+                                            }.onFailure { error ->
+                                                deliveryReportEmailConfigError =
+                                                    error.message
+                                                        ?: "Errore configurazione email"
+                                            }
+                                        }
+                                    }.start()
+                                }
+                            )
+                        }
                     }
                 }
             }
@@ -1142,6 +1282,10 @@ private fun SessionActionPanel(
         mutableStateOf<String?>(null)
     }
 
+    var deliveryReportEmailMessage by remember {
+        mutableStateOf<String?>(null)
+    }
+
     var sendingColloToFront by remember {
         mutableStateOf(false)
     }
@@ -1393,6 +1537,7 @@ private fun SessionActionPanel(
                                     ).format(Date())
 
                                 colloLabelMessage = null
+                                deliveryReportEmailMessage = null
                                 colloFrontMessage = null
                                 colloFrontConfirmed = false
                                 sendingColloToFront = false
@@ -1738,6 +1883,19 @@ private fun SessionActionPanel(
                         )
                     }
 
+                    deliveryReportEmailMessage?.let { message ->
+                        Text(
+                            text = message,
+                            fontSize = 13.sp,
+                            color =
+                                if (message.startsWith("OK:")) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.error
+                                }
+                        )
+                    }
+
                     Button(
                         onClick = {
                             if (printingColloLabel) {
@@ -1746,6 +1904,7 @@ private fun SessionActionPanel(
 
                             printingColloLabel = true
                             colloLabelMessage = null
+                            deliveryReportEmailMessage = null
 
                             val labelCustomer =
                                 customer.name
@@ -1772,6 +1931,98 @@ private fun SessionActionPanel(
                                         template = "STANDARD",
                                         note = ""
                                     )
+
+                                if (printResult.isSuccess) {
+                                    val created = createdCollo
+
+                                    if (created != null) {
+                                        val emailConfigResult =
+                                            gatewayApiClient.getDeliveryReportEmailConfig(
+                                                customer.id
+                                            )
+
+                                        emailConfigResult
+                                            .onSuccess { config ->
+                                                if (config.enabled) {
+                                                    if (!config.recipientConfigured) {
+                                                        Handler(
+                                                            Looper.getMainLooper()
+                                                        ).post {
+                                                            deliveryReportEmailMessage =
+                                                                "EMAIL: indirizzo cliente non configurato"
+                                                        }
+                                                    } else {
+                                                        val pdfResult =
+                                                            ListPdfGenerator.generateDeliveryReportForEmail(
+                                                                customerName = customer.name,
+                                                                items = items,
+                                                                showPrices = deliveryReportShowPrices,
+                                                                notes = colloNote
+                                                            )
+
+                                                        pdfResult
+                                                            .onSuccess { pdfBytes ->
+                                                                gatewayApiClient
+                                                                    .sendDeliveryReportEmail(
+                                                                        testataId = created.testataId,
+                                                                        pdfBytes = pdfBytes
+                                                                    )
+                                                                    .onSuccess { emailResult ->
+                                                                        Handler(
+                                                                            Looper.getMainLooper()
+                                                                        ).post {
+                                                                            deliveryReportEmailMessage =
+                                                                                when {
+                                                                                    emailResult.sent ->
+                                                                                        "OK: Rapportino inviato per email"
+
+                                                                                    emailResult.alreadySent ->
+                                                                                        "OK: Rapportino email gia inviato"
+
+                                                                                    emailResult.skipped ->
+                                                                                        null
+
+                                                                                    else ->
+                                                                                        "EMAIL: invio non completato"
+                                                                                }
+                                                                        }
+                                                                    }
+                                                                    .onFailure { error ->
+                                                                        Handler(
+                                                                            Looper.getMainLooper()
+                                                                        ).post {
+                                                                            deliveryReportEmailMessage =
+                                                                                "EMAIL: " +
+                                                                                    (error.message
+                                                                                        ?: "errore invio rapportino")
+                                                                        }
+                                                                    }
+                                                            }
+                                                            .onFailure { error ->
+                                                                Handler(
+                                                                    Looper.getMainLooper()
+                                                                ).post {
+                                                                    deliveryReportEmailMessage =
+                                                                        "EMAIL: " +
+                                                                            (error.message
+                                                                                ?: "errore creazione rapportino")
+                                                                }
+                                                            }
+                                                    }
+                                                }
+                                            }
+                                            .onFailure { error ->
+                                                Handler(
+                                                    Looper.getMainLooper()
+                                                ).post {
+                                                    deliveryReportEmailMessage =
+                                                        "EMAIL: " +
+                                                            (error.message
+                                                                ?: "errore verifica configurazione")
+                                                }
+                                            }
+                                    }
+                                }
 
                                 Handler(
                                     Looper.getMainLooper()

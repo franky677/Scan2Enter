@@ -13,6 +13,7 @@ import androidx.core.content.FileProvider
 import com.scan2enter.favorites.FavoriteItem
 import com.scan2enter.reorder.ReorderItem
 import com.scan2enter.session.SessionItem
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -77,150 +78,21 @@ object ListPdfGenerator {
             "Nessun articolo nel Collo veloce"
         }
 
-        // Il rapportino può essere creato anche se il collo non è ancora stato creato.
-        // La pagina barcode viene aggiunta solo quando abbiamo un EAN-13 valido.
-        val validBarcodeCollo =
-            barcodeCollo.length == 13 &&
-                barcodeCollo.all(Char::isDigit)
-
         val document = PdfDocument()
 
         try {
-            val deliveryTotalPages =
-                calculateDeliveryReportPageCount(
-                    itemCount = items.size,
-                    showPrices = showPrices,
-                    notes = notes
-                )
-
-            val renderer =
-                Renderer(
-                    document = document,
-                    deliveryTotalPages = deliveryTotalPages
-                )
-
-            val totalPieces = items.sumOf { it.quantity }
-
-            renderer.startDeliveryReport(
-                title = "RAPPORTINO CONSEGNA MERCE",
-                subtitle = "Cliente: ${customerName.ifBlank { "BANCO" }}",
-                itemCount = items.size,
+            val renderer = renderDeliveryReport(
+                document = document,
+                customerName = customerName,
+                items = items,
                 showPrices = showPrices,
                 notes = notes
             )
 
-            val headers =
-                if (showPrices) {
-                    listOf(
-                        "Codice",
-                        "Descrizione",
-                        "Qta",
-                        "Prezzo",
-                        "Totale"
-                    )
-                } else {
-                    listOf(
-                        "Codice",
-                        "Descrizione",
-                        "Qta"
-                    )
-                }
+            val validBarcodeCollo =
+                barcodeCollo.length == 13 &&
+                    barcodeCollo.all(Char::isDigit)
 
-            val fractions =
-                if (showPrices) {
-                    floatArrayOf(
-                        0.18f,
-                        0.43f,
-                        0.09f,
-                        0.14f,
-                        0.16f
-                    )
-                } else {
-                    floatArrayOf(
-                        0.22f,
-                        0.63f,
-                        0.15f
-                    )
-                }
-
-            renderer.drawHeader(
-                headers = headers,
-                fractions = fractions
-            )
-
-            var grandTotal = 0.0
-
-            items.forEach { item ->
-                val unitPrice =
-                    item.basePrice
-                        .replace(",", ".")
-                        .toDoubleOrNull()
-                        ?: 0.0
-
-                val rowTotal =
-                    unitPrice * item.quantity
-
-                grandTotal += rowTotal
-
-                val values =
-                    if (showPrices) {
-                        listOf(
-                            item.articleCode,
-                            item.description,
-                            item.quantity.toString(),
-                            String.format(
-                                Locale.ITALY,
-                                "%.2f EUR",
-                                unitPrice
-                            ),
-                            String.format(
-                                Locale.ITALY,
-                                "%.2f EUR",
-                                rowTotal
-                            )
-                        )
-                    } else {
-                        listOf(
-                            item.articleCode,
-                            item.description,
-                            item.quantity.toString()
-                        )
-                    }
-
-                renderer.drawRow(
-                    values = values,
-                    fractions = fractions
-                )
-            }
-
-            renderer.addGap(mm(4f))
-
-            renderer.drawSectionTitle(
-                "Totale pezzi: $totalPieces"
-            )
-
-            if (showPrices) {
-                renderer.drawSectionTitle(
-                    String.format(
-                        Locale.ITALY,
-                        "Totale: %.2f EUR",
-                        grandTotal
-                    )
-                )
-            }
-
-            if (notes.isNotBlank()) {
-                renderer.addGap(mm(3f))
-                renderer.drawSectionTitle(
-                    "Note: ${notes.trim()}"
-                )
-            }
-
-            renderer.finishDeliveryReport()
-
-            // La pagina barcode è separata dal rapportino.
-            // Il barcodeCollo viene mantenuto esattamente quello
-            // già utilizzato dalla funzione di identificazione collo.
             if (validBarcodeCollo) {
                 renderer.startColloBarcodePage(
                     customerName = customerName,
@@ -244,6 +116,181 @@ object ListPdfGenerator {
             document.close()
         }
     }
+
+    fun generateDeliveryReportForEmail(
+        customerName: String,
+        items: List<SessionItem>,
+        showPrices: Boolean,
+        notes: String
+    ): Result<ByteArray> = runCatching {
+        require(items.isNotEmpty()) {
+            "Nessun articolo nel Collo veloce"
+        }
+
+        val document = PdfDocument()
+
+        try {
+            val renderer = renderDeliveryReport(
+                document = document,
+                customerName = customerName,
+                items = items,
+                showPrices = showPrices,
+                notes = notes
+            )
+
+            renderer.finishPage()
+
+            ByteArrayOutputStream().use { output ->
+                document.writeTo(output)
+                output.toByteArray()
+            }
+        } finally {
+            document.close()
+        }
+    }
+
+    private fun renderDeliveryReport(
+        document: PdfDocument,
+        customerName: String,
+        items: List<SessionItem>,
+        showPrices: Boolean,
+        notes: String
+    ): Renderer {
+        val deliveryTotalPages =
+            calculateDeliveryReportPageCount(
+                itemCount = items.size,
+                showPrices = showPrices,
+                notes = notes
+            )
+
+        val renderer =
+            Renderer(
+                document = document,
+                deliveryTotalPages = deliveryTotalPages
+            )
+
+        val totalPieces = items.sumOf { it.quantity }
+
+        renderer.startDeliveryReport(
+            title = "RAPPORTINO CONSEGNA MERCE",
+            subtitle = "Cliente: ${customerName.ifBlank { "BANCO" }}",
+            itemCount = items.size,
+            showPrices = showPrices,
+            notes = notes
+        )
+
+        val headers =
+            if (showPrices) {
+                listOf(
+                    "Codice",
+                    "Descrizione",
+                    "Qta",
+                    "Prezzo",
+                    "Totale"
+                )
+            } else {
+                listOf(
+                    "Codice",
+                    "Descrizione",
+                    "Qta"
+                )
+            }
+
+        val fractions =
+            if (showPrices) {
+                floatArrayOf(
+                    0.18f,
+                    0.43f,
+                    0.09f,
+                    0.14f,
+                    0.16f
+                )
+            } else {
+                floatArrayOf(
+                    0.22f,
+                    0.63f,
+                    0.15f
+                )
+            }
+
+        renderer.drawHeader(
+            headers = headers,
+            fractions = fractions
+        )
+
+        var grandTotal = 0.0
+
+        items.forEach { item ->
+            val unitPrice =
+                item.basePrice
+                    .replace(",", ".")
+                    .toDoubleOrNull()
+                    ?: 0.0
+
+            val rowTotal =
+                unitPrice * item.quantity
+
+            grandTotal += rowTotal
+
+            val values =
+                if (showPrices) {
+                    listOf(
+                        item.articleCode,
+                        item.description,
+                        item.quantity.toString(),
+                        String.format(
+                            Locale.ITALY,
+                            "%.2f EUR",
+                            unitPrice
+                        ),
+                        String.format(
+                            Locale.ITALY,
+                            "%.2f EUR",
+                            rowTotal
+                        )
+                    )
+                } else {
+                    listOf(
+                        item.articleCode,
+                        item.description,
+                        item.quantity.toString()
+                    )
+                }
+
+            renderer.drawRow(
+                values = values,
+                fractions = fractions
+            )
+        }
+
+        renderer.addGap(mm(4f))
+
+        renderer.drawSectionTitle(
+            "Totale pezzi: $totalPieces"
+        )
+
+        if (showPrices) {
+            renderer.drawSectionTitle(
+                String.format(
+                    Locale.ITALY,
+                    "Totale: %.2f EUR",
+                    grandTotal
+                )
+            )
+        }
+
+        if (notes.isNotBlank()) {
+            renderer.addGap(mm(3f))
+            renderer.drawSectionTitle(
+                "Note: ${notes.trim()}"
+            )
+        }
+
+        renderer.finishDeliveryReport()
+
+        return renderer
+    }
+
     fun generateReorderAndOpen(
         context: Context,
         items: List<ReorderItem>,
