@@ -1,4 +1,4 @@
-﻿package com.scan2enter.overlay
+package com.scan2enter.overlay
 
 import android.app.Service
 import android.app.AlertDialog
@@ -696,6 +696,13 @@ class OverlayService : Service() {
     private var reorderSupplierFilterKey: String? = null
 
     /*
+     * Selezione multipla degli articoli da sospendere temporaneamente
+     * dalla lista di riordino.
+     */
+    private val selectedReorderArticleIds = mutableSetOf<Long>()
+    private var reorderSelectionMode = false
+
+    /*
      * Posizione della lista da ripristinare dopo l'apertura di un articolo
      * o dopo un aggiornamento dell'adapter.
      */
@@ -1198,6 +1205,8 @@ class OverlayService : Service() {
                 )
 
                 showReorderListPopup()
+                selectedReorderArticleIds.clear()
+                reorderSelectionMode = false
                 reorderPopupMode = ReorderPopupMode.FAVORITES
                 favoriteSortMode = FavoriteSortMode.PRICE_ASCENDING
                 refreshReorderListPopup()
@@ -3048,7 +3057,13 @@ class OverlayService : Service() {
                         event.action == KeyEvent.ACTION_DOWN &&
                         event.repeatCount == 0
                     ) {
-                        removeReorderListPopup()
+                        if (reorderSelectionMode) {
+                            selectedReorderArticleIds.clear()
+                            reorderSelectionMode = false
+                            refreshReorderListPopup()
+                        } else {
+                            removeReorderListPopup()
+                        }
                         return true
                     }
 
@@ -3150,6 +3165,8 @@ class OverlayService : Service() {
             text = "CRONOLOGIA"
             textSize = 13f
             setOnClickListener {
+                selectedReorderArticleIds.clear()
+                reorderSelectionMode = false
                 reorderPopupMode = ReorderPopupMode.HISTORY
                 refreshReorderListPopup()
             }
@@ -3160,6 +3177,8 @@ class OverlayService : Service() {
             text = "PREFERITI"
             textSize = 13f
             setOnClickListener {
+                selectedReorderArticleIds.clear()
+                reorderSelectionMode = false
                 reorderPopupMode = ReorderPopupMode.FAVORITES
                 refreshReorderListPopup()
             }
@@ -3318,6 +3337,97 @@ class OverlayService : Service() {
             }
         )
 
+        val suspendReorderButton = Button(this).apply {
+            tag = "suspendReorderButton"
+            text = "SOSPENDI 6 MESI"
+            textSize = 15f
+            gravity = Gravity.CENTER
+            setTextColor(Color.WHITE)
+            visibility = View.GONE
+
+            setOnClickListener {
+                val articleIds = selectedReorderArticleIds.toList()
+
+                if (articleIds.isEmpty()) {
+                    return@setOnClickListener
+                }
+
+                val count = articleIds.size
+
+                showReorderConfirmation(
+                    title = "Sospendi dal riordino",
+                    message =
+                        if (count == 1) {
+                            "Sospendere questo articolo dal riordino per 6 mesi?"
+                        } else {
+                            "Sospendere questi $count articoli dal riordino per 6 mesi?"
+                        },
+                    confirmText = "SOSPENDI"
+                ) {
+                    Thread {
+                        val failedIds = mutableListOf<Long>()
+
+                        articleIds.forEach { articleId ->
+                            val result =
+                                gatewayApiClient.suspendReorder(articleId)
+
+                            if (result.isFailure) {
+                                failedIds.add(articleId)
+                            }
+                        }
+
+                        popupHandler.post {
+                            if (failedIds.isEmpty()) {
+                                selectedReorderArticleIds.clear()
+                                reorderSelectionMode = false
+
+                                Toast.makeText(
+                                    this@OverlayService,
+                                    if (count == 1) {
+                                        "Articolo sospeso dal riordino per 6 mesi"
+                                    } else {
+                                        "$count articoli sospesi dal riordino per 6 mesi"
+                                    },
+                                    Toast.LENGTH_LONG
+                                ).show()
+
+                                synchronizeReorderListFromGateway()
+                            } else {
+                                selectedReorderArticleIds.clear()
+                                selectedReorderArticleIds.addAll(failedIds)
+                                reorderSelectionMode =
+                                    selectedReorderArticleIds.isNotEmpty()
+
+                                Toast.makeText(
+                                    this@OverlayService,
+                                    "Sospesi ${count - failedIds.size} di $count articoli. " +
+                                            "Non riusciti: ${failedIds.size}",
+                                    Toast.LENGTH_LONG
+                                ).show()
+
+                                synchronizeReorderListFromGateway()
+                            }
+                        }
+                    }.start()
+                }
+            }
+
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                setColor(Color.rgb(183, 75, 20))
+                cornerRadius = 12 * density
+            }
+        }
+
+        card.addView(
+            suspendReorderButton,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                (48 * density).toInt()
+            ).apply {
+                bottomMargin = (10 * density).toInt()
+            }
+        )
         /*
          * Lista virtualizzata: ListView crea soltanto le righe visibili.
          * La precedente combinazione ScrollView + LinearLayout costruiva
@@ -3455,6 +3565,8 @@ class OverlayService : Service() {
             findViewByTag<TextView>(popup, "reorderTotalsText")
         val printListButton =
             findViewByTag<Button>(popup, "printListButton")
+        val suspendReorderButton =
+            findViewByTag<Button>(popup, "suspendReorderButton")
 
         styleReorderTab(
             button = reorderTab,
@@ -3482,6 +3594,7 @@ class OverlayService : Service() {
             reorderTotalsText?.visibility = View.GONE
             favoriteSortButton?.visibility = View.GONE
             printListButton?.visibility = View.GONE
+            suspendReorderButton?.visibility = View.GONE
 
             val rows: List<() -> View> = if (history.isEmpty()) {
                 listOf {
@@ -3505,6 +3618,20 @@ class OverlayService : Service() {
             favoriteSortButton?.visibility = View.VISIBLE
             favoriteSortButton?.text = favoriteSortLabel()
             printListButton?.visibility = View.VISIBLE
+
+        suspendReorderButton?.apply {
+            visibility =
+                if (selectedReorderArticleIds.isNotEmpty()) View.VISIBLE
+                else View.GONE
+
+            text =
+                if (selectedReorderArticleIds.size == 1) {
+                    "SOSPENDI 6 MESI (1)"
+                } else {
+                    "SOSPENDI 6 MESI (${selectedReorderArticleIds.size})"
+                }
+        }
+            suspendReorderButton?.visibility = View.GONE
 
             val favorites = sortFavoriteItems(
                 FavoriteRepository.getAll()
@@ -3534,6 +3661,19 @@ class OverlayService : Service() {
 
         favoriteSortButton?.visibility = View.GONE
         printListButton?.visibility = View.VISIBLE
+
+        suspendReorderButton?.apply {
+            visibility =
+                if (selectedReorderArticleIds.isNotEmpty()) View.VISIBLE
+                else View.GONE
+
+            text =
+                if (selectedReorderArticleIds.size == 1) {
+                    "SOSPENDI 6 MESI (1)"
+                } else {
+                    "SOSPENDI 6 MESI (${selectedReorderArticleIds.size})"
+                }
+        }
 
         val allItems = ReorderStore.getAll()
             .filter(::shouldShowReorderItem)
@@ -3970,6 +4110,29 @@ class OverlayService : Service() {
         }
     }
 
+    private fun toggleReorderItemSelection(item: ReorderItem) {
+        val articleId = item.articleId
+
+        if (articleId <= 0L) {
+            Toast.makeText(
+                this,
+                "Articolo non selezionabile",
+                Toast.LENGTH_SHORT
+            ).show()
+            return
+        }
+
+        if (selectedReorderArticleIds.contains(articleId)) {
+            selectedReorderArticleIds.remove(articleId)
+        } else {
+            selectedReorderArticleIds.add(articleId)
+        }
+
+        reorderSelectionMode = selectedReorderArticleIds.isNotEmpty()
+        rememberReorderListPosition()
+        refreshReorderListPopup()
+    }
+
     private fun createReorderItemView(item: ReorderItem): View {
         val density = resources.displayMetrics.density
 
@@ -3979,7 +4142,15 @@ class OverlayService : Service() {
             isClickable = true
             isFocusable = true
             setOnClickListener {
-                openReorderItem(item)
+                if (reorderSelectionMode) {
+                    toggleReorderItemSelection(item)
+                } else {
+                    openReorderItem(item)
+                }
+            }
+            setOnLongClickListener {
+                toggleReorderItemSelection(item)
+                true
             }
             setPadding(
                 (12 * density).toInt(),
@@ -3989,7 +4160,11 @@ class OverlayService : Service() {
             )
             background = GradientDrawable().apply {
                 shape = GradientDrawable.RECTANGLE
-                setColor(Color.rgb(245, 245, 245))
+                val selected = selectedReorderArticleIds.contains(item.articleId)
+                setColor(
+                    if (selected) Color.rgb(220, 242, 225)
+                    else Color.rgb(245, 245, 245)
+                )
                 cornerRadius = 12 * density
                 setStroke(
                     (1 * density).toInt().coerceAtLeast(1),
@@ -4634,6 +4809,8 @@ class OverlayService : Service() {
 
     private fun removeReorderListPopup() {
         removeReorderConfirmation()
+        selectedReorderArticleIds.clear()
+        reorderSelectionMode = false
         val popup = reorderListPopup ?: return
 
         try {

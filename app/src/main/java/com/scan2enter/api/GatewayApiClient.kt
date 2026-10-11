@@ -1953,6 +1953,62 @@ class GatewayApiClient(
 
 
     /**
+     * Sospende temporaneamente un articolo dalla lista di riordino.
+     * Il Gateway imposta automaticamente la scadenza a 6 mesi.
+     *
+     * PUT /api/reorder-list/{articleId}/suspension?warehouseId=...
+     */
+    fun suspendReorder(
+        articleId: Long,
+        warehouseId: Int = 0
+    ): Result<Boolean> = runCatching {
+        require(articleId > 0L) {
+            "articleId non valido: $articleId"
+        }
+
+        require(warehouseId >= 0) {
+            "warehouseId non valido: $warehouseId"
+        }
+
+        val url =
+            "${baseUrl.trimEnd('/')}/api/reorder-list/$articleId/suspension" +
+                    "?warehouseId=$warehouseId"
+
+        Log.d(TAG, "GATEWAY SUSPEND REORDER")
+        Log.d(TAG, "ARTICLE ID=$articleId WAREHOUSE=$warehouseId")
+        Log.d(TAG, "URL = $url")
+
+        val response = executeJson(
+            urlString = url,
+            method = "PUT",
+            jsonBody = "{}"
+        )
+
+        Log.d(
+            TAG,
+            "GATEWAY SUSPEND REORDER HTTP=${response.code}"
+        )
+        Log.d(TAG, "BODY=${response.body.take(800)}")
+
+        if (response.code !in 200..299) {
+            error(
+                "Gateway HTTP ${response.code}: ${response.body.take(500)}"
+            )
+        }
+
+        val root = JSONObject(response.body)
+
+        check(root.optBoolean("suspended", false)) {
+            root.optString(
+                "message",
+                "Sospensione articolo dal riordino non riuscita"
+            )
+        }
+
+        true
+    }
+
+    /**
      * Legge lo storico colli recente o completo.
      */
     fun getColloHistory(
