@@ -1898,6 +1898,22 @@ private fun SessionActionPanel(
 
                     Button(
                         onClick = {
+                            deliveryReportShowPrices =
+                                !deliveryReportShowPrices
+                        },
+                        enabled = !printingColloLabel,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            if (deliveryReportShowPrices) {
+                                "PREZZI: SI"
+                            } else {
+                                "PREZZI: NO"
+                            }
+                        )
+                    }
+                    Button(
+                        onClick = {
                             if (printingColloLabel) {
                                 return@Button
                             }
