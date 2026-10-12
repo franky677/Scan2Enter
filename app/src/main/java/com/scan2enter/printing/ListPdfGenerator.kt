@@ -227,8 +227,15 @@ object ListPdfGenerator {
                     .toDoubleOrNull()
                     ?: 0.0
 
+            val roundingAdjustment =
+                item.roundingAdjustment
+                    .trim()
+                    .replace(",", ".")
+                    .toDoubleOrNull()
+                    ?: 0.0
+
             val rowTotal =
-                unitPrice * item.quantity
+                (unitPrice * item.quantity) + roundingAdjustment
 
             grandTotal += rowTotal
 
@@ -794,41 +801,6 @@ object ListPdfGenerator {
         }
 
         fun finishDeliveryReport() {
-            val signatureWidth = mm(75f)
-            val signatureHeight = mm(28f)
-
-            // Se la firma non entra, viene creata una nuova pagina
-            // che diventa automaticamente l'ultima pagina del rapportino.
-            ensureSpace(signatureHeight + mm(8f))
-
-            val signatureY =
-                bottomLimit - signatureHeight
-
-            val signatureX =
-                pageWidth - margin - signatureWidth
-
-            canvas!!.drawText(
-                "FIRMA PER RICEVUTA",
-                signatureX,
-                signatureY,
-                sectionPaint
-            )
-
-            canvas!!.drawLine(
-                signatureX,
-                signatureY + mm(17f),
-                signatureX + signatureWidth,
-                signatureY + mm(17f),
-                gridPaint
-            )
-
-            canvas!!.drawText(
-                "Firma",
-                signatureX,
-                signatureY + mm(22f),
-                subtitlePaint
-            )
-
             finishPage()
         }
         fun startColloBarcodePage(
@@ -1112,8 +1084,15 @@ object ListPdfGenerator {
                         calculatedDiscount
                     }
 
+                val roundingAdjustment =
+                    item.roundingAdjustment
+                        .trim()
+                        .replace(",", ".")
+                        .toDoubleOrNull()
+                        ?: 0.0
+
                 val rowTotal =
-                    effectivePrice * item.quantity
+                    (effectivePrice * item.quantity) + roundingAdjustment
 
                 colloTotal += rowTotal
 
@@ -1154,6 +1133,39 @@ object ListPdfGenerator {
                     "Note: ${notes.trim()}"
                 )
             }
+
+            val signatureWidth = mm(75f)
+            val signatureHeight = mm(28f)
+
+            ensureSpace(signatureHeight + mm(8f))
+
+            val signatureY =
+                bottomLimit - signatureHeight
+
+            val signatureX =
+                pageWidth - margin - signatureWidth
+
+            canvas!!.drawText(
+                "FIRMA PER RICEVUTA",
+                signatureX,
+                signatureY,
+                sectionPaint
+            )
+
+            canvas!!.drawLine(
+                signatureX,
+                signatureY + mm(17f),
+                signatureX + signatureWidth,
+                signatureY + mm(17f),
+                gridPaint
+            )
+
+            canvas!!.drawText(
+                "Firma",
+                signatureX,
+                signatureY + mm(22f),
+                subtitlePaint
+            )
         }
         fun drawHeader(
             headers: List<String>,
