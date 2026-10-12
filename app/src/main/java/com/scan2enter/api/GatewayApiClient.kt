@@ -1953,6 +1953,128 @@ class GatewayApiClient(
 
 
     /**
+     * Legge gli articoli attualmente sospesi dal riordino.
+     *
+     * GET /api/reorder-list/suspensions?warehouseId=...
+     */
+    fun getReorderSuspensions(
+        warehouseId: Int = 0
+    ): Result<List<ReorderSuspensionDto>> = runCatching {
+        require(warehouseId >= 0) {
+            "warehouseId non valido: $warehouseId"
+        }
+
+        val url =
+            "${baseUrl.trimEnd('/')}/api/reorder-list/suspensions" +
+                    "?warehouseId=$warehouseId"
+
+        Log.d(TAG, "GATEWAY GET REORDER SUSPENSIONS")
+        Log.d(TAG, "WAREHOUSE=$warehouseId")
+        Log.d(TAG, "URL = $url")
+
+        val response = executeGet(url)
+
+        Log.d(
+            TAG,
+            "GATEWAY GET REORDER SUSPENSIONS HTTP=${response.code}"
+        )
+        Log.d(TAG, "BODY=${response.body.take(1200)}")
+
+        if (response.code !in 200..299) {
+            error(
+                "Gateway HTTP ${response.code}: ${response.body.take(500)}"
+            )
+        }
+
+        val trimmedBody = response.body.trim()
+        val array =
+            if (trimmedBody.startsWith("[")) {
+                JSONArray(trimmedBody)
+            } else {
+                val root = JSONObject(trimmedBody)
+                root.optJSONArray("value")
+                    ?: root.optJSONArray("items")
+                    ?: JSONArray()
+            }
+
+        val result = ArrayList<ReorderSuspensionDto>(array.length())
+
+        for (index in 0 until array.length()) {
+            val item = array.optJSONObject(index) ?: continue
+            val idArticle = item.optLong("idArticle", 0L)
+
+            if (idArticle <= 0L) continue
+
+            result.add(
+                ReorderSuspensionDto(
+                    idArticle = idArticle,
+                    articleCode = item.optString("articleCode", "").trim(),
+                    description = item.optString("description", "").trim(),
+                    barcode = item.optString("barcode", "").trim(),
+                    warehouseId = item.optInt("warehouseId", warehouseId),
+                    suspendedUntil = item.optString("suspendedUntil", "").trim()
+                )
+            )
+        }
+
+        result
+    }
+
+    /**
+     * Riattiva anticipatamente un articolo sospeso dal riordino.
+     *
+     * DELETE /api/reorder-list/{articleId}/suspension?warehouseId=...
+     */
+    fun resumeReorder(
+        articleId: Long,
+        warehouseId: Int = 0
+    ): Result<Boolean> = runCatching {
+        require(articleId > 0L) {
+            "articleId non valido: $articleId"
+        }
+
+        require(warehouseId >= 0) {
+            "warehouseId non valido: $warehouseId"
+        }
+
+        val url =
+            "${baseUrl.trimEnd('/')}/api/reorder-list/$articleId/suspension" +
+                    "?warehouseId=$warehouseId"
+
+        Log.d(TAG, "GATEWAY RESUME REORDER")
+        Log.d(TAG, "ARTICLE ID=$articleId WAREHOUSE=$warehouseId")
+        Log.d(TAG, "URL = $url")
+
+        val response = executeWithoutBody(
+            urlString = url,
+            method = "DELETE"
+        )
+
+        Log.d(
+            TAG,
+            "GATEWAY RESUME REORDER HTTP=${response.code}"
+        )
+        Log.d(TAG, "BODY=${response.body.take(800)}")
+
+        if (response.code !in 200..299) {
+            error(
+                "Gateway HTTP ${response.code}: ${response.body.take(500)}"
+            )
+        }
+
+        val root = JSONObject(response.body)
+
+        check(root.optBoolean("resumed", false)) {
+            root.optString(
+                "message",
+                "Riattivazione articolo nel riordino non riuscita"
+            )
+        }
+
+        true
+    }
+
+    /**
      * Sospende temporaneamente un articolo dalla lista di riordino.
      * Il Gateway imposta automaticamente la scadenza a 6 mesi.
      *
@@ -3853,6 +3975,14 @@ data class ProductExpiryDto(
             }
 }
 
+data class ReorderSuspensionDto(
+    val idArticle: Long,
+    val articleCode: String,
+    val description: String,
+    val barcode: String,
+    val warehouseId: Int,
+    val suspendedUntil: String
+)
 data class ReorderSupplierOptionDto(
     val supplierId: Long,
     val supplierName: String,

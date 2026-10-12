@@ -42,6 +42,7 @@ import coil3.request.crossfade
 import com.scan2enter.BuildFlags
 import com.scan2enter.MainActivity
 import com.scan2enter.api.GatewayApiClient
+import com.scan2enter.api.ReorderSuspensionDto
 import com.scan2enter.ScannerActivity
 import com.scan2enter.R
 import com.scan2enter.feedback.ScanFeedbackManager
@@ -682,7 +683,8 @@ class OverlayService : Service() {
     private enum class ReorderPopupMode {
         REORDER,
         HISTORY,
-        FAVORITES
+        FAVORITES,
+        SUSPENDED
     }
 
     private enum class FavoriteSortMode {
@@ -701,6 +703,8 @@ class OverlayService : Service() {
      */
     private val selectedReorderArticleIds = mutableSetOf<Long>()
     private var reorderSelectionMode = false
+    private var reorderSuspensions: List<ReorderSuspensionDto> = emptyList()
+    private var reorderSuspensionsLoading = false
 
     /*
      * Posizione della lista da ripristinare dopo l'apertura di un articolo
@@ -3033,6 +3037,45 @@ class OverlayService : Service() {
         }.start()
     }
 
+    private fun synchronizeReorderSuspensionsFromGateway() {
+        if (reorderSuspensionsLoading) return
+
+        reorderSuspensionsLoading = true
+        if (reorderPopupMode == ReorderPopupMode.SUSPENDED) {
+            refreshReorderListPopup()
+        }
+
+        Thread {
+            val result = gatewayApiClient.getReorderSuspensions(0)
+
+            popupHandler.post {
+                reorderSuspensionsLoading = false
+
+                result.onSuccess { items ->
+                    reorderSuspensions = items
+                    if (reorderPopupMode == ReorderPopupMode.SUSPENDED) {
+                        refreshReorderListPopup()
+                    }
+                }.onFailure { error ->
+                    if (reorderPopupMode == ReorderPopupMode.SUSPENDED) {
+                        refreshReorderListPopup()
+                    }
+
+                    Toast.makeText(
+                        this,
+                        "Errore lettura articoli sospesi: ${error.message ?: "errore sconosciuto"}",
+                        Toast.LENGTH_LONG
+                    ).show()
+
+                    android.util.Log.e(
+                        "OverlayService",
+                        "ERRORE LETTURA ARTICOLI SOSPESI",
+                        error
+                    )
+                }
+            }
+        }.start()
+    }
     /**
      * Apre la lista di riordino raggruppata per fornitore.
      */
@@ -3184,6 +3227,19 @@ class OverlayService : Service() {
             }
         }
 
+        val suspendedTab = Button(this).apply {
+            tag = "suspendedTabButton"
+            text = "SOSPESI"
+            textSize = 13f
+            setOnClickListener {
+                selectedReorderArticleIds.clear()
+                reorderSelectionMode = false
+                reorderPopupMode = ReorderPopupMode.SUSPENDED
+                refreshReorderListPopup()
+                synchronizeReorderSuspensionsFromGateway()
+            }
+        }
+
         tabs.addView(
             reorderTab,
             LinearLayout.LayoutParams(
@@ -3205,6 +3261,17 @@ class OverlayService : Service() {
 
         tabs.addView(
             favoritesTab,
+            LinearLayout.LayoutParams(
+                0,
+                (44 * density).toInt(),
+                1f
+            ).apply {
+                marginStart = (8 * density).toInt()
+            }
+        )
+
+        tabs.addView(
+            suspendedTab,
             LinearLayout.LayoutParams(
                 0,
                 (44 * density).toInt(),
@@ -3557,6 +3624,7 @@ class OverlayService : Service() {
         val reorderTab = findViewByTag<Button>(popup, "reorderTabButton")
         val historyTab = findViewByTag<Button>(popup, "historyTabButton")
         val favoritesTab = findViewByTag<Button>(popup, "favoritesTabButton")
+        val suspendedTab = findViewByTag<Button>(popup, "suspendedTabButton")
         val favoriteSortButton =
             findViewByTag<Button>(popup, "favoriteSortButton")
         val supplierFilterButton =
@@ -3580,6 +3648,40 @@ class OverlayService : Service() {
             button = favoritesTab,
             selected = reorderPopupMode == ReorderPopupMode.FAVORITES
         )
+        styleReorderTab(
+            button = suspendedTab,
+            selected = reorderPopupMode == ReorderPopupMode.SUSPENDED
+        )
+
+        if (reorderPopupMode == ReorderPopupMode.SUSPENDED) {
+            supplierFilterButton?.visibility = View.GONE
+            reorderTotalsText?.visibility = View.GONE
+            favoriteSortButton?.visibility = View.GONE
+            printListButton?.visibility = View.GONE
+            suspendReorderButton?.visibility = View.GONE
+
+            subtitle?.text = when {
+                reorderSuspensionsLoading -> "Caricamento articoli sospesi..."
+                reorderSuspensions.isEmpty() -> "Nessun articolo sospeso"
+                reorderSuspensions.size == 1 -> "1 articolo sospeso"
+                else -> "${reorderSuspensions.size} articoli sospesi"
+            }
+
+            val rows: List<() -> View> = when {
+                reorderSuspensionsLoading && reorderSuspensions.isEmpty() -> listOf {
+                    createVirtualizedEmptyMessage("Caricamento articoli sospesi...")
+                }
+                reorderSuspensions.isEmpty() -> listOf {
+                    createVirtualizedEmptyMessage("Nessun articolo sospeso dal riordino.")
+                }
+                else -> reorderSuspensions.map { item ->
+                    { createReorderSuspensionView(item) }
+                }
+            }
+
+            applyListAdapter(listView, rows)
+            return
+        }
 
         if (reorderPopupMode == ReorderPopupMode.HISTORY) {
             val history = ProductInfoStore.getHistory().take(20)
@@ -4133,6 +4235,158 @@ class OverlayService : Service() {
         refreshReorderListPopup()
     }
 
+    private fun resumeReorderSuspension(item: ReorderSuspensionDto) {
+        val description = item.description.trim()
+            .ifEmpty { item.articleCode.trim() }
+            .ifEmpty { "questo articolo" }
+
+        showReorderConfirmation(
+            title = "Riattiva nel riordino",
+            message = "Riattivare $description prima della scadenza?",
+            confirmText = "RIATTIVA"
+        ) {
+            Thread {
+                val result = gatewayApiClient.resumeReorder(
+                    articleId = item.idArticle,
+                    warehouseId = item.warehouseId
+                )
+
+                popupHandler.post {
+                    result.onSuccess {
+                        Toast.makeText(
+                            this@OverlayService,
+                            "Articolo riattivato nel riordino",
+                            Toast.LENGTH_LONG
+                        ).show()
+
+                        synchronizeReorderSuspensionsFromGateway()
+                        synchronizeReorderListFromGateway()
+                    }.onFailure { error ->
+                        Toast.makeText(
+                            this@OverlayService,
+                            "Riattivazione non riuscita: ${error.message ?: "errore sconosciuto"}",
+                            Toast.LENGTH_LONG
+                        ).show()
+
+                        android.util.Log.e(
+                            "OverlayService",
+                            "ERRORE RIATTIVAZIONE RIORDINO articleId=${item.idArticle}",
+                            error
+                        )
+                    }
+                }
+            }.start()
+        }
+    }
+
+    private fun createReorderSuspensionView(
+        item: ReorderSuspensionDto
+    ): View {
+        val density = resources.displayMetrics.density
+
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(
+                (12 * density).toInt(),
+                (10 * density).toInt(),
+                (8 * density).toInt(),
+                (10 * density).toInt()
+            )
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                setColor(Color.rgb(255, 248, 225))
+                cornerRadius = 12 * density
+                setStroke(
+                    (1 * density).toInt().coerceAtLeast(1),
+                    Color.rgb(255, 193, 7)
+                )
+            }
+        }
+
+        val textContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+
+        textContainer.addView(
+            TextView(this).apply {
+                text = item.description.trim()
+                    .ifEmpty { "Articolo senza descrizione" }
+                textSize = 16f
+                setTextColor(Color.BLACK)
+                setTypeface(typeface, android.graphics.Typeface.BOLD)
+            }
+        )
+
+        val codes = buildString {
+            if (item.articleCode.isNotBlank()) {
+                append("Codice: ${item.articleCode.trim()}")
+            }
+            if (item.barcode.isNotBlank()) {
+                if (isNotEmpty()) append("      ")
+                append("EAN: ${item.barcode.trim()}")
+            }
+        }
+
+        if (codes.isNotEmpty()) {
+            textContainer.addView(
+                TextView(this).apply {
+                    text = codes
+                    textSize = 13f
+                    setTextColor(Color.DKGRAY)
+                    setPadding(0, (4 * density).toInt(), 0, 0)
+                }
+            )
+        }
+
+        textContainer.addView(
+            TextView(this).apply {
+                text = "Sospeso fino al ${formatReorderSuspensionDate(item.suspendedUntil)}"
+                textSize = 14f
+                setTextColor(Color.rgb(121, 85, 0))
+                setTypeface(typeface, android.graphics.Typeface.BOLD)
+                setPadding(0, (6 * density).toInt(), 0, 0)
+            }
+        )
+
+        root.addView(
+            textContainer,
+            LinearLayout.LayoutParams(
+                0,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                1f
+            )
+        )
+
+        root.addView(
+            Button(this).apply {
+                text = "RIATTIVA"
+                textSize = 12f
+                setOnClickListener {
+                    resumeReorderSuspension(item)
+                }
+            },
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                marginStart = (8 * density).toInt()
+            }
+        )
+
+        return root
+    }
+
+    private fun formatReorderSuspensionDate(value: String): String {
+        val datePart = value.substringBefore("T")
+        val parts = datePart.split("-")
+
+        return if (parts.size == 3) {
+            "${parts[2]}/${parts[1]}/${parts[0]}"
+        } else {
+            value
+        }
+    }
     private fun createReorderItemView(item: ReorderItem): View {
         val density = resources.displayMetrics.density
 
