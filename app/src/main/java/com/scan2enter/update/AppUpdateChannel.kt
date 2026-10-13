@@ -1,4 +1,4 @@
-﻿package com.scan2enter.update
+package com.scan2enter.update
 
 import android.content.Context
 
@@ -9,12 +9,7 @@ object AppUpdateChannel {
     private const val DEFAULT_CHANNEL = "stable"
 
     fun get(context: Context): String {
-        return context
-            .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            .getString(KEY_CHANNEL, DEFAULT_CHANNEL)
-            ?.lowercase()
-            ?.takeIf { it == "test" || it == "stable" }
-            ?: DEFAULT_CHANNEL
+        return DEFAULT_CHANNEL
     }
 
     fun set(context: Context, channel: String) {
