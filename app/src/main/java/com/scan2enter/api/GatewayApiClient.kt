@@ -2431,13 +2431,15 @@ class GatewayApiClient(
 
         DeliveryReportEmailConfig(
             enabled = root.optBoolean("enabled", false),
+            showPrices = root.optBoolean("showPrices", true),
             recipientConfigured =
                 root.optBoolean("recipientConfigured", false)
         )
     }
     fun setDeliveryReportEmailEnabled(
         clientId: Int,
-        enabled: Boolean
+        enabled: Boolean,
+        showPrices: Boolean? = null
     ): Result<DeliveryReportEmailConfig> = runCatching {
         require(clientId > 0) {
             "Id cliente non valido"
@@ -2445,10 +2447,14 @@ class GatewayApiClient(
 
         val url =
             "${baseUrl.trimEnd('/')}/api/delivery-report-email/client/$clientId"
-
-        val body = JSONObject()
+        val bodyObject = JSONObject()
             .put("enabled", enabled)
-            .toString()
+
+        if (showPrices != null) {
+            bodyObject.put("showPrices", showPrices)
+        }
+
+        val body = bodyObject.toString()
 
         val response = executeJson(
             urlString = url,
@@ -2466,6 +2472,7 @@ class GatewayApiClient(
 
         DeliveryReportEmailConfig(
             enabled = root.optBoolean("enabled", false),
+            showPrices = root.optBoolean("showPrices", true),
             recipientConfigured =
                 root.optBoolean("recipientConfigured", false)
         )
@@ -3725,6 +3732,7 @@ data class SendColloToFrontResultDto(
 
 data class DeliveryReportEmailConfig(
     val enabled: Boolean,
+    val showPrices: Boolean,
     val recipientConfigured: Boolean
 )
 

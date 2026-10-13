@@ -185,6 +185,10 @@ fun SessionScreen(
         mutableStateOf(false)
     }
 
+    var deliveryReportShowPrices by remember {
+        mutableStateOf(true)
+    }
+
     var deliveryReportEmailRecipientConfigured by remember {
         mutableStateOf(false)
     }
@@ -199,6 +203,7 @@ fun SessionScreen(
 
     LaunchedEffect(currentCustomer.id) {
         deliveryReportEmailEnabled = false
+        deliveryReportShowPrices = true
         deliveryReportEmailRecipientConfigured = false
         deliveryReportEmailConfigError = null
 
@@ -220,6 +225,7 @@ fun SessionScreen(
 
                 result.onSuccess { config ->
                     deliveryReportEmailEnabled = config.enabled
+                    deliveryReportShowPrices = config.showPrices
                     deliveryReportEmailRecipientConfigured =
                         config.recipientConfigured
                 }.onFailure { error ->
@@ -450,6 +456,40 @@ fun SessionScreen(
                             actionPanelOpen = false
                         },
                         onOpenColloHistory = onOpenColloHistory,
+                        deliveryReportShowPrices = deliveryReportShowPrices,
+                        onDeliveryReportShowPricesChange = { showPrices ->
+                            deliveryReportEmailConfigLoading = true
+                            deliveryReportEmailConfigError = null
+
+                            Thread {
+                                val result =
+                                    gatewayApiClient
+                                        .setDeliveryReportEmailEnabled(
+                                            currentCustomer.id,
+                                            deliveryReportEmailEnabled,
+                                            showPrices
+                                        )
+
+                                Handler(
+                                    Looper.getMainLooper()
+                                ).post {
+                                    deliveryReportEmailConfigLoading = false
+
+                                    result.onSuccess { config ->
+                                        deliveryReportEmailEnabled =
+                                            config.enabled
+                                        deliveryReportShowPrices =
+                                            config.showPrices
+                                        deliveryReportEmailRecipientConfigured =
+                                            config.recipientConfigured
+                                    }.onFailure { error ->
+                                        deliveryReportEmailConfigError =
+                                            error.message
+                                                ?: "Errore configurazione rapportino"
+                                    }
+                                }
+                            }.start()
+                        },
                         onExitToHome = onBack
                     )
                 }
@@ -609,84 +649,164 @@ fun SessionScreen(
                             modifier = Modifier.height(8.dp)
                         )
 
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
+                        Column(
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            Column(
-                                modifier = Modifier.weight(1f)
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text(
-                                    text = "INVIA RAPPORTINO PER EMAIL",
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
+                                Column(
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Text(
+                                        text = "INVIA RAPPORTINO PER EMAIL",
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
 
-                                when {
-                                    deliveryReportEmailConfigLoading -> {
-                                        Text(
-                                            text = "Caricamento configurazione...",
-                                            fontSize = 12.sp
-                                        )
-                                    }
+                                    when {
+                                        deliveryReportEmailConfigLoading -> {
+                                            Text(
+                                                text = "Caricamento configurazione...",
+                                                fontSize = 12.sp
+                                            )
+                                        }
 
-                                    deliveryReportEmailConfigError != null -> {
-                                        Text(
-                                            text = deliveryReportEmailConfigError!!,
-                                            fontSize = 12.sp
-                                        )
-                                    }
+                                        deliveryReportEmailConfigError != null -> {
+                                            Text(
+                                                text = deliveryReportEmailConfigError!!,
+                                                fontSize = 12.sp
+                                            )
+                                        }
 
-                                    deliveryReportEmailEnabled &&
+                                        deliveryReportEmailEnabled &&
                                             !deliveryReportEmailRecipientConfigured -> {
-                                        Text(
-                                            text = "Email cliente non presente",
-                                            fontSize = 12.sp
-                                        )
+                                            Text(
+                                                text = "Email cliente non presente",
+                                                fontSize = 12.sp
+                                            )
+                                        }
                                     }
                                 }
+
+                                Spacer(
+                                    modifier = Modifier.width(10.dp)
+                                )
+
+                                Switch(
+                                    checked = deliveryReportEmailEnabled,
+                                    enabled = !deliveryReportEmailConfigLoading,
+                                    onCheckedChange = { enabled ->
+                                        deliveryReportEmailConfigLoading = true
+                                        deliveryReportEmailConfigError = null
+
+                                        Thread {
+                                            val result =
+                                                gatewayApiClient
+                                                    .setDeliveryReportEmailEnabled(
+                                                        currentCustomer.id,
+                                                        enabled,
+                                                        deliveryReportShowPrices
+                                                    )
+
+                                            Handler(
+                                                Looper.getMainLooper()
+                                            ).post {
+                                                deliveryReportEmailConfigLoading =
+                                                    false
+
+                                                result.onSuccess { config ->
+                                                    deliveryReportEmailEnabled =
+                                                        config.enabled
+                                                    deliveryReportShowPrices =
+                                                        config.showPrices
+                                                    deliveryReportEmailRecipientConfigured =
+                                                        config.recipientConfigured
+                                                }.onFailure { error ->
+                                                    deliveryReportEmailConfigError =
+                                                        error.message
+                                                            ?: "Errore configurazione email"
+                                                }
+                                            }
+                                        }.start()
+                                    }
+                                )
                             }
 
                             Spacer(
-                                modifier = Modifier.width(10.dp)
+                                modifier = Modifier.height(4.dp)
                             )
 
-                            Switch(
-                                checked = deliveryReportEmailEnabled,
-                                enabled = !deliveryReportEmailConfigLoading,
-                                onCheckedChange = { enabled ->
-                                    deliveryReportEmailConfigLoading = true
-                                    deliveryReportEmailConfigError = null
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Text(
+                                        text = "PREZZI NEL RAPPORTINO",
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
 
-                                    Thread {
-                                        val result =
-                                            gatewayApiClient
-                                                .setDeliveryReportEmailEnabled(
-                                                    currentCustomer.id,
-                                                    enabled
-                                                )
-
-                                        Handler(
-                                            Looper.getMainLooper()
-                                        ).post {
-                                            deliveryReportEmailConfigLoading =
-                                                false
-
-                                            result.onSuccess { config ->
-                                                deliveryReportEmailEnabled =
-                                                    config.enabled
-                                                deliveryReportEmailRecipientConfigured =
-                                                    config.recipientConfigured
-                                            }.onFailure { error ->
-                                                deliveryReportEmailConfigError =
-                                                    error.message
-                                                        ?: "Errore configurazione email"
-                                            }
-                                        }
-                                    }.start()
+                                    Text(
+                                        text =
+                                            if (deliveryReportShowPrices) {
+                                                "PREZZI: SI"
+                                            } else {
+                                                "PREZZI: NO"
+                                            },
+                                        fontSize = 12.sp
+                                    )
                                 }
-                            )
+
+                                Spacer(
+                                    modifier = Modifier.width(10.dp)
+                                )
+
+                                Switch(
+                                    checked = deliveryReportShowPrices,
+                                    enabled = !deliveryReportEmailConfigLoading,
+                                    onCheckedChange = { showPrices ->
+                                        deliveryReportEmailConfigLoading = true
+                                        deliveryReportEmailConfigError = null
+
+                                        Thread {
+                                            val result =
+                                                gatewayApiClient
+                                                    .setDeliveryReportEmailEnabled(
+                                                        currentCustomer.id,
+                                                        deliveryReportEmailEnabled,
+                                                        showPrices
+                                                    )
+
+                                            Handler(
+                                                Looper.getMainLooper()
+                                            ).post {
+                                                deliveryReportEmailConfigLoading =
+                                                    false
+
+                                                result.onSuccess { config ->
+                                                    deliveryReportEmailEnabled =
+                                                        config.enabled
+                                                    deliveryReportShowPrices =
+                                                        config.showPrices
+                                                    deliveryReportEmailRecipientConfigured =
+                                                        config.recipientConfigured
+                                                }.onFailure { error ->
+                                                    deliveryReportEmailConfigError =
+                                                        error.message
+                                                            ?: "Errore configurazione rapportino"
+                                                }
+                                            }
+                                        }.start()
+                                    }
+                                )
+                            }
                         }
                     }
                 }
@@ -1253,6 +1373,8 @@ private fun SessionActionPanel(
     items: List<SessionItem>,
     onClose: () -> Unit,
     onOpenColloHistory: () -> Unit,
+    deliveryReportShowPrices: Boolean,
+    onDeliveryReportShowPricesChange: (Boolean) -> Unit,
     onExitToHome: () -> Unit
 ) {
     val context = LocalContext.current
@@ -1317,9 +1439,6 @@ private fun SessionActionPanel(
 
     var deliveryReportDialogOpen by remember {
         mutableStateOf(false)
-    }
-    var deliveryReportShowPrices by remember {
-        mutableStateOf(true)
     }
 
     val gatewayApiClient = remember {
@@ -1895,23 +2014,6 @@ private fun SessionActionPanel(
                                 }
                         )
                     }
-
-                    Button(
-                        onClick = {
-                            deliveryReportShowPrices =
-                                !deliveryReportShowPrices
-                        },
-                        enabled = !printingColloLabel,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text(
-                            if (deliveryReportShowPrices) {
-                                "PREZZI: SI"
-                            } else {
-                                "PREZZI: NO"
-                            }
-                        )
-                    }
                     Button(
                         onClick = {
                             if (printingColloLabel) {
@@ -1972,7 +2074,7 @@ private fun SessionActionPanel(
                                                             ListPdfGenerator.generateDeliveryReportForEmail(
                                                                 customerName = customer.name,
                                                                 items = items,
-                                                                showPrices = deliveryReportShowPrices,
+                                                                showPrices = config.showPrices,
                                                                 notes = colloNote
                                                             )
 
@@ -2125,7 +2227,7 @@ private fun SessionActionPanel(
                     Spacer(Modifier.height(12.dp))
                     Button(
                         onClick = {
-                            deliveryReportShowPrices = !deliveryReportShowPrices
+                            onDeliveryReportShowPricesChange(!deliveryReportShowPrices)
                         },
                         modifier = Modifier.fillMaxWidth()
                     ) {
