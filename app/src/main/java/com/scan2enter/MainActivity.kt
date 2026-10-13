@@ -56,6 +56,29 @@ class MainActivity : ComponentActivity() {
     private var expiryAlertDialog: AlertDialog? = null
     private var expiryAlertCheckOnNextStart = false
 
+    private var expiryAlertsEnabled by mutableStateOf(true)
+
+    private fun loadExpiryAlertsEnabled() {
+        expiryAlertsEnabled =
+            getSharedPreferences("expiry_alerts", Context.MODE_PRIVATE)
+                .getBoolean("enabled", true)
+    }
+
+    private fun updateExpiryAlertsEnabled(enabled: Boolean) {
+        expiryAlertsEnabled = enabled
+        getSharedPreferences("expiry_alerts", Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean("enabled", enabled)
+            .apply()
+
+        if (!enabled) {
+            expiryAlertCheckOnNextStart = false
+            expiryAlertHandler.removeCallbacks(dismissExpiryAlertRunnable)
+            expiryAlertDialog?.dismiss()
+            expiryAlertDialog = null
+        }
+    }
+
     private val expiryAlertHandler =
         android.os.Handler(android.os.Looper.getMainLooper())
 
@@ -437,6 +460,7 @@ class MainActivity : ComponentActivity() {
     }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        loadExpiryAlertsEnabled()
 
         when {
             intent?.getBooleanExtra(EXTRA_OPEN_A4_SEARCH, false) == true ->
@@ -501,7 +525,9 @@ class MainActivity : ComponentActivity() {
 
         SessionStore.initialize(applicationContext)
 
-        checkProductExpiryAlerts()
+        if (expiryAlertsEnabled) {
+            checkProductExpiryAlerts()
+        }
         checkForAppUpdate()
 
         enableEdgeToEdge()
@@ -825,6 +851,10 @@ class MainActivity : ComponentActivity() {
                     else -> {
                         HomeScreen(
                             availableAppUpdate = availableAppUpdate,
+                            expiryAlertsEnabled = expiryAlertsEnabled,
+                            onExpiryAlertsEnabledChange = { enabled ->
+                                updateExpiryAlertsEnabled(enabled)
+                            },
                             onInstallUpdate = {
                                 downloadAndInstallUpdate()
                             },
@@ -953,7 +983,7 @@ class MainActivity : ComponentActivity() {
         super.onStart()
         registerSunmiHomeReceiver()
 
-        if (expiryAlertCheckOnNextStart) {
+        if (expiryAlertCheckOnNextStart && expiryAlertsEnabled) {
             expiryAlertCheckOnNextStart = false
             checkProductExpiryAlerts()
         }

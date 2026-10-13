@@ -50,6 +50,8 @@ import com.scan2enter.update.AppUpdateInfo
 fun HomeScreen(
     availableAppUpdate: AppUpdateInfo?,
     onInstallUpdate: () -> Unit,
+    expiryAlertsEnabled: Boolean,
+    onExpiryAlertsEnabledChange: (Boolean) -> Unit,
     onOpenTrovaTutto: () -> Unit,
     onOpenSession: () -> Unit,
     onOpenSales: () -> Unit,
@@ -296,6 +298,13 @@ fun HomeScreen(
                             onClick = {
                                 showMoreMenu = false
                                 showWhatsNewDialog = true
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Avviso scadenze: ${if (expiryAlertsEnabled) "ON" else "OFF"}") },
+                            onClick = {
+                                onExpiryAlertsEnabledChange(!expiryAlertsEnabled)
+                                showMoreMenu = false
                             }
                         )
                     }
