@@ -782,8 +782,8 @@ private fun promoReportShape(name: String): Shape =
             // Ovale inscritto con margine laterale: resta sempre intero sul foglio.
             val left = size.width * 0.03f
             val right = size.width * 0.97f
-            val top = size.height * 0.10f
-            val bottom = size.height * 0.90f
+            val top = size.height * 0.24f
+            val bottom = size.height * 0.76f
             val rx = (right - left) / 2f
             val ry = (bottom - top) / 2f
             val cx = (left + right) / 2f
@@ -1818,7 +1818,7 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                     )
                     .padding(
                         start = if (reportShapeName in listOf("CERCHIO", "OVALE", "NUVOLA", "CUORE", "POLLICE")) 28.dp else 10.dp, end = if (reportShapeName in listOf("CERCHIO", "OVALE", "NUVOLA", "CUORE", "POLLICE")) 28.dp else 10.dp,
-                        top = when (reportShapeName) { "CERCHIO" -> ((a4Height - a4Width) / 2) + 14.dp; "NUVOLA", "CUORE", "POLLICE" -> 24.dp; else -> 10.dp },
+                        top = when (reportShapeName) { "CERCHIO" -> ((a4Height - a4Width) / 2) + 14.dp; "OVALE" -> (a4Height * 0.24f); "NUVOLA", "CUORE", "POLLICE" -> 24.dp; else -> 10.dp },
                         bottom = if (reportShapeName in listOf("NUVOLA", "CUORE", "POLLICE")) 24.dp else 10.dp
                     ),
                 horizontalAlignment = Alignment.CenterHorizontally
@@ -2317,7 +2317,11 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                         renderedTitleScale, explosionFont, titleShape.toInt(),
                         titleShapeRotation, titleShapeShadow, titleShapeProportion,
                         titleShapeTouchScale, titleInternalScale, titleInternalRotation,
-                        layoutFit = if (reportShapeName == "CERCHIO") 0.55f else 1.00f
+                        layoutFit = when (reportShapeName) {
+                            "CERCHIO" -> 0.55f
+                            "OVALE" -> 0.51f
+                            else -> 1.00f
+                        }
                     )
                 }
 
@@ -2338,7 +2342,7 @@ var colorControl by remember { mutableStateOf("TONALITA") }
 
                 val reportContrastColor = promoContrastColor(reportBackgroundColor)
 
-                Spacer(Modifier.height(if (reportShapeName == "CERCHIO") 2.dp else 10.dp))
+                Spacer(Modifier.height(if (reportShapeName == "CERCHIO" || reportShapeName == "OVALE") 2.dp else 10.dp))
 
                 if (showDescriptionElement) {
                 if (reportShapeName == "CERCHIO") {
@@ -2369,11 +2373,11 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                                 "CUORE" -> 0.52f
                                 "POLLICE" -> 0.48f
                                 "NUVOLA" -> 0.64f
-                                "OVALE" -> 0.68f
+                                "OVALE" -> 0.82f
                                 else -> descriptionAutoWidth
                             }
                         )
-                        .widthIn(max = 160.dp)
+                        .widthIn(max = if (reportShapeName == "OVALE") 220.dp else 160.dp)
                         .align(Alignment.CenterHorizontally)
                         .combinedClickable(
                             onLongClick = {
@@ -2409,7 +2413,7 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                 }
                 }
 
-                Spacer(Modifier.height(if (reportShapeName == "CERCHIO") 2.dp else 10.dp))
+                Spacer(Modifier.height(if (reportShapeName == "CERCHIO" || reportShapeName == "OVALE") 2.dp else 10.dp))
 
                 val promo = selectedPromo
 
@@ -2449,7 +2453,13 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                         .fillMaxWidth()
                         // V5: il piano non collassa quando FOTO e' OFF.
                         // SCONTO e gli altri elementi mantengono quindi lo stesso sistema di riferimento.
-.height(if (reportShapeName == "CERCHIO") circleCentralHeight else 190.dp)
+.height(
+    when (reportShapeName) {
+        "CERCHIO" -> circleCentralHeight
+        "OVALE" -> 82.dp
+        else -> 190.dp
+    }
+)
                 ) {
                 Row(
                     modifier = Modifier
@@ -2462,8 +2472,8 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                     /*
                      * Foto prodotto su riquadro bianco.
                      */
-                    val reportPhotoWidth = if (reportShapeName == "CERCHIO" && autoCollapsePhotoSlot && !showPhotoElement) 0.dp else if (reportShapeName == "CERCHIO") 122.dp else 142.dp
-                    val reportPhotoHeight = if (reportShapeName == "CERCHIO") 136.dp else 158.dp
+                    val reportPhotoWidth = if (reportShapeName == "CERCHIO" && autoCollapsePhotoSlot && !showPhotoElement) 0.dp else if (reportShapeName == "CERCHIO") 122.dp else if (reportShapeName == "OVALE") 76.dp else 142.dp
+                    val reportPhotoHeight = if (reportShapeName == "CERCHIO") 136.dp else if (reportShapeName == "OVALE") 66.dp else 158.dp
                     Column(
                         modifier = Modifier
                             .width(reportPhotoWidth)
@@ -2993,12 +3003,12 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                                 shapeTouchScale = discountShapeTouchScale,
                                 internalScale = discountInternalScale,
                                 internalRotation = discountInternalRotation,
-                                layoutScale = if (reportShapeName == "CERCHIO") 0.80f else 1.00f
+                                layoutScale = when (reportShapeName) { "CERCHIO" -> 0.80f; "OVALE" -> 0.72f; else -> 1.00f }
                             )
                         }
                     }
                 }
-                Spacer(Modifier.height(if (reportShapeName == "CERCHIO") 0.dp else 10.dp))
+                Spacer(Modifier.height(if (reportShapeName == "CERCHIO" || reportShapeName == "OVALE") 0.dp else 10.dp))
 
                 if (showFooterElement) {
                 Box(
@@ -3031,7 +3041,7 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .heightIn(min = if (reportShapeName == "CERCHIO") 30.dp else 44.dp)
+                            .heightIn(min = when (reportShapeName) { "OVALE" -> 22.dp; "CERCHIO" -> 30.dp; else -> 44.dp })
                             .offset { IntOffset(footerPositionX.roundToInt(), footerPositionY.roundToInt()) }
                             .onGloballyPositioned { footerShapeMeasuredSize = it.size }
                             .graphicsLayer {
@@ -3117,7 +3127,7 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                                 },
                             modifier = Modifier
                                 .fillMaxWidth(0.88f)
-                                .padding(horizontal = 10.dp, vertical = 7.dp)
+                                .padding(horizontal = 10.dp, vertical = if (reportShapeName == "OVALE") 3.dp else 7.dp)
                                 .graphicsLayer {
                                     scaleX = footerInternalScale
                                     scaleY = footerInternalScale
@@ -3150,7 +3160,8 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(18.dp),
+                        .height(if (reportShapeName == "OVALE") 12.dp else 18.dp)
+                        .offset(y = if (reportShapeName == "OVALE") (-28).dp else 0.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
@@ -3160,7 +3171,7 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                             "VALIDO FINO AL 00/00/0000"
                         },
                         modifier = Modifier.fillMaxWidth(),
-                        fontSize = 11.sp,
+                        fontSize = if (reportShapeName == "OVALE") 9.sp else 11.sp,
                         fontWeight = FontWeight.Black,
                         // V9: stesso identico nodo e stessa misura ON/OFF.
                         color = if (showPromoExpiry && promoExpiryText != null) {
@@ -3740,6 +3751,7 @@ var colorControl by remember { mutableStateOf("TONALITA") }
 
                         // AUTO intelligente: parte da zero e ricompone in base alla sagoma
                         // globale e agli elementi che l'utente ha deciso di mostrare.
+
                         titlePositionX = 0f
                         titlePositionY = 0f
                         imagePositionX = 0f
@@ -3759,7 +3771,7 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                                 // AUTO CERCHIO V2: densita' e presenza degli elementi guidano la composizione.
                                 autoCollapsePhotoSlot = !showPhotoElement
                                 val inactiveOuterElements = listOf(showTitleElement, showDescriptionElement, showFooterElement).count { !it }
-                                circleCentralHeight = (110 + inactiveOuterElements * 22).dp
+                                circleCentralHeight = (115 + inactiveOuterElements * 22).dp
                                 circleTitleWidth = (0.56f + autoFreedom * 0.40f).coerceIn(0.56f, 0.96f)
                                 circleDescriptionWidth = (0.78f + autoFreedom * 0.22f).coerceIn(0.78f, 1.00f)
                                 circlePriceWidth = (0.68f + autoFreedom * 0.32f).coerceIn(0.68f, 1.00f)
@@ -3771,9 +3783,9 @@ var colorControl by remember { mutableStateOf("TONALITA") }
 
                                 if (showPhotoElement && showPriceElement) {
                                     imagePositionX = autoFreedom * 10f
-                                    imagePositionY = -5f + autoFreedom * 8f
+                                    imagePositionY = 5f + autoFreedom * 8f
                                     pricePositionX = -18f + autoFreedom * 14f
-                                    pricePositionY = 5f + autoFreedom * 5f
+                                    pricePositionY = 15f + autoFreedom * 5f
                                 } else if (showPhotoElement) {
                                     imagePositionX = 18f + autoFreedom * 34f
                                     imagePositionY = autoFreedom * 8f
@@ -3796,26 +3808,27 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                                         !showPhotoElement && showFooterElement && showPriceElement
 
                                     discountPositionX =
-                                        (centralOccupancy * 5f) + (autoFreedom * 18f) +
+                                        (centralOccupancy * 18f) + (autoFreedom * 18f) +
                                         (if (photoAndFooterFree) 165f else 0f) +
                                         (if (photoOnFooterFree) 45f else 0f) +
                                         (if (photoFreeFooterOn) 70f else 0f)
 
                                     discountPositionY =
-                                        -8f + (autoFreedom * 20f) + ((2f - centralOccupancy) * 4f) +
+                                        8f + (autoFreedom * 20f) + ((2f - centralOccupancy) * 4f) +
                                         (if (photoAndFooterFree) 188f else 0f) +
                                         (if (photoOnFooterFree) 45f else 0f) +
                                         (if (photoFreeFooterOn) 70f else 0f)
                                 }
                             }
                             "OVALE" -> {
-                                imagePositionX = if (showPhotoElement) 8f else 0f
-                                imagePositionY = 28f
-                                pricePositionX = if (showPhotoElement) -8f else 0f
-                                pricePositionY = 18f
-                                descriptionPositionY = 18f
-                                discountPositionX = 0f
-                                discountPositionY = 34f
+                                imagePositionX = if (showPhotoElement) -18f else 0f
+                                imagePositionY = -18f
+                                pricePositionX = if (showPhotoElement) 24f else 0f
+                                pricePositionY = -14f
+                                descriptionPositionY = -6f
+                                discountPositionX = 1f
+                                discountPositionY = -22f
+                                footerPositionY = -40f
                             }
                             "NUVOLA" -> {
                                 imagePositionX = if (showPhotoElement) 12f else 0f
@@ -3875,7 +3888,7 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                             "CUORE" -> 0.50f
                             "POLLICE" -> 0.48f
                             "NUVOLA" -> 0.62f
-                            "OVALE" -> 0.68f
+                            "OVALE" -> 0.55f
                             else -> 1.00f
                         }
                         // V5: FOTO OFF libera spazio, ma non autorizza il prezzo ad allargarsi.
@@ -3894,7 +3907,7 @@ var colorControl by remember { mutableStateOf("TONALITA") }
                             "CUORE" -> 0.58f
                             "POLLICE" -> 0.56f
                             "NUVOLA" -> 0.70f
-                            "OVALE" -> 0.76f
+                            "OVALE" -> 0.62f
                             else -> 1.00f
                         }
                         descriptionAutoScale = if (reportShapeName in listOf("CLASSICO", "QUADRATO")) {
