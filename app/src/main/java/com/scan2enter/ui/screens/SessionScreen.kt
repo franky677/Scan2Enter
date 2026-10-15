@@ -50,7 +50,10 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.foundation.text.selection.LocalTextSelectionColors
+import androidx.compose.foundation.text.selection.TextSelectionColors
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -60,6 +63,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.graphics.Brush
@@ -3428,7 +3432,11 @@ private fun QuantityDialog(
     }
 
     var quantityText by remember(item.articleId) {
-        mutableStateOf(item.quantity.toString())
+        mutableStateOf(
+            TextFieldValue(
+                text = item.quantity.toString()
+            )
+        )
     }
 
     var priceLists by remember(item.articleId) {
@@ -3780,6 +3788,12 @@ private fun QuantityDialog(
                 val keyboardController =
                     LocalSoftwareKeyboardController.current
 
+                val numericSelectionColors =
+                    TextSelectionColors(
+                        handleColor = Color(0xFF388E3C),
+                        backgroundColor = Color(0xFF388E3C)
+                    )
+
                 val automaticDiscountsTop =
                     listOf(
                         item.discount1,
@@ -3864,6 +3878,23 @@ private fun QuantityDialog(
                     )
                 }
 
+                var grossSelectAllRequest by remember(item.articleId) {
+                    mutableStateOf(0)
+                }
+
+                LaunchedEffect(grossSelectAllRequest) {
+                    if (grossSelectAllRequest > 0) {
+                        grossField =
+                            grossField.copy(
+                                selection =
+                                    TextRange(
+                                        0,
+                                        grossField.text.length
+                                    )
+                            )
+                    }
+                }
+
                 var discountField by remember(
                     item.articleId,
                     selectedPriceListId
@@ -3927,6 +3958,73 @@ private fun QuantityDialog(
                     )
                 }
 
+                var discountSelectAllRequest by remember(item.articleId) {
+                    mutableStateOf(0)
+                }
+
+                LaunchedEffect(discountSelectAllRequest) {
+                    if (discountSelectAllRequest > 0) {
+                        discountField =
+                            discountField.copy(
+                                selection =
+                                    TextRange(
+                                        0,
+                                        discountField.text.length
+                                    )
+                            )
+                    }
+                }
+
+                var netSelectAllRequest by remember(item.articleId) {
+                    mutableStateOf(0)
+                }
+
+                LaunchedEffect(netSelectAllRequest) {
+                    if (netSelectAllRequest > 0) {
+                        netField =
+                            netField.copy(
+                                selection =
+                                    TextRange(
+                                        0,
+                                        netField.text.length
+                                    )
+                            )
+                    }
+                }
+
+                var markupSelectAllRequest by remember(item.articleId) {
+                    mutableStateOf(0)
+                }
+
+                LaunchedEffect(markupSelectAllRequest) {
+                    if (markupSelectAllRequest > 0) {
+                        markupField =
+                            markupField.copy(
+                                selection =
+                                    TextRange(
+                                        0,
+                                        markupField.text.length
+                                    )
+                            )
+                    }
+                }
+
+                var quantitySelectAllRequest by remember(item.articleId) {
+                    mutableStateOf(0)
+                }
+
+                LaunchedEffect(quantitySelectAllRequest) {
+                    if (quantitySelectAllRequest > 0) {
+                        quantityText =
+                            quantityText.copy(
+                                selection =
+                                    TextRange(
+                                        0,
+                                        quantityText.text.length
+                                    )
+                            )
+                    }
+                }
                 var lastEditorPriceListId by remember(
                     item.articleId
                 ) {
@@ -4347,8 +4445,11 @@ private fun QuantityDialog(
                             horizontalArrangement =
                                 Arrangement.Center
                         ) {
-                            BasicTextField(
-                                value = grossField,
+                            CompositionLocalProvider(
+                                LocalTextSelectionColors provides numericSelectionColors
+                            ) {
+                                BasicTextField(
+                                    value = grossField,
                                 onValueChange = {
                                     grossField = it
 
@@ -4389,13 +4490,13 @@ private fun QuantityDialog(
                                 modifier =
                                     Modifier
                                         .width(64.dp)
-                                        .clickable {
-                                            grossField =
-                                                selectAll(
-                                                    grossField
-                                                )
+                                        .onFocusChanged { focusState ->
+                                            if (focusState.isFocused) {
+                                                grossSelectAllRequest++
+                                            }
                                         }
                             )
+                            }
 
                             Text(
                                 text = "€",
@@ -4441,6 +4542,9 @@ private fun QuantityDialog(
                             horizontalArrangement =
                                 Arrangement.Center
                         ) {
+                            CompositionLocalProvider(
+                                LocalTextSelectionColors provides numericSelectionColors
+                            ) {
                             BasicTextField(
                                 value = discountField,
                                 onValueChange = {
@@ -4482,13 +4586,13 @@ private fun QuantityDialog(
                                 modifier =
                                     Modifier
                                         .width(48.dp)
-                                        .clickable {
-                                            discountField =
-                                                selectAll(
-                                                    discountField
-                                                )
+                                        .onFocusChanged { focusState ->
+                                            if (focusState.isFocused) {
+                                                discountSelectAllRequest++
+                                            }
                                         }
                             )
+                            }
 
                             Text(
                                 text = "%",
@@ -4534,6 +4638,9 @@ private fun QuantityDialog(
                             horizontalArrangement =
                                 Arrangement.Center
                         ) {
+                            CompositionLocalProvider(
+                                LocalTextSelectionColors provides numericSelectionColors
+                            ) {
                             BasicTextField(
                                 value = netField,
                                 onValueChange = {
@@ -4575,13 +4682,13 @@ private fun QuantityDialog(
                                 modifier =
                                     Modifier
                                         .width(64.dp)
-                                        .clickable {
-                                            netField =
-                                                selectAll(
-                                                    netField
-                                                )
+                                        .onFocusChanged { focusState ->
+                                            if (focusState.isFocused) {
+                                                netSelectAllRequest++
+                                            }
                                         }
                             )
+                            }
 
                             Text(
                                 text = "€",
@@ -4621,6 +4728,9 @@ private fun QuantityDialog(
                                 .onSurfaceVariant
                     )
 
+                    CompositionLocalProvider(
+                        LocalTextSelectionColors provides numericSelectionColors
+                    ) {
                     BasicTextField(
                         value = markupField,
                         onValueChange = {
@@ -4659,11 +4769,10 @@ private fun QuantityDialog(
                         modifier =
                             Modifier
                                 .width(78.dp)
-                                .clickable {
-                                    markupField =
-                                        selectAll(
-                                            markupField
-                                        )
+                                .onFocusChanged { focusState ->
+                                    if (focusState.isFocused) {
+                                        markupSelectAllRequest++
+                                    }
                                 },
                         decorationBox = { inner ->
                             Row(
@@ -4679,6 +4788,7 @@ private fun QuantityDialog(
                             }
                         }
                     )
+                    }
                 }
 
                 Text(
@@ -4693,22 +4803,23 @@ private fun QuantityDialog(
                     Button(
                         onClick = {
                             val value =
-                                quantityText.toIntOrNull() ?: 1
+                                quantityText.text.toIntOrNull() ?: 1
                             quantityText =
-                                (value - 1)
-                                    .coerceAtLeast(0)
-                                    .toString()
+                                TextFieldValue(
+                                    text = (value - 1).coerceAtLeast(0).toString()
+                                )
                         }
                     ) {
                         Text("−")
                     }
 
+                    CompositionLocalProvider(LocalTextSelectionColors provides numericSelectionColors) {
                     OutlinedTextField(
                         value = quantityText,
                         onValueChange = { value ->
                             if (
-                                value.isEmpty() ||
-                                value.all(Char::isDigit)
+                                value.text.isEmpty() ||
+                                value.text.all(Char::isDigit)
                             ) {
                                 quantityText = value
                             }
@@ -4719,17 +4830,24 @@ private fun QuantityDialog(
                                 keyboardType =
                                     KeyboardType.Number
                             ),
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier
+                            .weight(1f)
+                            .onFocusChanged { focusState ->
+                                if (focusState.isFocused) {
+                                    quantitySelectAllRequest++
+                                }
+                            }
                     )
+                    }
 
                     Button(
                         onClick = {
                             val value =
-                                quantityText.toIntOrNull() ?: 0
+                                quantityText.text.toIntOrNull() ?: 0
                             quantityText =
-                                (value + 1)
-                                    .coerceAtMost(9999)
-                                    .toString()
+                                TextFieldValue(
+                                    text = (value + 1).coerceAtMost(9999).toString()
+                                )
                         }
                     ) {
                         Text("+")
@@ -4746,7 +4864,7 @@ private fun QuantityDialog(
             TextButton(
                 onClick = {
                     val quantity =
-                        (quantityText.toIntOrNull() ?: 0)
+                        (quantityText.text.toIntOrNull() ?: 0)
                             .coerceIn(0, 9999)
 
                     val gross =
