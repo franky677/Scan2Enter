@@ -91,6 +91,7 @@ class ProductRepository(
             minimumStock = product.minimumStock,
             maximumStock = product.maximumStock,
             reorderLot = product.reorderLot,
+            acquisitionQuantity = product.acquisitionQuantity,
             supplierId = product.supplierId,
             supplierName = product.supplierName,
             supplierArticleCode = product.supplierArticleCode,

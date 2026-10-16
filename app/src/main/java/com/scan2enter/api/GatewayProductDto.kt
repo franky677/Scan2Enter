@@ -25,6 +25,7 @@ data class GatewayProductDto(
     val minimumStock: String,
     val maximumStock: String,
     val reorderLot: String,
+    val acquisitionQuantity: String = "1",
     val supplierId: Long,
     val supplierName: String,
     val supplierArticleCode: String,

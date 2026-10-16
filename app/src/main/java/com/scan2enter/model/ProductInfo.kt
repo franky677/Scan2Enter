@@ -103,6 +103,7 @@ data class ProductInfo(
      * Lotto di riordino.
      */
     val reorderLot: String = "",
+    val acquisitionQuantity: String = "1",
 
     /**
      * Identificativo del fornitore predefinito.

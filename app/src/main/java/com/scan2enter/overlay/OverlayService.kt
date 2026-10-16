@@ -1568,8 +1568,17 @@ class OverlayService : Service() {
         val customer = SessionCustomerStore.current.value
         val barcode = product.barcode.trim()
 
+        val acquisitionAmount =
+            product.acquisitionQuantity
+                .replace(",", ".")
+                .toDoubleOrNull()
+                ?.takeIf { it > 0.0 && it % 1.0 == 0.0 }
+                ?.toInt()
+                ?.takeIf { it > 0 }
+                ?: 1
+
         if (barcode.isBlank()) {
-            SessionStore.addOrIncrement(product)
+            SessionStore.addOrIncrement(product = product, amount = acquisitionAmount)
             playSessionAppendBeep()
             return
         }
@@ -1660,6 +1669,7 @@ class OverlayService : Service() {
 
                         SessionStore.addOrIncrement(
                             product = productForSession,
+                            amount = acquisitionAmount,
                             priceListId =
                                 clientPrice.priceListId,
                             priceListName =
@@ -1717,6 +1727,7 @@ class OverlayService : Service() {
 
                         SessionStore.addOrIncrement(
                             product = product,
+                            amount = acquisitionAmount,
                             promoActive =
                                 !isComuneMirano && promoOfferPrice != null,
                             promoValidToEpochMillis =

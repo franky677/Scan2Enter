@@ -3319,6 +3319,7 @@ class GatewayApiClient(
             minimumStock = item.optString("minimumStock"),
             maximumStock = item.optString("maximumStock"),
             reorderLot = item.optString("reorderLot"),
+            acquisitionQuantity = item.optString("acquisitionQuantity", "1"),
             supplierId = item.optLong("supplierId", 0L),
             supplierName = item.optString("supplierName"),
             supplierArticleCode =
