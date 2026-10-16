@@ -442,6 +442,7 @@ fun TrovaTuttoScreen(
                         ) { item ->
                             TrovaTuttoResultRow(
                                 item = item,
+                                favoritesOnly = sessionSearchMode && favoritesOnly,
                                 onClick = {
                                     if (item.barcode.isBlank()) {
                                         Toast.makeText(
@@ -496,6 +497,7 @@ fun TrovaTuttoScreen(
 @Composable
 private fun TrovaTuttoResultRow(
     item: SearchResult,
+    favoritesOnly: Boolean,
     onClick: () -> Unit
 ) {
     val favoriteItem = FavoriteRepository.get(item.id)
@@ -505,6 +507,7 @@ private fun TrovaTuttoResultRow(
         when {
             !item.active -> Color(0xFFFFE0E0)
             item.moved -> Color(0xFFFFF59D)
+            favoritesOnly -> Color(0xFF388E3C)
             else -> MaterialTheme.colorScheme.surface
         }
 
